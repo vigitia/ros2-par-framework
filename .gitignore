@@ -1,0 +1,17 @@
+# Node repositories, cloned by scripts/sync_nodes.sh -- each one is its own git
+# repo and is version-controlled there, not here.
+/src/
+
+# Dependency manifests staged for the image build (generated).
+/docker/deps/
+
+# Machine-local configuration.
+/.env
+
+# colcon output, in case anyone builds outside the container.
+/build/
+/install/
+/log/
+
+__pycache__/
+*.py[cod]

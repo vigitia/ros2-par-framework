@@ -1,0 +1,23 @@
+# Nodes that make up the PAR framework.
+#
+# One node repository per line:
+#
+#   <directory>   <git-url>   [branch]
+#
+# <directory>  name of the checkout under src/ (use the ROS package name)
+# <git-url>    cloned by scripts/sync_nodes.sh over SSH -- needs a GitHub key
+#              in your ssh-agent (setup.sh checks this for you)
+# [branch]     optional; "-" or omitted means the remote's default branch
+#
+# Adding a node here is the ONLY step needed to add it to the framework:
+# setup.sh clones it, installs its package.xml + requirements.txt dependencies
+# into the image, and colcon picks it up on the next build. A repository may
+# hold its package at the root or in a subdirectory, and may hold several.
+
+# Shared message, service and action definitions. Listed first because every
+# other package depends on it -- colcon works the real build order out from the
+# package.xml files, this order is only for the reader.
+custom_interfaces  git@github.com:vigitia/ros2-par-framework-interfaces.git     main
+
+logitech_brio      git@github.com:vigitia/ros2-logitech-brio.git                main
+surface_selector   git@github.com:vigitia/ros2-par-framework-calibration.git    main

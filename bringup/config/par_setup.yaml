@@ -1,0 +1,21 @@
+# Parameters of one physical PAR setup: which camera, which projector, at what
+# resolution. This is the file to edit when moving the framework to a new table
+# or a new machine -- node source should not need per-setup constants.
+#
+# Keys are node names as they appear in the launch files, not package names.
+
+logitech_brio_node:
+  ros__parameters:
+    # Index of the /dev/video* node. Find it with: v4l2-ctl --list-devices
+    camera_id: 4
+    camera_resolution_x: 1920
+    camera_resolution_y: 1080
+    camera_fps: 60
+    # Requires calibration/<CameraName>.yaml to exist in the node's package.
+    undistort_frame: false
+
+surface_selector_node:
+  ros__parameters:
+    topic_name_frame: /camera/generic_webcam_frame_full
+    # Display the projector is connected to, as counted by pygame (0 = primary).
+    display_id: 0

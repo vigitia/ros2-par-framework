@@ -1,0 +1,58 @@
+name: par-framework
+
+services:
+  ros2:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      args:
+        ROS_DISTRO: ${ROS_DISTRO:-lyrical}
+
+    image: par-framework:${ROS_DISTRO:-lyrical}
+    container_name: ${CONTAINER_NAME:-par_framework}
+
+    # ROS 2's default DDS discovery uses UDP multicast, which does not traverse
+    # Docker's bridge network cleanly. Host networking is the simplest way to
+    # talk to nodes running on other machines on the LAN.
+    network_mode: host
+    ipc: host
+
+    # Full hardware access so every USB device is usable, including cameras
+    # plugged in after the container started.
+    privileged: true
+    group_add:
+      - video
+
+    stdin_open: true
+    tty: true
+
+    environment:
+      - DISPLAY=${DISPLAY}
+      - QT_X11_NO_MITSHM=1
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=all
+      - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-0}
+
+    volumes:
+      # Node repositories, cloned on the host by scripts/sync_nodes.sh.
+      - ./src:/ros2_ws/src
+      # This repo's own package, mounted alongside them as a workspace package.
+      - ./bringup:/ros2_ws/src/par_framework_bringup
+      # colcon output lives in named volumes so root-owned build artefacts never
+      # land in the working tree, and survive container recreation.
+      - par_build:/ros2_ws/build
+      - par_install:/ros2_ws/install
+      - par_log:/ros2_ws/log
+      # GUI (RViz, rqt, the fullscreen projector window).
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      - ${XAUTHORITY}:/root/.Xauthority:rw
+      # Cameras and other USB hardware.
+      - /dev:/dev
+
+    # Stay up so scripts can exec into it; nothing is launched automatically.
+    command: sleep infinity
+
+volumes:
+  par_build:
+  par_install:
+  par_log:
