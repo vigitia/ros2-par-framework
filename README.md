@@ -31,6 +31,57 @@ pull node updates.
 ./scripts/build_workspace.sh       # rebuild after editing node code
 ```
 
+## Testing nodes locally without Docker
+
+Requires ROS 2 installed on the host, in the same distro as `ROS_DISTRO` in `.env`, and `src/` already
+cloned (`./scripts/sync_nodes.sh` or `./setup.sh`). Run the commands in **bash**, because ROS's setup scripts
+don't source in fish or other shells. Stop the container first (`docker compose down`): it shares the host
+network, so both copies of a node would publish on the same topics.
+
+```bash
+source /opt/ros/lyrical/setup.bash     # the distro from ROS_DISTRO in .env
+
+# apt dependencies from every package.xml; --ignore-src skips packages that are in the workspace
+rosdep install --from-paths src bringup --ignore-src -y
+
+# PyPI dependencies go into one shared venv in the repo root (gitignored).
+# --system-site-packages keeps rclpy, cv_bridge and colcon from apt importable.
+python3 -m venv --system-site-packages .venv
+touch .venv/COLCON_IGNORE
+source .venv/bin/activate
+pip install $(printf -- '-r %s ' src/*/requirements.txt)
+
+# build through the venv's python, so node executables run with the venv's packages
+python -m colcon build --symlink-install --base-paths src bringup
+source install/setup.bash
+
+# Fast DDS transport for large messages, otherwise most camera frames get lost (see notes below)
+export FASTDDS_BUILTIN_TRANSPORTS=LARGE_DATA
+
+ros2 launch par_framework_bringup calibration.launch.py
+ros2 run logitech_brio logitech_brio --ros-args --params-file bringup/config/par_setup.yaml
+```
+
+In every new terminal, source `/opt/ros/<distro>/setup.bash`, `.venv/bin/activate` and
+`install/setup.bash`, in that order, and run `export FASTDDS_BUILTIN_TRANSPORTS=LARGE_DATA`. After editing node
+code, re-run the `colcon build` line.
+
+A few notes:
+- **One venv on purpose.** Like the image, it puts every node's `requirements.txt` into one `pip install`, so
+  conflicting version pins fail here too.
+- **`python -m colcon`, not `colcon`.** Plain `colcon` builds node executables for the system Python, which
+  can't see the venv, so they fail with e.g. `No module named cv2`.
+- **Build output.** `build/`, `install/` and `log/` land in the repo root (gitignored). They are separate from
+  the container's Docker volumes.
+- **`FASTDDS_BUILTIN_TRANSPORTS=LARGE_DATA`.** A raw 1080p frame is ~6 MB. With Fast DDS's default transports
+  most of these best-effort frames are lost on the way: measured on the host, only 59–160 of ~850 frames arrived
+  in 15 s, while with `LARGE_DATA` 791–792 arrived at the same ~12 ms latency. The setting must be identical for
+  **every** ROS process: if only the publisher or only the subscriber has it, they don't connect at all and
+  nothing arrives (measured between two nodes). `ros2` CLI tools and RViz take part in DDS the same way, so they
+  should need it too (not tested). The `ros2` daemon keeps the environment it was started with, so
+  run `ros2 daemon stop` after changing it. Not yet set or measured inside the container. In fish, use
+  `set -gx FASTDDS_BUILTIN_TRANSPORTS LARGE_DATA` instead.
+
 ## Layout
 
 ```

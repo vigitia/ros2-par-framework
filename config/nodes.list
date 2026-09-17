@@ -17,7 +17,11 @@
 # Shared message, service and action definitions. Listed first because every
 # other package depends on it -- colcon works the real build order out from the
 # package.xml files, this order is only for the reader.
-custom_interfaces  git@github.com:vigitia/ros2-par-framework-interfaces.git     main
 
-logitech_brio      git@github.com:vigitia/ros2-logitech-brio.git                main
-surface_selector   git@github.com:vigitia/ros2-par-framework-calibration.git    main
+custom_interfaces         git@github.com:vigitia/ros2-par-framework-interfaces.git          main
+
+logitech_brio             git@github.com:vigitia/ros2-logitech-brio.git                     main
+surface_selector          git@github.com:vigitia/ros2-par-framework-calibration.git         main
+object_detector           git@github.com:vigitia/ros2-par-framework-object-detection.git    main
+
+azure_kinect_ros_driver   git@github.com:microsoft/Azure_Kinect_ROS_Driver.git              foxy-devel

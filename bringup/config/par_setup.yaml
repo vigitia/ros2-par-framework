@@ -7,7 +7,7 @@
 logitech_brio_node:
   ros__parameters:
     # Index of the /dev/video* node. Find it with: v4l2-ctl --list-devices
-    camera_id: 4
+    camera_id: -1
     camera_resolution_x: 1920
     camera_resolution_y: 1080
     camera_fps: 60

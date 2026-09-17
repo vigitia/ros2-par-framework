@@ -13,5 +13,8 @@
 /install/
 /log/
 
+# Python venv for testing nodes on the host without Docker.
+/.venv/
+
 __pycache__/
 *.py[cod]

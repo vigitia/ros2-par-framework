@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Core repository of a projected augmented reality (PAR) framework on ROS 2 — a camera and a projector aimed at
 the same surface. It contains **no node source**. Nodes live in their own private repos under
-`github.com/vigitia`; this repo declares which ones make up the framework, provides the container they run in,
+`github.com/vigitia` or are from other public GitHub repos; this repo declares which ones make up the framework, provides the container they run in,
 and provides the launch files and per-setup parameters that compose them.
 
 The one ROS package it does ship is `bringup/` (package `par_framework_bringup`) — launch files and
