@@ -40,8 +40,10 @@ services:
     volumes:
       # Node repositories, cloned on the host by scripts/sync_nodes.sh.
       - ./src:/ros2_ws/src
-      # This repo's own packages (packages/*), mounted alongside them as workspace packages.
-      - ./packages:/ros2_ws/src/packages
+      # This repo's own packages (packages/*), next to src/ rather than inside it: a mount inside
+      # the ./src mount makes Docker create an empty, root-owned src/packages on the host. colcon
+      # build in /ros2_ws finds packages in both folders.
+      - ./packages:/ros2_ws/packages
       # colcon output lives in named volumes so root-owned build artefacts never
       # land in the working tree, and survive container recreation.
       - par_build:/ros2_ws/build

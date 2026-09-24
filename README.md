@@ -146,9 +146,10 @@ newly referenced external package (`std_msgs`, `geometry_msgs`, …) in **both**
 | `surface_selector` | `ros2-par-framework-calibration` | subscribes to `/camera/brio/image_raw`, lets you mark the projection area |
 | `object_detector` | `ros2-par-framework-object-detection` | detects objects in `/camera/brio/image_raw/compressed`, publishes them in image pixels on `/objects` |
 | `fiducials_detector` | `ros2-par-framework-fiducials` | detects fiducial markers in `/camera/brio/image_raw`, publishes them on `/fiducials` |
+| `hand_landmarks` | `ros2-par-framework-hand-landmarks` | tracks hands in `/camera/brio/image_raw` with MediaPipe, publishes their landmarks in image pixels on `/hand_landmarks` |
 | `par_framework_core` | this repo | launch files and per-setup parameters |
 | `projection_corners` | this repo | stores the corners from `surface_selector` in `config/projection_corners.yaml`, publishes them latched on `/projection_corners` |
-| `rviz_bridge` | this repo | projects `/objects` and `/projection_corners` onto the table as `/objects/markers` and `/projection_corners/markers` for RViz |
+| `rviz_bridge` | this repo | projects `/objects`, `/hand_landmarks` and `/projection_corners` onto the table as `/objects/markers`, `/hand_landmarks/markers` and `/projection_corners/markers` for RViz |
 
 Camera frames are published **best-effort, keep-last-1** — a late frame is worthless because a newer one
 already exists. Any subscriber must explicitly request `BEST_EFFORT` too; a subscriber left on the default

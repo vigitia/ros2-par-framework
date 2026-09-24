@@ -1,7 +1,7 @@
 # Written by Claude Code
-"""Republish framework outputs as RViz markers: /objects and the projection area on the table."""
+"""Republish framework outputs as RViz markers: objects, hands and the projection area."""
 
-from custom_interfaces.msg import ObjectList, ProjectionCorners
+from custom_interfaces.msg import HandLandmarksList, ObjectList, ProjectionCorners
 from geometry_msgs.msg import Point
 import numpy as np
 import rclpy
@@ -22,6 +22,8 @@ TOPIC_NAME_CAMERA_INFO = '/camera/brio/camera_info'
 TOPIC_NAME_PROJECTION_CORNERS = '/projection_corners'
 TOPIC_NAME_OBJECT_MARKERS = '/objects/markers'
 TOPIC_NAME_PROJECTION_MARKERS = '/projection_corners/markers'
+TOPIC_NAME_HANDS = '/hand_landmarks'
+TOPIC_NAME_HAND_MARKERS = '/hand_landmarks/markers'
 # The table is the plane z = 0 of this frame
 TABLE_FRAME = 'world'
 CORNER_NAMES = ('top_left', 'top_right', 'bottom_right', 'bottom_left')
@@ -38,6 +40,22 @@ LABEL_COLOR = ColorRGBA(r=1.0, g=1.0, b=1.0, a=1.0)
 AREA_HEIGHT = 0.001
 AREA_OUTLINE_COLOR = ColorRGBA(r=0.2, g=0.5, b=1.0, a=1.0)
 AREA_FILL_COLOR = ColorRGBA(r=0.2, g=0.5, b=1.0, a=0.25)
+# Hands are drawn where their landmarks' camera rays hit the table, like a shadow straight below
+# the camera, just above the object outlines
+HAND_HEIGHT = 0.003
+JOINT_SIZE = 0.008
+HAND_COLORS = {'Left': ColorRGBA(r=1.0, g=0.6, b=0.1, a=1.0),
+               'Right': ColorRGBA(r=0.9, g=0.2, b=0.9, a=1.0)}
+NUM_HAND_LANDMARKS = 21
+# Pairs of landmark ids forming the bones, as mediapipe's
+# HandLandmarksConnections.HAND_CONNECTIONS; copied, so rviz_bridge does not need mediapipe
+# just for this list
+HAND_CONNECTIONS = ((0, 1), (1, 2), (2, 3), (3, 4),         # thumb
+                    (0, 5), (5, 6), (6, 7), (7, 8),         # index finger
+                    (9, 10), (10, 11), (11, 12),            # middle finger
+                    (13, 14), (14, 15), (15, 16),           # ring finger
+                    (0, 17), (17, 18), (18, 19), (19, 20),  # pinky
+                    (5, 9), (9, 13), (13, 17))              # palm
 # The corners arrive once, the calibration and TF possibly later: the area is redrawn periodically
 AREA_PERIOD_SEC = 1.0
 WARNING_PERIOD_SEC = 5.0
@@ -68,6 +86,9 @@ class RvizBridgeNode(Node):
         self.create_subscription(ObjectList, TOPIC_NAME_OBJECTS, self.on_objects, QUEUE_SIZE)
         self.create_subscription(ProjectionCorners, TOPIC_NAME_PROJECTION_CORNERS,
                                  self.on_projection_corners, LATCHED_QOS)
+        self.create_subscription(HandLandmarksList, TOPIC_NAME_HANDS, self.on_hands, QUEUE_SIZE)
+        self.hand_marker_publisher = self.create_publisher(MarkerArray, TOPIC_NAME_HAND_MARKERS,
+                                                           QUEUE_SIZE)
         self.object_marker_publisher = self.create_publisher(MarkerArray,
                                                              TOPIC_NAME_OBJECT_MARKERS,
                                                              QUEUE_SIZE)
@@ -119,6 +140,44 @@ class RvizBridgeNode(Node):
             markers.markers += [outline, label]
 
         self.object_marker_publisher.publish(markers)
+
+    def on_hands(self, msg):
+        projection = self.__projection(msg.header.frame_id, 'hands')
+        if projection is None:
+            return
+
+        markers = MarkerArray()
+        # Removes the previous frame's markers first, so hands that are gone disappear
+        markers.markers.append(Marker(action=Marker.DELETEALL))
+        header = Header(stamp=msg.header.stamp, frame_id=TABLE_FRAME)
+        for hand in msg.hands:
+            hits = pixels_to_table([(lm.x, lm.y) for lm in hand.hand_landmarks], *projection)
+            # Rays that miss the table are dropped, which would shift the ids the bones refer to
+            if len(hits) != NUM_HAND_LANDMARKS:
+                continue
+            color = HAND_COLORS.get(hand.handedness, LABEL_COLOR)
+            points = [Point(x=x, y=y, z=HAND_HEIGHT) for x, y, _ in hits]
+
+            joints = Marker(header=header, ns='hand_joints', id=hand.id, type=Marker.SPHERE_LIST,
+                            color=color, points=points)
+            joints.scale.x = joints.scale.y = joints.scale.z = JOINT_SIZE
+            # LINE_LIST draws one line per pair of points
+            bone_points = [points[i] for connection in HAND_CONNECTIONS for i in connection]
+            bones = Marker(header=header, ns='hand_bones', id=hand.id, type=Marker.LINE_LIST,
+                           color=color, points=bone_points)
+            bones.scale.x = LINE_WIDTH
+            # Above the wrist (landmark 0)
+            label = Marker(header=header, ns='hand_label', id=hand.id,
+                           type=Marker.TEXT_VIEW_FACING, color=LABEL_COLOR,
+                           text=f'{hand.handedness}#{hand.id}')
+            label.scale.z = TEXT_SIZE
+            label.pose.position = Point(x=points[0].x, y=points[0].y, z=LABEL_HEIGHT)
+            for marker in (joints, bones, label):
+                marker.pose.orientation.w = 1.0
+
+            markers.markers += [joints, bones, label]
+
+        self.hand_marker_publisher.publish(markers)
 
     def publish_projection_area(self):
         corners = self.projection_corners

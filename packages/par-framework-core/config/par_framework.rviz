@@ -59,6 +59,17 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /objects/markers
+    # Hands from hand_landmarks, projected onto the table by rviz_bridge
+    - Class: rviz_default_plugins/MarkerArray
+      Enabled: true
+      Name: Hands
+      Namespaces: {}
+      Topic:
+        Depth: 10
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /hand_landmarks/markers
   Global Options:
     Fixed Frame: world
     Frame Rate: 30

@@ -476,3 +476,55 @@ plus the extra modules, so nothing the existing nodes use changes. The `cp37-abi
 - *Install mediapipe with `--no-deps`:* conflicts with the single `pip install` over all `requirements.txt`, which
   exists precisely so conflicting pins fail the build.
 - *Only hand_landmarks pins contrib:* both packages would end up installed, the silent-shadowing case above.
+
+## hand_landmarks joins the framework, hands in RViz
+
+**What changed:**
+- `config/nodes.list`: `hand_landmarks` (`ros2-par-framework-hand-landmarks`, branch `main`). The README's package
+  table lists it.
+- `rviz_bridge` subscribes to `/hand_landmarks` (`HandLandmarksList`) and publishes `/hand_landmarks/markers`: per
+  hand a `SPHERE_LIST` of the 21 joints, a `LINE_LIST` of the bones and a `Left#<id>` / `Right#<id>` label above
+  the wrist, coloured by handedness, with a `DELETEALL` first like the objects. The landmarks are projected onto
+  the table with the existing `pixels_to_table`.
+- `par_framework.rviz` has a **Hands** MarkerArray display; README row of `rviz_bridge` updated.
+
+**Why:** to see the hand_landmarks node's output on the real setup, next to the objects and the projection area.
+
+**Decisions:**
+- *Projected onto the table:* the landmarks are 2D pixels; without depth, the ray's hit on the table is the only
+  position available, so a raised hand shows as its footprint straight below the camera, not at its height. Enough
+  to check detection, tracking ids and alignment with the table; real 3D needs the depth path (item 13).
+- *All 21 rays must hit the table, else the hand is skipped:* `pixels_to_table` drops misses, which would shift
+  the ids the bones refer to. With the camera looking down at the table this does not happen in practice.
+- *Bone list copied from mediapipe's `HAND_CONNECTIONS`* instead of importing it: `rviz_bridge` would otherwise
+  need mediapipe as a dependency for a list of 21 index pairs.
+- *`hand_landmarks` not added to `par_framework.launch.py`:* the processing nodes (`object_detector`,
+  `fiducials_detector`) are started separately too; the launch file only brings up the camera, TF, corners and RViz.
+
+**Tested (host, ROS Lyrical, isolated domain):** stand-in static TF (camera 1 m above `world`, looking down), the
+Brio's real calibration as `CameraInfo`, and one fake hand of 21 pixel landmarks. `/hand_landmarks/markers` held
+`DELETEALL`, 21 joints, 42 bone points and the label `Left#7`; the wrist, near the principal point, landed at
+(0.031, -0.001) m. `ament_flake8` and `ament_pep257` pass for `rviz_bridge`. Not tested yet: RViz itself and the
+real camera.
+
+### Container mount of `packages/` moved out of `src/` (2026-09-24)
+
+**What:** `docker-compose.yaml` mounts `./packages` at `/ros2_ws/packages` instead of `/ros2_ws/src/packages`. The
+empty, root-owned `src/packages/` that the old mount had created on the host was removed (`rmdir`).
+
+**Why:** your request. A bind mount inside another bind mount (`./src` at `/ros2_ws/src`) makes Docker create the
+mount point in the outer source, so every container start left an empty root-owned `src/packages/` on the host,
+which then looked like a node repository in `src/`.
+
+No build change was needed: `scripts/build_workspace.sh` runs `colcon build` in `/ros2_ws` without
+`--base-paths`, and colcon searches it recursively, skipping `build/`, `install/` and `log/` (`COLCON_IGNORE`).
+
+**Alternatives:**
+- *Keep the mount and add `src/packages` to a cleanup step:* it would come back on every start.
+- *Mount the whole repo:* would expose host build output and `.venv` inside the container.
+
+**Tested (host):**
+- `docker compose config` resolves `./src` → `/ros2_ws/src` and `./packages` → `/ros2_ws/packages`.
+- `colcon list` without `--base-paths` from the repo root (same layout as `/ros2_ws`) finds all packages in
+  `src/` and `packages/`; the extra `docker/deps/` copies only exist on the host.
+- Not run in the container.

@@ -24,5 +24,6 @@ logitech_brio             git@github.com:vigitia/ros2-logitech-brio.git         
 surface_selector          git@github.com:vigitia/ros2-par-framework-calibration.git         main
 object_detector           git@github.com:vigitia/ros2-par-framework-object-detection.git    main
 fiducials_detector        git@github.com:vigitia/ros2-par-framework-fiducials.git           main
+hand_landmarks            git@github.com:vigitia/ros2-par-framework-hand-landmarks.git      main
 
 # azure_kinect_ros_driver   git@github.com:microsoft/Azure_Kinect_ROS_Driver.git              foxy-devel
