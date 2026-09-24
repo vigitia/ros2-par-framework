@@ -45,24 +45,24 @@ network, so both copies of a node would publish on the same topics.
 source /opt/ros/lyrical/setup.bash     # the distro from ROS_DISTRO in .env
 
 # apt dependencies from every package.xml; --ignore-src skips packages that are in the workspace
-rosdep install --from-paths src par-framework-core --ignore-src -y
+rosdep install --from-paths src packages --ignore-src -y
 
 # PyPI dependencies go into one shared venv in the repo root (gitignored).
 # --system-site-packages keeps rclpy, cv_bridge and colcon from apt importable.
 python3 -m venv --system-site-packages .venv
 touch .venv/COLCON_IGNORE
 source .venv/bin/activate
-pip install $(printf -- '-r %s ' src/*/requirements.txt)
+pip install $(printf -- '-r %s ' src/*/requirements.txt packages/*/requirements.txt)
 
 # build through the venv's python, so node executables run with the venv's packages
-python -m colcon build --symlink-install --base-paths src par-framework-core
+python -m colcon build --symlink-install --base-paths src packages
 source install/setup.bash
 
 # Fast DDS transport for large messages, otherwise most camera frames get lost (see notes below)
 export FASTDDS_BUILTIN_TRANSPORTS=LARGE_DATA
 
 ros2 launch par_framework_core calibration.launch.py
-ros2 run logitech_brio logitech_brio --ros-args --params-file par-framework-core/config/par_setup.yaml
+ros2 run logitech_brio logitech_brio --ros-args --params-file packages/par-framework-core/config/par_setup.yaml
 ```
 
 In every new terminal, source `/opt/ros/<distro>/setup.bash`, `.venv/bin/activate` and
@@ -93,9 +93,11 @@ setup.sh                    bootstrap everything on a new machine
 config/nodes.list           which node repositories make up the framework
 docker/Dockerfile           runtime environment (ROS + dependencies, no node source)
 docker-compose.yaml         how the container is run: devices, X11, networking
-par-framework-core/         ROS package: launch files + parameters (par_framework_core)
-  launch/                   par_framework.launch.py, calibration.launch.py
-  config/par_setup.yaml     camera id, resolution, projector display — edit this per setup
+packages/                   this repo's own ROS packages, built together with src/
+  par-framework-core/       launch files + parameters (package par_framework_core)
+    launch/                 par_framework.launch.py, calibration.launch.py
+    config/par_setup.yaml   camera id, resolution, projector display — edit this per setup
+  rviz_bridge/              node: framework outputs RViz cannot show (e.g. /objects) as markers
 scripts/                    the individual steps setup.sh runs, usable on their own
 src/                        node repositories, cloned by setup.sh (not tracked here)
 ```
@@ -113,7 +115,7 @@ pip call is deliberate: if two nodes pin conflicting versions, the build fails i
 overwriting the other's pin.
 
 **Per-setup values are parameters, not constants.** Which `/dev/video*` the camera is and which display the
-projector is on differ per machine, so they live in `par-framework-core/config/par_setup.yaml` and are passed to nodes by
+projector is on differ per machine, so they live in `packages/par-framework-core/config/par_setup.yaml` and are passed to nodes by
 the launch files.
 
 ### Adding a node
@@ -139,9 +141,12 @@ newly referenced external package (`std_msgs`, `geometry_msgs`, …) in **both**
 | Package | Repository | Role |
 | --- | --- | --- |
 | `custom_interfaces` | `ros2-par-framework-interfaces` | shared message, service and action definitions |
-| `logitech_brio` | `ros2-logitech-brio` | publishes camera frames on `/camera/generic_webcam_frame_full` (+ `CameraInfo`) |
-| `surface_selector` | `ros2-par-framework-calibration` | subscribes to frames, lets you mark the projection area |
+| `logitech_brio` | `ros2-logitech-brio` | publishes camera frames on `/camera/brio/image_raw` (+ `/compressed`) and `CameraInfo` on `/camera/brio/camera_info` |
+| `surface_selector` | `ros2-par-framework-calibration` | subscribes to `/camera/brio/image_raw`, lets you mark the projection area |
+| `object_detector` | `ros2-par-framework-object-detection` | detects objects in `/camera/brio/image_raw/compressed`, publishes them in image pixels on `/objects` |
+| `fiducials_detector` | `ros2-par-framework-fiducials` | detects fiducial markers in `/camera/brio/image_raw`, publishes them on `/fiducials` |
 | `par_framework_core` | this repo | launch files and per-setup parameters |
+| `rviz_bridge` | this repo | projects `/objects` onto the table as `/objects/markers` for RViz |
 
 Camera frames are published **best-effort, keep-last-1** — a late frame is worthless because a newer one
 already exists. Any subscriber must explicitly request `BEST_EFFORT` too; a subscriber left on the default

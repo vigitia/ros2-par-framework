@@ -278,3 +278,102 @@ lowercase letters, digits and underscores in ROS package names, so the package i
 `setup.py`. `colcon build` builds `par_framework_core`, and `ros2 pkg prefix par_framework_bringup` says "Package
 not found". In an isolated domain, `ros2 launch par_framework_core par_framework.launch.py` started the Brio
 (calibrated, 60 fps) and the TF publisher (`0, 0, 1`), and nothing was left running afterwards.
+
+### Architecture rule: framework glue nodes may live in the core repo (2026-09-24)
+
+**What:** `CLAUDE.md` changed from "contains **no node source**" to "**no node source, except framework glue**": nodes
+that only make sense inside this framework, because they are built on its messages, topic names and frame
+conventions. The first one planned is `rviz_bridge`. Every other node keeps its own repo. `par-framework-core/` stays
+launch files and parameters only, and glue nodes get their own top-level package directory next to it.
+
+**Why:** your decision. `rviz_bridge` (framework outputs such as `/objects` → RViz markers) is framework glue: it
+depends on `custom_interfaces`, the topic names, the `world` frame and the table-plane assumption, and it changes
+together with `par_framework.rviz` and the launch file. The rule is changed explicitly, so the next "sort of core"
+case has a test to apply instead of a quiet precedent.
+
+**Alternatives:**
+- *Its own repo `ros2-par-framework-rviz-bridge`:* keeps the old rule intact, but costs a GitHub repo, a `nodes.list`
+  entry, and two-repo commits for every new display.
+- *Inside `par-framework-core/`:* colcon doesn't look for packages inside another package's directory.
+
+### `packages/` folder for this repo's own ROS packages (2026-09-24)
+
+**What:** `par-framework-core/` moved to `packages/par-framework-core/`, and `packages/rviz_bridge/` is to follow.
+Everything now points at `packages/` as a whole:
+- `scripts/local_build.sh`: `--base-paths src packages`, `rosdep --from-paths src packages`.
+- `scripts/sync_nodes.sh`: stages every `packages/*/package.xml`.
+- `docker-compose.yaml`: one mount, `./packages:/ros2_ws/src/packages`.
+- Paths updated in `README.md` (commands and layout block), `CLAUDE.md` (rule text and `par_setup.yaml` path) and
+  the `setup.sh` message.
+
+**Why:** your decision. colcon finds every package under a base path recursively, so the next core package (the
+bridge, and later ones) needs no path changes in scripts or the container. The package name `par_framework_core` is
+unchanged.
+
+**Alternatives:** *a second top-level folder per package:* every new core package would repeat the script,
+compose and README edits.
+
+**Tested (host):** `bash -n` passes on both scripts, and the staging `find` finds
+`packages/par-framework-core/package.xml`. The old symlinked build output pointed into the moved folder, so it was
+removed and rebuilt; the installed `par_setup.yaml` now resolves into `packages/`. `ros2 launch par_framework_core
+par_framework.launch.py` in an isolated domain started the calibrated Brio (60 fps) and the TF publisher (`0, 0, 1`),
+and nothing was left running.
+
+### `rviz_bridge`: detected objects on the table in RViz (2026-09-24)
+
+**What:**
+- New package `packages/rviz_bridge/` (node `rviz_bridge_node`, executable `rviz_bridge`). It subscribes to `/objects`
+  (`custom_interfaces/ObjectList`, image pixels) and `/camera/brio/camera_info` (Best Effort), looks up
+  `world ← <ObjectList frame>` in TF, and publishes `/objects/markers` (`MarkerArray` in `world`). The array holds a
+  `DELETEALL` first, then per object a closed `LINE_STRIP` (hull, falling back to the contour, then the center) 2 mm
+  above the table, plus a `TEXT_VIEW_FACING` label `class#id`.
+- `rviz_bridge/rviz_bridge.py` holds the ROS-free math: `cv2.undistortPoints` turns pixels into rays, which are
+  rotated into `world` and intersected with z = 0 (rays that miss the table are dropped), plus a quaternion → matrix
+  helper. `test/test_rviz_bridge.py` checks it against a camera 1 m up looking down; `test_flake8`/`test_pep257` as
+  in the other packages.
+- Wiring:
+  - the launch file starts the bridge with `rviz:=true`;
+  - `par_framework.rviz` gets an **Objects** MarkerArray display;
+  - `par_framework_core` declares `rviz_bridge`;
+  - `local_build.sh` and the README pip command also read `packages/*/requirements.txt`, which the bridge's
+    `opencv-python` pin needs;
+  - README layout and packages table, and `CLAUDE.md` (glue node "currently" rather than "planned").
+
+**Why:** RViz cannot draw `/objects`: there's no display plugin for the custom type, and its coordinates are pixels
+without depth. Projecting onto the table plane (assumption: the table is world z = 0) with the calibration and TF
+gives metric positions under the frustum. The detector stays unchanged, per your decision.
+
+**Decisions:**
+- Topic names and `world` are constants, not parameters, because they don't vary per setup.
+- The TF is looked up with `Time()` (latest), because it is static.
+- Warnings about missing calibration or TF are throttled to one per 5 s.
+- `setup.py` declares `extras_require={'test': ['pytest']}`; without it, `colcon test` fell back to unittest and ran
+  0 tests.
+- Labels have no space (`cup#3`): RViz rendered the space in `cup #3` several text heights wide.
+
+**Alternatives:**
+- *Markers from inside the detector:* rejected by you, to keep the detector unchanged.
+- *A C++ RViz plugin for `ObjectList`:* much more work.
+- *An annotated 2D image:* not in the 3D scene.
+- *`vision_msgs/Detection3DArray`:* needs an extra RViz plugin package.
+
+**Tested (host):**
+- `colcon test`: 5 tests, 0 failures (3 projection, flake8, pep257).
+- End to end in an isolated domain: `ros2 launch par_framework_core par_framework.launch.py rviz:=true` with the
+  calibration, plus a stand-in `/objects` (a 200×200 px square around 960/540). `/objects/markers` had `DELETEALL`,
+  an outline of 0.115 × 0.116 m (expected ~0.116 at fx ≈ 1724, 1 m) and a `cup#3` label. The RViz screenshot shows
+  the outline and label on the grid under the frustum, with Global Status OK.
+- Not yet run with the real object detector.
+
+### README package table corrected (2026-09-24)
+
+**What:** in `README.md` → "Current packages":
+- the `logitech_brio` row names `/camera/brio/image_raw` (+ `/compressed`) and `/camera/brio/camera_info`
+  instead of the outdated `/camera/generic_webcam_frame_full`;
+- `surface_selector` names its input topic;
+- rows added for `object_detector` (`/camera/brio/image_raw/compressed` → `/objects`, image pixels) and
+  `fiducials_detector` (`/camera/brio/image_raw` → `/fiducials`), which are in `config/nodes.list` but were missing.
+
+**Why:** your request. The topics were checked against the node sources in `src/`. Neither node sets a namespace,
+so the outputs are `/objects` and `/fiducials`. `surface_selector` defines a `surface_corners` topic name but
+creates no publisher, so no output is listed for it.

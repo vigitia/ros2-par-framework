@@ -116,6 +116,6 @@ $(printf '%s%sSetup complete.%s' "$C_BOLD" "$C_GREEN" "$C_RESET")
 
   Node source is in src/ -- each directory is its own git repo, edit it there.
   Per-setup values (camera id, projector display) live in
-  par-framework-core/config/par_setup.yaml.
+  packages/par-framework-core/config/par_setup.yaml.
 
 EOF

@@ -5,12 +5,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## What this repository is
 
 Core repository of a projected augmented reality (PAR) framework on ROS 2 — a camera and a projector aimed at
-the same surface. It contains **no node source**. Nodes live in their own private repos under
-`github.com/vigitia` or are from other public GitHub repos; this repo declares which ones make up the framework, provides the container they run in,
+the same surface. It contains **no node source, except framework glue**: nodes that only make sense inside this
+framework, because they are built on its messages, topic names and frame conventions (currently `rviz_bridge`,
+which turns framework outputs into RViz markers). Every other node — anything useful on its own, like a camera driver
+or a detector — lives in its own private repo under
+`github.com/vigitia` or comes from another public GitHub repo; this repo declares which ones make up the framework, provides the container they run in,
 and provides the launch files and per-setup parameters that compose them.
 
-The one ROS package it does ship is `par-framework-core/` (package `par_framework_core`) — launch files and
-`config/par_setup.yaml` only, no nodes.
+This repo's own ROS packages live under `packages/`, which the build scripts and the container take as a whole, so a
+new package there needs no path changes. `packages/par-framework-core/` (package `par_framework_core`) holds the
+launch files and `config/par_setup.yaml` only, no nodes. Glue nodes get their own package directory next to it.
 
 ## Commands
 
@@ -78,7 +82,7 @@ Changing an existing definition needs only `./scripts/build_workspace.sh` (colco
 order); pulling in a new *external* message package changes a declared dependency and so needs `./setup.sh`.
 
 **Per-setup values are parameters.** Camera index, resolution, projector display live in
-`par-framework-core/config/par_setup.yaml`, keyed by node name, and are handed to nodes by the launch files. Hardware
+`packages/par-framework-core/config/par_setup.yaml`, keyed by node name, and are handed to nodes by the launch files. Hardware
 constants belong there, not in node source. A node in a namespace (the Brio sets `/camera/brio` in code) must
 be keyed by its full name, e.g. `/camera/brio/logitech_brio_node` — a bare name is silently ignored.
 

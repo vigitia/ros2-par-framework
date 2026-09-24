@@ -6,7 +6,9 @@ physical setup means a different parameter file, not different code:
     ros2 launch par_framework_core par_framework.launch.py \\
         params_file:=/path/to/other_setup.yaml
 
-Add rviz:=true to open RViz with the TF frames, the Brio frustum and its image.
+Add rviz:=true to open RViz with the TF frames, the Brio frustum and its image, plus
+rviz_bridge, which shows the object detector's /objects on the table (the detector itself is
+started separately).
 params_file points the Brio calibration into the container; on the host, from the repo root:
 
     ros2 launch par_framework_core par_framework.launch.py \\
@@ -61,6 +63,15 @@ def generate_launch_description():
             executable='rviz2',
             arguments=['-d', os.path.join(
                 get_package_share_directory(PACKAGE_NAME), 'config', 'par_framework.rviz')],
+            condition=IfCondition(LaunchConfiguration('rviz')),
+        ),
+        # Turns outputs RViz cannot display, like /objects in image pixels, into markers
+        Node(
+            package='rviz_bridge',
+            executable='rviz_bridge',
+            name='rviz_bridge_node',
+            output='screen',
+            emulate_tty=True,
             condition=IfCondition(LaunchConfiguration('rviz')),
         ),
     ])
