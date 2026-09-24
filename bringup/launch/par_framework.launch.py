@@ -39,4 +39,14 @@ def generate_launch_description():
             emulate_tty=True,
             parameters=[params_file],
         ),
+
+        # Co-authored by Claude Code
+        # Where the Brio is mounted: world -> brio_link, pose from params_file. The node itself
+        # publishes brio_link -> brio_optical_frame. Frame names must match the Brio node.
+        Node(
+            package='tf2_ros',
+            executable='static_transform_publisher',
+            name='brio_tf_publisher',
+            parameters=[params_file, {'frame_id': 'world', 'child_frame_id': 'brio_link'}],
+        ),
     ])

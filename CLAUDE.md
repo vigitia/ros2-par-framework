@@ -50,8 +50,11 @@ them with `rosdep` plus one `pip` call. Consequences worth preserving:
 - `build/`, `install/`, `log/` are named volumes, so no root-owned artefacts appear in the working tree.
 
 **Adding a node** = one line in `config/nodes.list`, then `./setup.sh`. Nothing else — the Dockerfile and the
-dependency steps are generic. A node repo must be an `ament_python` package with `package.xml`, plus
-`requirements.txt` at its root for PyPI deps. Every repo currently puts its package at the root; staging also
+dependency steps are generic. A node repo needs a colcon-buildable package with a `package.xml` that declares
+all its dependencies — `ament_python` or `ament_cmake` both work (`custom_interfaces` and
+`azure_kinect_ros_driver` are CMake). Our own nodes are `ament_python` by convention (see below); third-party
+repos keep whatever they use, but one written for an older distro may not build on this one without a fork.
+PyPI deps go in an optional `requirements.txt` at the repo root. Every repo currently puts its package at the root; staging also
 tolerates a package one level down, or several per repo, keying each by the declared `<name>` rather than the
 directory name.
 
@@ -76,7 +79,8 @@ order); pulling in a new *external* message package changes a declared dependenc
 
 **Per-setup values are parameters.** Camera index, resolution, projector display live in
 `bringup/config/par_setup.yaml`, keyed by node name, and are handed to nodes by the launch files. Hardware
-constants belong there, not in node source.
+constants belong there, not in node source. A node in a namespace (the Brio sets `/camera/brio` in code) must
+be keyed by its full name, e.g. `/camera/brio/logitech_brio_node` — a bare name is silently ignored.
 
 **Node package convention** (followed by both current nodes, worth keeping): `<pkg>/<pkg>_node.py` holds the
 `rclpy.node.Node` subclass — topics, `declare_parameter` with `ParameterDescriptor`, and the `main()` that
@@ -85,15 +89,15 @@ ROS plumbing.
 
 ### Current pipeline
 
-`logitech_brio` publishes `sensor_msgs/Image` on `/camera/generic_webcam_frame_full` (plus `CameraInfo` on
-`/camera/generic_webcam_info`), converted with `cv_bridge`; `surface_selector` consumes frames to mark the
+`logitech_brio` publishes `sensor_msgs/Image` on `/camera/brio/image_raw` (plus `CameraInfo` on
+`/camera/brio/camera_info`; the node sets its `/camera/brio` namespace in code), converted with `cv_bridge`; `surface_selector` consumes frames to mark the
 projection area. The image `frame_id` doubles as the camera name used to find `calibration/<CameraName>.yaml`.
 
 **QoS is a trap here.** Frames are published BEST_EFFORT / KEEP_LAST depth 1. A subscriber on the default
 reliable profile — including the shorthand of passing an int depth as `qos_profile` — is QoS-incompatible and
 receives nothing, silently and without error. New image subscribers must request
-`QoSReliabilityPolicy.BEST_EFFORT` explicitly. (`surface_selector_node.py` currently passes an int; if that
-node appears to receive no frames, this is why.)
+`QoSReliabilityPolicy.BEST_EFFORT` explicitly. For third-party subscribers that can't be changed, the Brio's
+`qos_reliability: reliable` (and `encoding: rgb8` for nodes that expect RGB) in `par_setup.yaml` is the switch.
 
 ## Container constraints
 

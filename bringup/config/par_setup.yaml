@@ -2,10 +2,19 @@
 # resolution. This is the file to edit when moving the framework to a new table
 # or a new machine -- node source should not need per-setup constants.
 #
-# Keys are node names as they appear in the launch files, not package names.
+# Keys are node names as they appear in the launch files, not package names. A node
+# in a namespace needs its full name as key, otherwise its parameters are silently
+# ignored -- check with: ros2 param get <full node name> <parameter>
 
-logitech_brio_node:
+# The Brio sets its /camera/brio namespace in code.
+/camera/brio/logitech_brio_node:
   ros__parameters:
+    # Compatibility with third-party subscribers:
+    #   best_effort  lowest latency, only best-effort subscribers connect
+    #   reliable     every subscriber connects, a slow one can hold up delivery
+    qos_reliability: best_effort
+    # Channel order of colour frames: bgr8, or rgb8 for nodes that expect RGB.
+    encoding: bgr8
     # Index of the /dev/video* node. Find it with: v4l2-ctl --list-devices
     camera_id: -1
     camera_resolution_x: 1920
@@ -16,6 +25,20 @@ logitech_brio_node:
 
 surface_selector_node:
   ros__parameters:
-    topic_name_frame: /camera/generic_webcam_frame_full
+    topic_name_frame: /camera/brio/image_raw
     # Display the projector is connected to, as counted by pygame (0 = primary).
     display_id: 0
+
+# Pose of the Brio body frame (brio_link, x forward, z up) in world, in metres.
+# Placeholder: 1 m above world, looking straight down (pitch +90 deg) -- replace
+# with measured values. The rotation is a quaternion because
+# static_transform_publisher only accepts Euler angles as command-line flags.
+/brio_tf_publisher:
+  ros__parameters:
+    translation.x: 0.0
+    translation.y: 0.0
+    translation.z: 1.0
+    rotation.x: 0.0
+    rotation.y: 0.7071068
+    rotation.z: 0.0
+    rotation.w: 0.7071068
