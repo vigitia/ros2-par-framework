@@ -377,3 +377,102 @@ gives metric positions under the frustum. The detector stays unchanged, per your
 **Why:** your request. The topics were checked against the node sources in `src/`. Neither node sets a namespace,
 so the outputs are `/objects` and `/fiducials`. `surface_selector` defines a `surface_corners` topic name but
 creates no publisher, so no output is listed for it.
+
+### `projection_corners`: owner of the projection corners (2026-09-24)
+
+**What:**
+- New package `packages/projection_corners/` (node `projection_corners_node`). At startup it loads the YAML file
+  from the parameter `projection_corners_file`. It publishes the corners on `/projection_corners`
+  (`custom_interfaces/ProjectionCorners`, RELIABLE + TRANSIENT_LOCAL, depth 1). It offers `/set_projection_corners`
+  (`SetProjectionCorners`), which validates, saves and republishes.
+- `projection_corners/projection_corners.py` holds the ROS-free `load`/`save`/`validate`: all corners inside the
+  image, non-zero area (shoelace formula), non-empty image size. `test/test_projection_corners.py` covers them.
+- Both launch files start it through an `OpaqueFunction`. The file is `projection_corners.yaml` next to the
+  **real** `par_setup.yaml` (`os.path.realpath` follows the `--symlink-install` links into
+  `packages/par-framework-core/config/`), so the path is correct on the host and in the container.
+  `par_framework_core` declares the dependency.
+- `CLAUDE.md` has a note on the Transient Local trap; the README layout and package table list the new package.
+
+**Why:** your decision after reviewing the old approach. `surface_selector` wrote its corners to a private INI
+file in the install space: lost on a clean build, not in git, unreachable for other nodes. The new split mirrors
+the camera calibration: a light node owns and distributes the data, and the interactive tool (`surface_selector`,
+reworked next) only sends new corners through a service. You chose option 2, the file next to `par_setup.yaml`,
+because the corners describe the physical setup like the camera pose and need no host/container launch argument.
+
+**Decisions:**
+- A plain file-path parameter, not a `file://` URL: the launch file computes it, and nobody types it.
+- One set of corners, not one per camera: the framework has one camera; a second would get a namespaced node.
+- Stored corners are stamped with the publish time: no image belongs to them.
+
+**Alternatives:**
+- *The path in `par_setup.yaml` plus a host launch argument, like `camera_info_url`:* an argument to pass on every
+  host run.
+- *Letting `surface_selector` publish latched itself:* the corners would vanish whenever the calibration tool isn't
+  running.
+
+**Tested (host):**
+- `colcon test`: 5 tests, 0 failures.
+- End to end in an isolated domain with `par_framework.launch.py`:
+  - a valid `ros2 service call` wrote `packages/par-framework-core/config/projection_corners.yaml`;
+  - an invalid one was rejected with "top_right (2000.0, 241.0) lies outside the 1920x1080 image";
+  - a Transient Local subscriber started afterwards still received the corners;
+  - after a restart the node loaded them from the file and a late subscriber got them again.
+- The test file was deleted afterwards, and nothing was left running.
+
+### `projection_corners.yaml` gitignored (2026-09-24)
+
+**What:** `.gitignore` ignores `/packages/par-framework-core/config/projection_corners.yaml`.
+
+**Why:** your request. Like the Brio's calibration file, the corners belong to one physical setup and are written by a
+node, not edited as part of the framework. `par_setup.yaml` next to it stays tracked (checked with
+`git check-ignore`).
+
+### `rviz_bridge`: projection area on the table (2026-09-24)
+
+**What:**
+- `rviz_bridge_node` subscribes to `/projection_corners` (RELIABLE + TRANSIENT_LOCAL) and publishes
+  `/projection_corners/markers`: ns `projection_area`, id 0 is a closed blue `LINE_STRIP`, id 1 a 25 %-opaque
+  `TRIANGLE_LIST` fill (two triangles TL-TR-BR and TL-BR-BL), 1 mm above the table, below the 2 mm object outlines.
+- A 1 s timer redraws the area, and so does each new corners message.
+- If the corners' `image_width`/`image_height` differ from the current `camera_info`, the bridge warns and draws
+  nothing; it also skips the area when not all four corners hit the table plane.
+- The calibration/TF lookup now sits in one helper, `__projection()`, shared with the objects display; the objects
+  behaviour is unchanged.
+- `par_framework.rviz` gets a **Projection area** MarkerArray display; the README table mentions the new topics.
+
+**Why:** your request, to see the area selected with `surface_selector` next to the camera and the objects. The
+corners arrive once (latched) but the calibration or TF may arrive later, so drawing only on arrival could miss
+them; a 1 s redraw is the simplest thing that catches every order.
+
+**Alternatives:**
+- *Retry only while something is missing:* more state for the same result.
+- *A latched marker publisher:* RViz subscribes Volatile by default, so it would need a config change as well, and
+  a new calibration would still need a redraw.
+- *Scaling the corners to another resolution:* only valid for the same aspect ratio and sensor crop (see the Brio's
+  resolution warning).
+
+**Tested (host):**
+- `colcon test`: 5 tests, 0 failures.
+- End to end in an isolated domain: `par_framework.launch.py rviz:=true`, stand-ins for the Brio's `camera_info` and
+  optical TF (the camera was held by another process), corners stored through `/set_projection_corners`, plus a
+  stand-in object.
+- `/projection_corners/markers` held a 5-point closed outline and a 6-point fill (about 0.36 × 0.64 m at the
+  placeholder pose). The RViz screenshot shows the blue area with the green object on top, Global Status OK.
+- The test corners file was deleted, and no test processes were left.
+
+## Framework-wide switch from opencv-python to opencv-contrib-python
+
+**What changed:** every `requirements.txt` in the framework pins `opencv-contrib-python==4.11.0.86` instead of
+`opencv-python==4.11.0.86`: `packages/rviz_bridge` here, plus `surface_selector`, `fiducials_detector` and
+`object_detector` and `logitech_brio` in their own repos. The comment in
+`packages/rviz_bridge/package.xml` says why.
+
+**Why:** the new `hand_landmarks` node needs `mediapipe`, and `mediapipe` (1.0.1) depends on `opencv-contrib-python`.
+Both OpenCV distributions install into the same `cv2/` directory, so with both in one environment whichever is
+installed last silently wins, and uninstalling one breaks the other. The contrib build is the same OpenCV version
+plus the extra modules, so nothing the existing nodes use changes. The `cp37-abi3` wheel covers Python 3.14 (Lyrical).
+
+**Alternatives:**
+- *Install mediapipe with `--no-deps`:* conflicts with the single `pip install` over all `requirements.txt`, which
+  exists precisely so conflicting pins fail the build.
+- *Only hand_landmarks pins contrib:* both packages would end up installed, the silent-shadowing case above.

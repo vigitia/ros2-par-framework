@@ -16,7 +16,8 @@
   <exec_depend>tf2_ros_py</exec_depend>
   <exec_depend>custom_interfaces</exec_depend>
   <exec_depend>python3-numpy</exec_depend>
-  <!-- OpenCV comes from requirements.txt (opencv-python), like in the other nodes -->
+  <!-- OpenCV comes from requirements.txt (opencv-contrib-python), like in the other nodes. Every node pins the
+       contrib build, because mediapipe depends on it and it shares the cv2 directory with opencv-python -->
 
   <test_depend>ament_flake8</test_depend>
   <test_depend>ament_pep257</test_depend>

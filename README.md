@@ -97,6 +97,7 @@ packages/                   this repo's own ROS packages, built together with sr
   par-framework-core/       launch files + parameters (package par_framework_core)
     launch/                 par_framework.launch.py, calibration.launch.py
     config/par_setup.yaml   camera id, resolution, projector display — edit this per setup
+  projection_corners/       node: holds the projection corners, publishes them on /projection_corners
   rviz_bridge/              node: framework outputs RViz cannot show (e.g. /objects) as markers
 scripts/                    the individual steps setup.sh runs, usable on their own
 src/                        node repositories, cloned by setup.sh (not tracked here)
@@ -146,7 +147,8 @@ newly referenced external package (`std_msgs`, `geometry_msgs`, …) in **both**
 | `object_detector` | `ros2-par-framework-object-detection` | detects objects in `/camera/brio/image_raw/compressed`, publishes them in image pixels on `/objects` |
 | `fiducials_detector` | `ros2-par-framework-fiducials` | detects fiducial markers in `/camera/brio/image_raw`, publishes them on `/fiducials` |
 | `par_framework_core` | this repo | launch files and per-setup parameters |
-| `rviz_bridge` | this repo | projects `/objects` onto the table as `/objects/markers` for RViz |
+| `projection_corners` | this repo | stores the corners from `surface_selector` in `config/projection_corners.yaml`, publishes them latched on `/projection_corners` |
+| `rviz_bridge` | this repo | projects `/objects` and `/projection_corners` onto the table as `/objects/markers` and `/projection_corners/markers` for RViz |
 
 Camera frames are published **best-effort, keep-last-1** — a late frame is worthless because a newer one
 already exists. Any subscriber must explicitly request `BEST_EFFORT` too; a subscriber left on the default

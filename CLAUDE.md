@@ -103,6 +103,10 @@ receives nothing, silently and without error. New image subscribers must request
 `QoSReliabilityPolicy.BEST_EFFORT` explicitly. For third-party subscribers that can't be changed, the Brio's
 `qos_reliability: reliable` (and `encoding: rgb8` for nodes that expect RGB) in `par_setup.yaml` is the switch.
 
+The opposite trap for rarely changing state: `/projection_corners` is published latched (RELIABLE +
+TRANSIENT_LOCAL, depth 1, like `/tf_static`). A subscriber must request `QoSDurabilityPolicy.TRANSIENT_LOCAL`,
+otherwise it only receives the next change and a node started later sees nothing.
+
 ## Container constraints
 
 Load-bearing settings in `docker-compose.yaml`, not conveniences: `network_mode: host` (DDS discovery uses UDP

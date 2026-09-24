@@ -58,6 +58,9 @@ def generate_launch_description():
         # publishes brio_link -> brio_optical_frame. Frame names must match the Brio node.
         OpaqueFunction(function=brio_tf_publisher),
 
+        # Publishes the stored projection corners on /projection_corners
+        OpaqueFunction(function=projection_corners_node),
+
         Node(
             package='rviz2',
             executable='rviz2',
@@ -114,4 +117,21 @@ def brio_tf_publisher(context):
         executable='static_transform_publisher',
         name='brio_tf_publisher',
         arguments=arguments,
+    )]
+
+
+# Co-authored by Claude Code
+def projection_corners_node(context):
+    """Start the projection corners owner with its file next to the real par_setup.yaml."""
+    # realpath follows the --symlink-install links back to the source folder, so the file is saved
+    # where it survives rebuilds, on the host and in the container alike
+    params_file = os.path.realpath(LaunchConfiguration('params_file').perform(context))
+    corners_file = os.path.join(os.path.dirname(params_file), 'projection_corners.yaml')
+    return [Node(
+        package='projection_corners',
+        executable='projection_corners',
+        name='projection_corners_node',
+        output='screen',
+        emulate_tty=True,
+        parameters=[{'projection_corners_file': corners_file}],
     )]
