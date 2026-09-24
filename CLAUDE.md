@@ -22,6 +22,8 @@ The one ROS package it does ship is `bringup/` (package `par_framework_bringup`)
 ./scripts/build_workspace.sh [pkg]  # colcon build --symlink-install, optionally one package
 ./scripts/launch.sh [name] [args]   # ros2 launch par_framework_bringup <name>.launch.py
 ./scripts/launch.sh calibration display_id:=1
+
+./scripts/local_build.sh [pkg]      # host-only: clone nodes, rosdep, .venv, colcon build -- no Docker
 ```
 
 Tests are the standard `ament` lint suite each package carries (`test_flake8`, `test_pep257`,

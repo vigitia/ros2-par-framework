@@ -38,6 +38,9 @@ cloned (`./scripts/sync_nodes.sh` or `./setup.sh`). Run the commands in **bash**
 don't source in fish or other shells. Stop the container first (`docker compose down`): it shares the host
 network, so both copies of a node would publish on the same topics.
 
+`./scripts/local_build.sh [pkg...]` does the cloning plus the rosdep, venv and build steps below in one go
+(no Docker involved). The manual steps:
+
 ```bash
 source /opt/ros/lyrical/setup.bash     # the distro from ROS_DISTRO in .env
 

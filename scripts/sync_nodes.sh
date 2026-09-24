@@ -4,11 +4,18 @@
 #
 # src/ is bind-mounted into the container, so what you check out here is exactly
 # what runs -- and each repo stays a normal git repo you can commit and push from.
+#
+# --clone-only skips the staging, for host-side builds without Docker
+# (scripts/local_build.sh). Co-authored by Claude Code.
 
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 
 SRC_DIR="${REPO_ROOT}/src"
 DEPS_DIR="${REPO_ROOT}/docker/deps"
+
+# Co-authored by Claude Code
+clone_only=false
+[[ "${1:-}" == "--clone-only" ]] && clone_only=true
 
 # A repo that fails to sync should not hide the state of the others, so failures
 # are collected and reported together at the end.
@@ -65,6 +72,12 @@ while IFS=$'\t' read -r dir url branch; do
 
     ok "${dir} at $(git -C "$target" rev-parse --short HEAD)"
 done < <(read_nodes_list)
+
+# Co-authored by Claude Code
+if $clone_only; then
+    (( ${#failures[@]} == 0 )) || die "could not sync: ${failures[*]}"
+    exit 0
+fi
 
 # The image installs dependencies from manifests only, never from source. Staging
 # them in their own directory means editing code does not invalidate the (slow)
