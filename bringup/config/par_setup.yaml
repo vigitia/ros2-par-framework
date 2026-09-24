@@ -35,8 +35,9 @@ surface_selector_node:
 
 # Pose of the Brio body frame (brio_link, x forward, z up) in world, in metres.
 # Placeholder: 1 m above world, looking straight down (pitch +90 deg) -- replace
-# with measured values. The rotation is a quaternion because
-# static_transform_publisher only accepts Euler angles as command-line flags.
+# with measured values. par_framework.launch.py reads these values and passes
+# them to static_transform_publisher as command-line flags, because it ignores
+# them as parameters.
 /brio_tf_publisher:
   ros__parameters:
     translation.x: 0.0

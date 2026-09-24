@@ -82,7 +82,8 @@ A few notes:
   **every** ROS process: if only the publisher or only the subscriber has it, they don't connect at all and
   nothing arrives (measured between two nodes). `ros2` CLI tools and RViz take part in DDS the same way, so they
   should need it too (not tested). The `ros2` daemon keeps the environment it was started with, so
-  run `ros2 daemon stop` after changing it. Not yet set or measured inside the container. In fish, use
+  run `ros2 daemon stop` after changing it. The container sets it in `docker-compose.yaml`, so host terminals
+  that talk to container nodes need it too. In fish, use
   `set -gx FASTDDS_BUILTIN_TRANSPORTS LARGE_DATA` instead.
 
 ## Layout

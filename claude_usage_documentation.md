@@ -174,3 +174,81 @@ value, so it lives here and not in node source.
 
 Verified on the host: with `--params-file` the node logs
 `camera calibration URL: file:///ros2_ws/src/logitech_brio/calibration/Logitech_Brio.yaml`.
+
+### `FASTDDS_BUILTIN_TRANSPORTS=LARGE_DATA` in the container (2026-09-24)
+
+**What:** `docker-compose.yaml` sets `FASTDDS_BUILTIN_TRANSPORTS=${FASTDDS_BUILTIN_TRANSPORTS:-LARGE_DATA}` in the
+service environment. The README no longer says it is unset in the container, and instead notes that host terminals
+talking to container nodes need it too.
+
+**Why:** raw 1080p frames (~6 MB) mostly get lost with Fast DDS's default transports (measured on the host), and
+it previously had to be exported by hand in every `./scripts/shell.sh`, e.g. for the camera calibration run.
+Set on the service, every process in the container inherits it, including the `ros2` daemon.
+
+**Alternatives:**
+- *Fixed `LARGE_DATA`:* the `${…:-LARGE_DATA}` form, like `ROS_DOMAIN_ID`, follows a host or `.env` value if one is
+  set. Both sides must match, or nodes don't connect.
+- *`ENV` in the Dockerfile:* a transport choice is runtime configuration, and changing it would need an image
+  rebuild.
+- *Export in `scripts/shell.sh`:* `docker exec` from anywhere else would still miss it.
+
+**Verified:** `docker compose config` renders `FASTDDS_BUILTIN_TRANSPORTS: LARGE_DATA`. Not yet measured inside the
+container. It takes effect when the container is recreated (the next `./setup.sh` does that).
+
+### RViz view with the Brio frustum, and a working Brio mount transform (2026-09-24)
+
+**What:**
+- New `bringup/config/par_framework.rviz`: Fixed Frame `world`, Grid, TF, a **CameraInfo** display on
+  `/camera/brio/camera_info` (`Far clip` 1 m) and an Image display on `/camera/brio/image_raw`. Both Brio topics
+  are subscribed Best Effort, depth 1.
+- `par_framework.launch.py`:
+  - new `rviz` argument (default `false`) that starts `rviz2 -d <that config>`;
+  - `brio_tf_publisher` is now created in an `OpaqueFunction`. It reads the pose from `params_file` and passes
+    it to `static_transform_publisher` as `--x/--y/--z/--qx/--qy/--qz/--qw` plus `--frame-id world
+    --child-frame-id brio_link`.
+- `bringup/setup.py` installs `config/*.rviz`. `bringup/package.xml` declares `python3-yaml`, `tf2_ros`, `rviz2`,
+  `rviz_default_plugins`. The `par_setup.yaml` comment on the pose now says the launch file passes it as flags.
+
+**Why:**
+- The frustum: rviz2 on lyrical has a built-in `rviz_default_plugins/CameraInfo` display that draws it from the
+  camera's `CameraInfo`. That replaces the planned frustum marker in the Brio node, so there's no node code.
+- The TF fix: the previous launch passed the pose as parameters, and `static_transform_publisher` on lyrical
+  ignores them. Without `--frame-id` it exits with "Frame id must not be empty". With the frame flags, the flags'
+  zero defaults override the parameter file (tested: identity instead of `0, 0, 1`). So `world → brio_link`
+  never existed.
+
+**Alternatives:**
+- *Frustum as a `visualization_msgs/Marker` from the Brio node:* the CameraInfo display already does it from data
+  the node publishes.
+- *Pose hard-coded as flags in the launch file:* per-setup values belong in `par_setup.yaml`.
+- *Mount pose published by the Brio node:* the node would own per-setup world knowledge.
+- *RViz always on:* headless runs and the container without X would fail.
+
+**Tested (host):**
+- In an isolated `ROS_DOMAIN_ID=42`: `ros2 launch ... rviz:=true`, with a stand-in `camera_info` (values from
+  `Logitech_Brio.yaml`) and the optical TF, since the real Brio was busy. `tf2_echo world brio_optical_frame` gave
+  translation `0, 0, 1` and roll 180° (looking down), and RViz showed Global Status OK with the frustum pyramid
+  from 1 m down to the grid.
+- Separately, against the live Brio node, the Image display showed the camera picture (Best Effort works).
+- flake8 is clean. The two pep257 findings on the module docstring (D213, D301) were already in the committed
+  version.
+
+### `camera_info_url` launch argument for host runs (2026-09-24)
+
+**What:** `par_framework.launch.py` has a `camera_info_url` argument (default empty). The Brio node is now created
+in an `OpaqueFunction` (`logitech_brio_node`). It gets `params_file`, plus `{'camera_info_url': ...}` on top only
+when the argument is non-empty. The module docstring shows the host call:
+`camera_info_url:="file://$PWD/src/logitech_brio/calibration/\${NAME}.yaml"`.
+
+**Why:** `par_setup.yaml` points the calibration at the container path `/ros2_ws/...`. On the host that path
+doesn't exist, so a host launch ran uncalibrated and RViz drew no frustum.
+
+**Alternatives:**
+- *Always passing the argument as a parameter:* an empty default would override `par_setup.yaml` with `''`, which
+  the node reads as `~/.ros/camera_info/`.
+- *Two Brio `Node`s with opposite conditions:* duplicates the whole block.
+- *A `package://` URL that works in both:* COMMIT would then write into the install space, which isn't in git and
+  is lost on a clean build.
+
+**Tested (host, isolated domain):** without the argument the node logs the container URL and "not calibrated".
+With it, the host URL, and it loads `Logitech_Brio.yaml` (no warning). flake8 is clean.

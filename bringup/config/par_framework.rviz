@@ -1,0 +1,57 @@
+# Written by Claude Code
+# RViz view of the PAR setup: world grid, TF frames, the Brio's frustum (drawn by the CameraInfo display from
+# /camera/brio/camera_info) and its live image. Both Brio topics are subscribed Best Effort, the Brio's default;
+# RViz's default Reliable would receive nothing.
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+Visualization Manager:
+  Class: ""
+  Displays:
+    - Class: rviz_default_plugins/Grid
+      Enabled: true
+      Name: Grid
+      Reference Frame: <Fixed Frame>
+    - Class: rviz_default_plugins/TF
+      Enabled: true
+      Name: TF
+      Marker Scale: 0.3
+      Show Names: true
+    - Class: rviz_default_plugins/CameraInfo
+      Enabled: true
+      Name: Brio frustum
+      # Length of the frustum in metres, i.e. how far from the camera it is drawn
+      Far clip: 1
+      Topic:
+        Depth: 1
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /camera/brio/camera_info
+    - Class: rviz_default_plugins/Image
+      Enabled: true
+      Name: Brio image
+      Topic:
+        Depth: 1
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /camera/brio/image_raw
+  Global Options:
+    Fixed Frame: world
+    Frame Rate: 30
+  Tools:
+    - Class: rviz_default_plugins/MoveCamera
+  Value: true
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      Distance: 3
+      Focal Point:
+        X: 0
+        Y: 0
+        Z: 0.5
+      Pitch: 0.5
+      Yaw: 0.8
+      Target Frame: <Fixed Frame>
+      Value: Orbit (rviz_default_plugins)

@@ -32,6 +32,10 @@ services:
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=all
       - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-0}
+      # A raw 1080p frame is ~6 MB, and with Fast DDS's default transports most of
+      # them get lost. Must match on every ROS process, including ones on the host:
+      # if only one side has it, they don't connect at all (see README).
+      - FASTDDS_BUILTIN_TRANSPORTS=${FASTDDS_BUILTIN_TRANSPORTS:-LARGE_DATA}
 
     volumes:
       # Node repositories, cloned on the host by scripts/sync_nodes.sh.
