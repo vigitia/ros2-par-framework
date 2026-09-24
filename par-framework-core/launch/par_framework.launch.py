@@ -3,13 +3,13 @@
 Every node reads its parameters from config/par_setup.yaml, so a different
 physical setup means a different parameter file, not different code:
 
-    ros2 launch par_framework_bringup par_framework.launch.py \\
+    ros2 launch par_framework_core par_framework.launch.py \\
         params_file:=/path/to/other_setup.yaml
 
 Add rviz:=true to open RViz with the TF frames, the Brio frustum and its image.
 params_file points the Brio calibration into the container; on the host, from the repo root:
 
-    ros2 launch par_framework_bringup par_framework.launch.py \\
+    ros2 launch par_framework_core par_framework.launch.py \\
         camera_info_url:="file://$PWD/src/logitech_brio/calibration/\\${NAME}.yaml"
 
 The Brio mount transform and the RViz option were written with the help of Claude Code.
@@ -26,7 +26,7 @@ from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 import yaml
 
-PACKAGE_NAME = 'par_framework_bringup'
+PACKAGE_NAME = 'par_framework_core'
 
 
 # Co-authored by Claude Code

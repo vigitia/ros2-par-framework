@@ -85,7 +85,7 @@ fi
 #
 # A repository may hold its package at the root, or one level down, and may hold
 # more than one, so every package.xml in the checkout is staged under its declared
-# package name rather than its directory name. This repo's own bringup package is
+# package name rather than its directory name. This repo's own par-framework-core package is
 # staged too, so its dependencies resolve alongside the nodes'.
 step "Staging dependency manifests"
 rm -rf "$DEPS_DIR"
@@ -117,7 +117,7 @@ while IFS= read -r manifest; do
 done < <(
     find "$SRC_DIR" -mindepth 2 -maxdepth 3 -name package.xml \
         -not -path '*/.git/*' -not -path '*/build/*' -not -path '*/install/*' 2>/dev/null
-    find "${REPO_ROOT}/bringup" -maxdepth 1 -name package.xml 2>/dev/null
+    find "${REPO_ROOT}/par-framework-core" -maxdepth 1 -name package.xml 2>/dev/null
 )
 
 (( staged > 0 )) || die "no ROS packages found under src/ -- nothing to build"

@@ -252,3 +252,29 @@ doesn't exist, so a host launch ran uncalibrated and RViz drew no frustum.
 
 **Tested (host, isolated domain):** without the argument the node logs the container URL and "not calibrated".
 With it, the host URL, and it loads `Logitech_Brio.yaml` (no warning). flake8 is clean.
+
+### `bringup` renamed to `par-framework-core` / `par_framework_core` (2026-09-24)
+
+**What:**
+- The directory `bringup/` is now `par-framework-core/`, and the ROS package `par_framework_bringup` is now
+  `par_framework_core`. Inside the package that covers `package.xml`, `setup.py`, `setup.cfg`, the module folder,
+  the `resource/` marker, and `PACKAGE_NAME` in both launch files.
+- Updated references: the mount in `docker-compose.yaml` (`./par-framework-core:/ros2_ws/src/par_framework_core`);
+  `scripts/launch.sh`; `scripts/local_build.sh` (rosdep and colcon paths); `scripts/sync_nodes.sh` (the path it
+  stages `package.xml` from, and a comment); `setup.sh` (message); `README.md`; `CLAUDE.md`.
+- Moved with plain `mv`, not `git mv`, so the index stayed as you had it. The host's stale
+  `build/`/`install/par_framework_bringup` was deleted.
+
+**Why:** your request. The directory takes the hyphenated name you gave. The package name can't: REP 144 allows only
+lowercase letters, digits and underscores in ROS package names, so the package is `par_framework_core`.
+
+**Alternatives:**
+- *Underscores for the directory too:* consistent with the package, but not the name you asked for. The node repos
+  already use hyphenated repo names with underscore package names.
+- *Keeping the stale install:* `ros2 launch par_framework_bringup ...` would silently keep working with outdated
+  files.
+
+**Tested (host):** `grep -i bringup` finds nothing outside this log. flake8 is clean on the launch files and
+`setup.py`. `colcon build` builds `par_framework_core`, and `ros2 pkg prefix par_framework_bringup` says "Package
+not found". In an isolated domain, `ros2 launch par_framework_core par_framework.launch.py` started the Brio
+(calibrated, 60 fps) and the TF publisher (`0, 0, 1`), and nothing was left running afterwards.

@@ -13,4 +13,4 @@ target="${1:-par_framework}"
 shift || true
 
 docker_exec /usr/local/bin/entrypoint.sh \
-    ros2 launch par_framework_bringup "${target}.launch.py" "$@"
+    ros2 launch par_framework_core "${target}.launch.py" "$@"

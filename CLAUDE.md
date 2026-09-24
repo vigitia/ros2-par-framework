@@ -9,7 +9,7 @@ the same surface. It contains **no node source**. Nodes live in their own privat
 `github.com/vigitia` or are from other public GitHub repos; this repo declares which ones make up the framework, provides the container they run in,
 and provides the launch files and per-setup parameters that compose them.
 
-The one ROS package it does ship is `bringup/` (package `par_framework_bringup`) — launch files and
+The one ROS package it does ship is `par-framework-core/` (package `par_framework_core`) — launch files and
 `config/par_setup.yaml` only, no nodes.
 
 ## Commands
@@ -20,7 +20,7 @@ The one ROS package it does ship is `bringup/` (package `par_framework_bringup`)
 
 ./scripts/shell.sh                  # shell in the container (ROS + workspace sourced)
 ./scripts/build_workspace.sh [pkg]  # colcon build --symlink-install, optionally one package
-./scripts/launch.sh [name] [args]   # ros2 launch par_framework_bringup <name>.launch.py
+./scripts/launch.sh [name] [args]   # ros2 launch par_framework_core <name>.launch.py
 ./scripts/launch.sh calibration display_id:=1
 
 ./scripts/local_build.sh [pkg]      # host-only: clone nodes, rosdep, .venv, colcon build -- no Docker
@@ -78,7 +78,7 @@ Changing an existing definition needs only `./scripts/build_workspace.sh` (colco
 order); pulling in a new *external* message package changes a declared dependency and so needs `./setup.sh`.
 
 **Per-setup values are parameters.** Camera index, resolution, projector display live in
-`bringup/config/par_setup.yaml`, keyed by node name, and are handed to nodes by the launch files. Hardware
+`par-framework-core/config/par_setup.yaml`, keyed by node name, and are handed to nodes by the launch files. Hardware
 constants belong there, not in node source. A node in a namespace (the Brio sets `/camera/brio` in code) must
 be keyed by its full name, e.g. `/camera/brio/logitech_brio_node` — a bare name is silently ignored.
 

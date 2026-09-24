@@ -26,7 +26,7 @@ have rosdep || die "rosdep not found -- sudo apt install python3-rosdep && sudo 
 have colcon || die "colcon not found -- sudo apt install python3-colcon-common-extensions"
 
 step "Installing apt dependencies (rosdep)"
-rosdep install --from-paths src bringup --ignore-src -y
+rosdep install --from-paths src par-framework-core --ignore-src -y
 
 step "Installing PyPI dependencies into .venv"
 if [[ ! -d .venv ]]; then
@@ -44,7 +44,7 @@ fi
 
 # Built through the venv's python, so node executables run with the venv's packages.
 step "Building the workspace"
-build_args=(--symlink-install --base-paths src bringup)
+build_args=(--symlink-install --base-paths src par-framework-core)
 (( $# > 0 )) && build_args+=(--packages-select "$@")
 .venv/bin/python -m colcon build "${build_args[@]}"
 

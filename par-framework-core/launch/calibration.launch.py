@@ -15,7 +15,7 @@ from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
-PACKAGE_NAME = 'par_framework_bringup'
+PACKAGE_NAME = 'par_framework_core'
 
 
 def generate_launch_description():

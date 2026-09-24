@@ -41,7 +41,7 @@ services:
       # Node repositories, cloned on the host by scripts/sync_nodes.sh.
       - ./src:/ros2_ws/src
       # This repo's own package, mounted alongside them as a workspace package.
-      - ./bringup:/ros2_ws/src/par_framework_bringup
+      - ./par-framework-core:/ros2_ws/src/par_framework_core
       # colcon output lives in named volumes so root-owned build artefacts never
       # land in the working tree, and survive container recreation.
       - par_build:/ros2_ws/build
