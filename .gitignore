@@ -1,5 +1,4 @@
-# Node repositories, cloned by scripts/sync_nodes.sh -- each one is its own git
-# repo and is version-controlled there, not here.
+# Node repositories are automatically cloned to the src/ folder and should not be commited to the core framework
 /src/
 
 # Dependency manifests staged for the image build (generated).
@@ -8,13 +7,16 @@
 # Machine-local configuration.
 /.env
 
-# colcon output, in case anyone builds outside the container.
+# colcon output. These folders will be created when the nodes in src/ are built locally, outside the Docker container
 /build/
 /install/
 /log/
 
-# Python venv for testing nodes on the host without Docker.
+# Python venv for testing nodes locally outside Docker.
 /.venv/
+
+# Models used for e.g. the object detector node
+/models/
 
 __pycache__/
 *.py[cod]
