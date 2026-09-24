@@ -6,6 +6,10 @@ The projector window opens on the display given by `display_id` in the
 parameter file.
 The selected corners are stored by projection_corners_node in
 config/projection_corners.yaml, next to par_setup.yaml (added with the help of Claude Code).
+params_file points the Brio calibration into the container; on the host, from the repo root:
+
+    ros2 launch par_framework_core calibration.launch.py \\
+        camera_info_url:="file://$PWD/src/logitech_brio/calibration/\\${NAME}.yaml"
 """
 
 import os
@@ -32,15 +36,14 @@ def generate_launch_description():
             'params_file',
             default_value=default_params,
             description='Parameter file describing this physical PAR setup.'),
+        DeclareLaunchArgument(
+            'camera_info_url',
+            default_value='',
+            description='Overrides the Brio calibration URL from params_file, e.g. for a host '
+                        'run: file://<repo>/src/logitech_brio/calibration/${NAME}.yaml. '
+                        'Empty keeps the one from params_file.'),
 
-        Node(
-            package='logitech_brio',
-            executable='logitech_brio',
-            name='logitech_brio_node',
-            output='screen',
-            emulate_tty=True,
-            parameters=[params_file],
-        ),
+        OpaqueFunction(function=logitech_brio_node),
 
         Node(
             package='surface_selector',
@@ -54,6 +57,25 @@ def generate_launch_description():
         # Stores the corners surface_selector sends and publishes them on /projection_corners
         OpaqueFunction(function=projection_corners_node),
     ])
+
+
+# Co-authored by Claude Code
+def logitech_brio_node(context):
+    """Start the Brio with params_file, and camera_info_url on top if it is given."""
+    parameters = [LaunchConfiguration('params_file').perform(context)]
+    # Only added when set: an empty value would replace the URL from params_file with '', which
+    # the node reads as the default ~/.ros/camera_info/ instead
+    camera_info_url = LaunchConfiguration('camera_info_url').perform(context)
+    if camera_info_url:
+        parameters.append({'camera_info_url': camera_info_url})
+    return [Node(
+        package='logitech_brio',
+        executable='logitech_brio',
+        name='logitech_brio_node',
+        output='screen',
+        emulate_tty=True,
+        parameters=parameters,
+    )]
 
 
 # Co-authored by Claude Code

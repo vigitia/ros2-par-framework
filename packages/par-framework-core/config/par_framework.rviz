@@ -70,6 +70,17 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /hand_landmarks/markers
+    # Fiducial markers from fiducials_detector, projected onto the table by rviz_bridge
+    - Class: rviz_default_plugins/MarkerArray
+      Enabled: true
+      Name: Fiducials
+      Namespaces: {}
+      Topic:
+        Depth: 10
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /fiducials/markers
   Global Options:
     Fixed Frame: world
     Frame Rate: 30

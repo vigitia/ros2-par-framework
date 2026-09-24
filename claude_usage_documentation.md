@@ -528,3 +528,54 @@ No build change was needed: `scripts/build_workspace.sh` runs `colcon build` in 
 - `colcon list` without `--base-paths` from the repo root (same layout as `/ros2_ws`) finds all packages in
   `src/` and `packages/`; the extra `docker/deps/` copies only exist on the host.
 - Not run in the container.
+
+### `camera_info_url` argument for `calibration.launch.py` (2026-09-24)
+
+**What:** `calibration.launch.py` declares `camera_info_url` (default empty) and starts the Brio through the same
+`logitech_brio_node` `OpaqueFunction` as `par_framework.launch.py`. The override is only added when set. The module
+docstring shows the host call.
+
+**Why:** your request. `par_setup.yaml` points the calibration into the container, so on the host the calibration
+run's Brio was uncalibrated. That didn't matter for the corners (raw pixels), but it was inconsistent with the main
+launch.
+
+**Decisions:** the function is duplicated (identical, checked with `diff`) rather than shared, like
+`projection_corners_node` already is. Sharing would need a small helper module in the `par_framework_core` Python
+package; not done unasked.
+
+**Tested (host, isolated domain, a `par_setup.yaml` copy with `display_id: 99` so no window opened):**
+- without the argument the Brio logs the container URL and "not calibrated";
+- with it, the host URL and no warning;
+- `surface_selector` stopped with "Could not get the resolution of display 99";
+- nothing was left running.
+
+### `rviz_bridge`: fiducials on the table (2026-09-24)
+
+**What:**
+- `rviz_bridge_node` subscribes to `/fiducials` (`custom_interfaces/FiducialsList`, pixels of the raw image) and
+  publishes `/fiducials/markers` in `world`:
+  - `DELETEALL` first;
+  - then per fiducial a closed yellow outline (ns `fiducial_outline`), a line from the centre to the middle of edge
+    0→1 (ns `fiducial_direction`), and a label `#<id>` (ns `fiducial_label`), all with `id` = marker id.
+- A fiducial is skipped when not all four corner rays hit the table, as the hands do with their landmarks.
+- `par_framework.rviz` gets a **Fiducials** MarkerArray display; the README table lists the topics.
+
+**Why:** your request, next after objects, hands and the projection area. The corner order is OpenCV's (clockwise
+from the marker's top left), which `fiducials_detector` passes through unchanged and computes its `angle` from
+edge 0→1. So the direction line shows the same rotation the detector reports, which matters for fiducials used as
+tangibles.
+
+**Decisions:**
+- Built on the committed hands code (`on_hands`) and in its style.
+- Yellow, because orange is already the left hand.
+- The centre is the mean of the projected corners, not the projected `x/y_centroid` pixel: under perspective they
+  differ slightly, and the corners are what is drawn.
+
+**Tested (host):**
+- `colcon test`: 5 tests, 0 failures.
+- End to end in an isolated domain: `par_framework.launch.py rviz:=true`, with stand-ins for `camera_info` and the
+  optical TF and a stand-in fiducial (id 7, 150 px, rotated 20°).
+- `/fiducials/markers` held `DELETEALL`, a 5-point closed outline with ~0.087 m sides (150 px at fx ≈ 1724, 1 m),
+  the direction line and `#7`. The RViz screenshot shows the rotated yellow marker inside the projection area,
+  Global Status OK.
+- Nothing was left running.

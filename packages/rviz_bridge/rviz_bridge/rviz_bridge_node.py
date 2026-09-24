@@ -1,7 +1,8 @@
 # Written by Claude Code
-"""Republish framework outputs as RViz markers: objects, hands and the projection area."""
+"""Republish framework outputs as RViz markers: objects, hands, fiducials, projection area."""
 
-from custom_interfaces.msg import HandLandmarksList, ObjectList, ProjectionCorners
+from custom_interfaces.msg import (FiducialsList, HandLandmarksList, ObjectList,
+                                   ProjectionCorners)
 from geometry_msgs.msg import Point
 import numpy as np
 import rclpy
@@ -24,6 +25,8 @@ TOPIC_NAME_OBJECT_MARKERS = '/objects/markers'
 TOPIC_NAME_PROJECTION_MARKERS = '/projection_corners/markers'
 TOPIC_NAME_HANDS = '/hand_landmarks'
 TOPIC_NAME_HAND_MARKERS = '/hand_landmarks/markers'
+TOPIC_NAME_FIDUCIALS = '/fiducials'
+TOPIC_NAME_FIDUCIAL_MARKERS = '/fiducials/markers'
 # The table is the plane z = 0 of this frame
 TABLE_FRAME = 'world'
 CORNER_NAMES = ('top_left', 'top_right', 'bottom_right', 'bottom_left')
@@ -56,6 +59,8 @@ HAND_CONNECTIONS = ((0, 1), (1, 2), (2, 3), (3, 4),         # thumb
                     (13, 14), (14, 15), (15, 16),           # ring finger
                     (0, 17), (17, 18), (18, 19), (19, 20),  # pinky
                     (5, 9), (9, 13), (13, 17))              # palm
+# Fiducials lie flat on the table like the objects; yellow, as orange is the left hand
+FIDUCIAL_COLOR = ColorRGBA(r=1.0, g=0.85, b=0.1, a=1.0)
 # The corners arrive once, the calibration and TF possibly later: the area is redrawn periodically
 AREA_PERIOD_SEC = 1.0
 WARNING_PERIOD_SEC = 5.0
@@ -87,6 +92,11 @@ class RvizBridgeNode(Node):
         self.create_subscription(ProjectionCorners, TOPIC_NAME_PROJECTION_CORNERS,
                                  self.on_projection_corners, LATCHED_QOS)
         self.create_subscription(HandLandmarksList, TOPIC_NAME_HANDS, self.on_hands, QUEUE_SIZE)
+        self.create_subscription(FiducialsList, TOPIC_NAME_FIDUCIALS, self.on_fiducials,
+                                 QUEUE_SIZE)
+        self.fiducial_marker_publisher = self.create_publisher(MarkerArray,
+                                                               TOPIC_NAME_FIDUCIAL_MARKERS,
+                                                               QUEUE_SIZE)
         self.hand_marker_publisher = self.create_publisher(MarkerArray, TOPIC_NAME_HAND_MARKERS,
                                                            QUEUE_SIZE)
         self.object_marker_publisher = self.create_publisher(MarkerArray,
@@ -178,6 +188,51 @@ class RvizBridgeNode(Node):
             markers.markers += [joints, bones, label]
 
         self.hand_marker_publisher.publish(markers)
+
+    def on_fiducials(self, msg):
+        projection = self.__projection(msg.header.frame_id, 'fiducials')
+        if projection is None:
+            return
+
+        markers = MarkerArray()
+        # Removes the previous frame's markers first, so fiducials that are gone disappear
+        markers.markers.append(Marker(action=Marker.DELETEALL))
+        header = Header(stamp=msg.header.stamp, frame_id=TABLE_FRAME)
+        for fiducial in msg.fiducials:
+            # OpenCV's corner order: clockwise from the marker's top left
+            corners = [(fiducial.x0, fiducial.y0), (fiducial.x1, fiducial.y1),
+                       (fiducial.x2, fiducial.y2), (fiducial.x3, fiducial.y3)]
+            hits = pixels_to_table(corners, *projection)
+            # Rays that miss the table are dropped, which would shift which corner is which
+            if len(hits) != len(corners):
+                continue
+            points = [Point(x=x, y=y, z=OUTLINE_HEIGHT) for x, y, _ in hits]
+            center_x, center_y, _ = hits.mean(axis=0)
+
+            outline = Marker(header=header, ns='fiducial_outline', id=fiducial.id,
+                             type=Marker.LINE_STRIP, color=FIDUCIAL_COLOR,
+                             points=points + points[:1])
+            outline.scale.x = LINE_WIDTH
+            # From the centre to the middle of the first edge, the marker's top: shows its
+            # rotation, the same edge fiducials_detector computes its angle from
+            top_x, top_y, _ = (hits[0] + hits[1]) / 2
+            direction = Marker(header=header, ns='fiducial_direction', id=fiducial.id,
+                               type=Marker.LINE_LIST, color=FIDUCIAL_COLOR,
+                               points=[Point(x=center_x, y=center_y, z=OUTLINE_HEIGHT),
+                                       Point(x=top_x, y=top_y, z=OUTLINE_HEIGHT)])
+            direction.scale.x = LINE_WIDTH
+            label = Marker(header=header, ns='fiducial_label', id=fiducial.id,
+                           type=Marker.TEXT_VIEW_FACING, color=LABEL_COLOR,
+                           # No space: RViz draws it far too wide at this text size
+                           text=f'#{fiducial.id}')
+            label.scale.z = TEXT_SIZE
+            label.pose.position = Point(x=center_x, y=center_y, z=LABEL_HEIGHT)
+            for marker in (outline, direction, label):
+                marker.pose.orientation.w = 1.0
+
+            markers.markers += [outline, direction, label]
+
+        self.fiducial_marker_publisher.publish(markers)
 
     def publish_projection_area(self):
         corners = self.projection_corners
