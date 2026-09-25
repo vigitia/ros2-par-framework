@@ -1,0 +1,21 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<!-- Written by Claude Code -->
+<package format="3">
+  <name>par_geometry</name>
+  <version>0.1.0</version>
+  <description>Coordinate conversions of the PAR framework: camera pixels to the table plane (metres in world) and the table plane to projector pixels. A library, no node.</description>
+  <maintainer email="vitus.maierhoefer@gmail.com">vitus</maintainer>
+  <license>MIT</license>
+
+  <exec_depend>python3-numpy</exec_depend>
+  <!-- OpenCV comes from requirements.txt (opencv-contrib-python), like in the other nodes -->
+
+  <test_depend>ament_flake8</test_depend>
+  <test_depend>ament_pep257</test_depend>
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

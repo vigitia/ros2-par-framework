@@ -1,5 +1,10 @@
 # Written by Claude Code
-"""Project image pixels onto the table plane, free of ROS plumbing."""
+"""
+Coordinate conversions of the PAR framework, free of ROS plumbing.
+
+camera pixels --pixels_to_table--> table (metres, z = 0 of world) --table_to_projector-->
+projector pixels, and back with projector_to_table.
+"""
 
 import cv2
 import numpy as np
@@ -33,3 +38,26 @@ def pixels_to_table(pixels, k, d, rotation, translation):
     hits = translation + s[:, None] * rays
     # s <= 0: the ray points away from the table; not finite: it runs parallel to it
     return hits[np.isfinite(s) & (s > 0)]
+
+
+def apply_homography(h, points):
+    """Map Nx2 points through the 3x3 homography h and return them as an Nx2 array."""
+    points = np.asarray(points, np.float64).reshape(-1, 1, 2)
+    if len(points) == 0:
+        return np.empty((0, 2))
+    return cv2.perspectiveTransform(points, np.asarray(h, np.float64)).reshape(-1, 2)
+
+
+def homography_from_msg(msg):
+    """Return the table-to-projector homography of a ProjectionMapping message as 3x3 array."""
+    return np.reshape(msg.homography, (3, 3))
+
+
+def table_to_projector(h, points):
+    """Map Nx2 table points (x, y in metres) to projector pixels with the homography h."""
+    return apply_homography(h, points)
+
+
+def projector_to_table(h, points):
+    """Map Nx2 projector pixels to table points (x, y in metres), the inverse of h."""
+    return apply_homography(np.linalg.inv(h), points)

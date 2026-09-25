@@ -27,7 +27,7 @@ launch files and `config/par_setup.yaml` only, no nodes. Glue nodes get their ow
 ./scripts/launch.sh [name] [args]   # ros2 launch par_framework_core <name>.launch.py
 ./scripts/launch.sh calibration display_id:=1
 
-./scripts/local_build.sh [pkg]      # host-only: clone nodes, rosdep, .venv, colcon build -- no Docker
+./scripts/local_build.sh [pkg]      # host-only: clone nodes, rosdep, .venv, colcon build -- no Docker; preferred for locally testing the nodes 
 ```
 
 Tests are the standard `ament` lint suite each package carries (`test_flake8`, `test_pep257`,
@@ -103,9 +103,33 @@ receives nothing, silently and without error. New image subscribers must request
 `QoSReliabilityPolicy.BEST_EFFORT` explicitly. For third-party subscribers that can't be changed, the Brio's
 `qos_reliability: reliable` (and `encoding: rgb8` for nodes that expect RGB) in `par_setup.yaml` is the switch.
 
-The opposite trap for rarely changing state: `/projection_corners` is published latched (RELIABLE +
-TRANSIENT_LOCAL, depth 1, like `/tf_static`). A subscriber must request `QoSDurabilityPolicy.TRANSIENT_LOCAL`,
-otherwise it only receives the next change and a node started later sees nothing.
+The opposite trap for rarely changing state: `/projection_corners` and `/projection_mapping` are published latched
+(RELIABLE + TRANSIENT_LOCAL, depth 1, like `/tf_static`). A subscriber must request
+`QoSDurabilityPolicy.TRANSIENT_LOCAL`, otherwise it only receives the next change and a node started later sees
+nothing.
+
+### Coordinates: camera pixels → table → projector pixels
+
+Detectors publish in pixels of the raw camera image. The common currency is the **table plane in metres**: z = 0
+of `world`, whose pose relative to the camera is `/brio_tf_publisher` in `par_setup.yaml`.
+- camera pixels → table: `par_geometry.pixels_to_table` (undistorts with `camera_info`, intersects the rays with
+  the plane via TF);
+- table → projector pixels: the homography on the latched `/projection_mapping`
+  (`custom_interfaces/ProjectionMapping`), applied with `par_geometry.table_to_projector` /
+  `projector_to_table`.
+
+Consumers convert locally with `par_geometry`, the one place for this math. They do not call a service per point,
+and images never go through a service. The mapping comes from `projection_calibration.launch.py`: the projector
+shows ArUco markers (ids 90–98) at known pixels, `fiducials_detector` finds them, and `projection_calibrator` (in
+`surface_selector`) fits the homography and sends it to `projection_mapping_node`, which stores
+`config/projection_mapping_<camera>.yaml` (`brio` or `kinect`) next to `par_setup.yaml`. One file per camera, because
+while the camera poses are placeholders each camera has its own table plane, so a mapping only fits the camera it was
+calibrated with.
+
+Because both steps use the same plane, projection accuracy does not depend on the camera pose being exact; the
+metric scale in RViz does. Points above the table (hands) land offset by parallax: the homography only covers
+the plane. The clicked `/projection_corners` are a manual fallback and are named in camera terms, not
+projector terms.
 
 ## Container constraints
 
@@ -113,6 +137,10 @@ Load-bearing settings in `docker-compose.yaml`, not conveniences: `network_mode:
 multicast, which does not traverse the bridge network), `privileged: true` + `/dev:/dev` (USB cameras plugged
 in after start), X11 socket + `$XAUTHORITY` mounts (RViz and the fullscreen projector window; the container
 runs as root, so the host needs `xhost +local:root` — `setup.sh` does this).
+
+The image has no Azure Kinect SDK (`K4A` has no rosdep rule, and there are no packages for current Ubuntu), so
+`rosdep` runs with `--skip-keys K4A` and `build_workspace.sh` skips `azure_kinect_ros_driver`: the Kinect runs on the
+host (`local_build.sh`), and nothing in `par_framework_core` may declare the driver, or a Brio-only build breaks.
 
 `.env` is machine-local and gitignored; `setup.sh` generates it from `.env.example` and fills in `DISPLAY` /
 `XAUTHORITY`. `ROS_DISTRO` there drives both the base image tag and the compose image tag.

@@ -44,8 +44,9 @@ network, so both copies of a node would publish on the same topics.
 ```bash
 source /opt/ros/lyrical/setup.bash     # the distro from ROS_DISTRO in .env
 
-# apt dependencies from every package.xml; --ignore-src skips packages that are in the workspace
-rosdep install --from-paths src packages --ignore-src -y
+# apt dependencies from every package.xml; --ignore-src skips packages that are in the workspace,
+# --skip-keys K4A the Azure Kinect SDK, which rosdep cannot install (see notes below)
+rosdep install --from-paths src packages --ignore-src -y --skip-keys K4A
 
 # PyPI dependencies go into one shared venv in the repo root (gitignored).
 # --system-site-packages keeps rclpy, cv_bridge and colcon from apt importable.
@@ -85,6 +86,12 @@ A few notes:
   run `ros2 daemon stop` after changing it. The container sets it in `docker-compose.yaml`, so host terminals
   that talk to container nodes need it too. In fish, use
   `set -gx FASTDDS_BUILTIN_TRANSPORTS LARGE_DATA` instead.
+- **Azure Kinect: host only.** Its driver needs the Azure Kinect Sensor SDK (`libk4a1.4` and its `-dev`
+  headers, plus the udev rule `99-k4a.rules` for access without root). rosdep has no rule for it, and Microsoft
+  only publishes packages for older Ubuntu releases, so it is installed by hand on the host. The Docker image
+  does not have it: `./scripts/build_workspace.sh` skips the driver, and a Brio-only setup never needs it. The
+  driver clone in `src/azure_kinect_ros_driver` carries local, uncommitted patches for this ROS distro (see
+  `claude_usage_documentation.md`); deleting the clone loses them.
 
 ## Layout
 
@@ -95,9 +102,13 @@ docker/Dockerfile           runtime environment (ROS + dependencies, no node sou
 docker-compose.yaml         how the container is run: devices, X11, networking
 packages/                   this repo's own ROS packages, built together with src/
   par-framework-core/       launch files + parameters (package par_framework_core)
-    launch/                 par_framework.launch.py, calibration.launch.py
+    launch/                 par_framework.launch.py, calibration.launch.py, projection_calibration.launch.py,
+                            par_framework_kinect.launch.py, projection_calibration_kinect.launch.py (Azure Kinect)
     config/par_setup.yaml   camera id, resolution, projector display — edit this per setup
+    par_framework_core/     launch_helpers.py: node start functions shared by the launch files
+  par_geometry/             library: camera pixels -> table (m) -> projector pixels
   projection_corners/       node: holds the projection corners, publishes them on /projection_corners
+  projection_mapping/       node: holds the table-to-projector homography, publishes /projection_mapping
   rviz_bridge/              node: framework outputs RViz cannot show (e.g. /objects) as markers
 scripts/                    the individual steps setup.sh runs, usable on their own
 src/                        node repositories, cloned by setup.sh (not tracked here)
@@ -143,13 +154,15 @@ newly referenced external package (`std_msgs`, `geometry_msgs`, …) in **both**
 | --- | --- | --- |
 | `custom_interfaces` | `ros2-par-framework-interfaces` | shared message, service and action definitions |
 | `logitech_brio` | `ros2-logitech-brio` | publishes camera frames on `/camera/brio/image_raw` (+ `/compressed`) and `CameraInfo` on `/camera/brio/camera_info` |
-| `surface_selector` | `ros2-par-framework-calibration` | subscribes to `/camera/brio/image_raw`, lets you mark the projection area |
+| `surface_selector` | `ros2-par-framework-calibration` | subscribes to `/camera/brio/image_raw`, lets you mark the projection area; `projection_calibrator` calibrates the table-to-projector mapping automatically from projected ArUco markers seen on `/fiducials` |
 | `object_detector` | `ros2-par-framework-object-detection` | detects objects in `/camera/brio/image_raw/compressed`, publishes them in image pixels on `/objects` |
 | `fiducials_detector` | `ros2-par-framework-fiducials` | detects fiducial markers in `/camera/brio/image_raw`, publishes them on `/fiducials` |
 | `hand_landmarks` | `ros2-par-framework-hand-landmarks` | tracks hands in `/camera/brio/image_raw` with MediaPipe, publishes their landmarks in image pixels on `/hand_landmarks` |
 | `par_framework_core` | this repo | launch files and per-setup parameters |
+| `par_geometry` | this repo | library: `pixels_to_table`, `table_to_projector`, `projector_to_table` — the coordinate conversions every node shares |
+| `projection_mapping` | this repo | stores the homography from `projection_calibrator` in `config/projection_mapping_<camera>.yaml` (one per camera), publishes it latched on `/projection_mapping` |
 | `projection_corners` | this repo | stores the corners from `surface_selector` in `config/projection_corners.yaml`, publishes them latched on `/projection_corners` |
-| `rviz_bridge` | this repo | projects `/objects`, `/hand_landmarks`, `/fiducials` and `/projection_corners` onto the table as `/objects/markers`, `/hand_landmarks/markers`, `/fiducials/markers` and `/projection_corners/markers` for RViz |
+| `rviz_bridge` | this repo | projects `/objects`, `/hand_landmarks`, `/fiducials`, `/projection_corners` and `/projection_mapping` onto the table as `/objects/markers`, `/hand_landmarks/markers`, `/fiducials/markers`, `/projection_corners/markers` and `/projection_mapping/markers` for RViz |
 
 Camera frames are published **best-effort, keep-last-1** — a late frame is worthless because a newer one
 already exists. Any subscriber must explicitly request `BEST_EFFORT` too; a subscriber left on the default

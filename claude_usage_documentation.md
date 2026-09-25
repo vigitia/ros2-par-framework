@@ -579,3 +579,219 @@ tangibles.
   the direction line and `#7`. The RViz screenshot shows the rotated yellow marker inside the projection area,
   Global Status OK.
 - Nothing was left running.
+
+### Table → projector mapping, the ROS way (2026-09-24)
+
+**What (plan steps 1–4, approved):**
+- **`packages/par_geometry/`** (new library, no node): `rotation_matrix` and `pixels_to_table` moved here unchanged
+  from `rviz_bridge/rviz_bridge.py` (checked with `diff`), plus `apply_homography`, `table_to_projector`,
+  `projector_to_table` and `homography_from_msg`. Its test absorbed the old `test_rviz_bridge.py` and adds a
+  homography round trip. `rviz_bridge_node.py` imports from `par_geometry`.
+- **`packages/projection_mapping/`** (new glue node), built like `projection_corners`:
+  - loads `projection_mapping.yaml` from `projection_mapping_file`;
+  - publishes latched `/projection_mapping` (`custom_interfaces/ProjectionMapping`, RELIABLE + TRANSIENT_LOCAL);
+  - `/set_projection_mapping` validates (non-empty frame, projector size > 0, 9 finite values, |det| ≥ 1e-12),
+    saves and republishes.
+  - `.gitignore` ignores its file.
+- **Launch:**
+  - the start functions moved into `par_framework_core/launch_helpers.py`, since a third launch file needed them;
+    `next_to_params_file()` is the shared realpath trick;
+  - new `projection_calibration.launch.py` starts the Brio, `brio_tf_publisher`, `fiducials_detector`,
+    `projection_mapping` and `projection_calibrator`, and ends via `on_exit=Shutdown()` once the calibrator is done;
+  - `par_framework.launch.py` also starts `projection_mapping`.
+- **`par_setup.yaml`:** new `projection_calibrator_node` block (display, projector resolution, dictionary, marker
+  ids 90–98, size, error threshold).
+- **`par_framework_core/package.xml`:** declares `projection_mapping`, `fiducials_detector` and `surface_selector`
+  (the latter was launched but never declared).
+- **`rviz_bridge`:** subscribes `/projection_mapping` and draws the projector's four corner pixels, mapped back with
+  `projector_to_table`, as a magenta outline on `/projection_mapping/markers` (redrawn every second);
+  `par_framework.rviz` gets a "Projector (calibrated)" display.
+- **Docs:** `CLAUDE.md` has a section on the coordinate chain and the latched mapping; README layout and table.
+
+**Why:** your request after reviewing VIGITIA's `homography_service`. It served a camera → projector homography
+from clicked corners through four services (per-point round trips, whole images per frame), on distorted pixels,
+with orientation hacks, and named the corners in camera terms. Now the table plane in metres is the common
+currency: detections reach it through `par_geometry` (undistorted, via TF), the projector through one latched
+homography, and consumers convert locally. Corner identity comes from the projector's side (marker ids), so no
+orientation flags are needed. Your decisions: the calibrator lives in `surface_selector`; `projection_corners` and
+the click tool stay as a fallback.
+
+**Deviations from the plan:**
+- `table_to_projector`/`projector_to_table` take the 3×3 matrix, and `homography_from_msg` builds it, so the
+  functions also work without a message (the calibrator uses them that way).
+- The synthetic test ran the nodes individually instead of through the launch file, so the stand-in data couldn't
+  mix with real detector output.
+
+**Tested (host, isolated domain 42):**
+- `colcon test`: `par_geometry` 7/7, `projection_mapping` 5/5, `rviz_bridge` 2/2; `surface_selector` all 6 logic
+  tests pass, and its lint failures are only the known old findings in `display_info.py` and
+  `show_white_fullscreen.py`.
+- All three launch files load (`--show-args`).
+- **Synthetic end to end:**
+  - a "true" mapping from your stored projection corners, the Brio calibration and the placeholder pose;
+  - stand-in `/fiducials` = the marker corners projected into the camera with `cv2.projectPoints`, including
+    distortion;
+  - the real calibrator fitted 9 markers / 1080 corners at 0.0006 px RMS, stored through the real owner (exit 0);
+  - a late Transient Local subscriber received the mapping;
+  - the stored homography deviates from the true one by at most 0.0005 px over all 36 marker corners.
+- RViz: the magenta calibrated outline lies exactly on the blue clicked area, Global Status OK.
+- The test files lived in a temporary directory; no repo file was written, and nothing was left running (the domain
+  42 `ros2` daemon was stopped).
+- Not yet run with the real projector.
+
+### Azure Kinect launch files (2026-09-25)
+
+**What:**
+- **`par_framework_kinect.launch.py`** (new): starts the Azure Kinect driver, `world -> camera_base`, `object_detector`,
+  `fiducials_detector`, `hand_landmarks`, `projection_corners`, `projection_mapping`, `rviz_bridge` and RViz
+  (always on, since this launch exists to show the setup) with the new `par_framework_kinect.rviz`.
+- **`projection_calibration_kinect.launch.py`** (new): `projection_calibration.launch.py` with the Kinect instead of
+  the Brio. It needs no `camera_info_url`, because the Kinect publishes its factory calibration.
+- **`par_framework_kinect.rviz`** (new): a copy of `par_framework.rviz` with the Kinect's topics and a `PointCloud2`
+  display on `/points2` (RGB8, Best Effort).
+- **`launch_helpers.py`:**
+  - `brio_tf_publisher` became `mount_tf_publisher(context, name, child_frame_id)`, and both Brio launch files call it
+    with `args=['brio_tf_publisher', 'brio_link']`;
+  - new `KINECT_REMAPPINGS` maps the Brio's image, compressed image and camera_info topics to the Kinect's
+    `/rgb/...` topics.
+- **`par_setup.yaml`:** `k4a_ros_device_node` (1080P bgra colour, NFOV_UNBINNED depth, 30 fps, coloured cloud in the
+  depth frame) and `/kinect_tf_publisher` (the same placeholder pose as the Brio).
+- **`package.xml`:** declares `object_detector`, `hand_landmarks` and `compressed_image_transport`. README layout
+  updated.
+
+**Why:**
+- **Remapping instead of parameters or code changes:** `hand_landmarks`, `rviz_bridge` and `projection_calibrator`
+  hard-code `/camera/brio/camera_info`, so only a remapping reaches them without edits in three node repos.
+  - Alternative: namespace the driver as `/camera/brio`. Rejected, because it would present the Kinect as the Brio,
+    and the detectors' optional depth topic `/depth_to_rgb/image_raw` expects the driver without a namespace.
+- **Driver started as a plain `Node` with `params_file`,** not through Microsoft's `driver.launch.py`:
+  - its settings then live in `par_setup.yaml` like every other hardware constant;
+  - its `robot_state_publisher`/`joint_state_publisher` only draw a 3D model of the camera;
+  - there is no `name=` override, because the driver runs several rclcpp nodes in one process and would rename all
+    of them.
+- **`compressed_image_transport`:** `object_detector` subscribes to `CompressedImage`, but the driver publishes raw
+  frames (bgra, needed for the coloured cloud). With the plugin installed, the driver's `image_transport` also offers
+  `/rgb/image_raw/compressed`.
+  - Alternative: `color_format: jpeg`. Rejected: then no raw image is published for the other detectors, and there
+    is no coloured cloud.
+- **Point cloud in the depth frame, NFOV_UNBINNED:** about 370k points instead of about 2M per frame, and 30 fps;
+  WFOV_UNBINNED is limited to 15 fps.
+- **`azure_kinect_ros_driver` not declared in `package.xml`:** it does not build on lyrical yet (see below), and
+  colcon would then skip `par_framework_core`, breaking the Brio launch files too.
+
+**Tested:**
+- All four launch files parse (`--show-args`).
+- `ament_flake8` is clean on the changed files.
+- `mount_tf_publisher` produces the expected flags for the Brio and the Kinect.
+- **Not run with the camera:** the driver fails to build on lyrical (`Unknown CMake command
+  "ament_target_dependencies"` in `CMakeLists.txt:49`; upstream `foxy-devel` targets older distros).
+  `src/azure_kinect_ros_driver` also has no `.git`, so `sync_nodes.sh` cannot update it.
+
+### Azure Kinect driver: extended repo, branch fix (2026-09-25)
+
+**What:** `config/nodes.list` now fetches `azure_kinect_ros_driver` from branch `main` instead of `foxy-devel`. You had
+already switched the URL to `nlouman/azure_kinect_ros_driver_extended`, and that repo has only `main`, so
+`sync_nodes.sh` would have failed on the old branch name.
+
+**Why this repo:** it adds live-adjustable colour controls (exposure, white balance, gain, ...) to Microsoft's
+driver. Your decision: use it without a fork for now.
+
+**Local patches in the clone** (in `src/azure_kinect_ros_driver`, not in this repository; lost when the clone is
+deleted). They are needed on lyrical:
+1. `CMakeLists.txt`: `ament_target_dependencies` (removed) → `target_link_libraries` with exported targets.
+2. The `tf2`/`cv_bridge` includes `.h` → `.hpp`, because the `.h` headers were removed.
+3. `k4a_ros_device.cpp`: `ImageTransport(static_cast<rclcpp::Node::SharedPtr>(this))` → `ImageTransport(*this)`.
+   The `shared_ptr` owned the node, and newer image_transport releases it at once, which deleted the driver
+   mid-construction.
+4. `CMakeLists.txt`: install the executable only to `lib/azure_kinect_ros_driver`. With the old double destination,
+   `--symlink-install` put it in `bin/`, where `ros2 run` does not look.
+
+**Tested with the Kinect** (isolated domain 42, `par_setup.yaml` settings):
+- `/rgb/image_raw` at 30.1 Hz, 1920 wide;
+- `/points2` at 28.7 Hz in `depth_camera_link`;
+- `/rgb/camera_info` in `rgb_camera_link` with the factory `rational_polynomial` calibration;
+- TF `camera_base -> rgb_camera_link` is published;
+- the log has only the driver's normal time-sync warnings.
+
+### Kinect: object_detector on raw frames (2026-09-25)
+
+**What:**
+- `par_framework_kinect.launch.py` passes `object_detector` `topic_name_frame: /rgb/image_raw`. `framework_node`
+  takes optional parameter overrides for that.
+- `KINECT_REMAPPINGS` lost the `/compressed` rule.
+- `package.xml` lost `compressed_image_transport` and the comment about the undeclared driver.
+
+**Why:** `object_detector` now accepts raw `Image` topics (a change in its repo), so the driver no longer has to JPEG
+every 1080p frame for it. The plugin was only there for that.
+
+**Tested:** driver plus detector live, `/objects` at 27.3 Hz; `ament_flake8` is clean.
+
+### Kinect: driver declared, full launch tested (2026-09-25)
+
+**What:** `par_framework_core/package.xml` declares `azure_kinect_ros_driver`, which builds now thanks to the local
+patches in its clone.
+
+**Tested:** `par_framework_kinect.launch.py` live with the Kinect and RViz (domain 42).
+- All nodes start, and RViz subscribes to `/points2`.
+- Measured rates: `/rgb/image_raw` 18.6 Hz, `/points2` 13.4 Hz, `/hand_landmarks` 7.5 Hz, `/hand_landmarks/markers`
+  14.1 Hz. `/objects` and `/fiducials` were published, but `ros2 topic hz` got no reading on the loaded machine.
+- **The CPU is saturated:** driver 214 %, `fiducials_detector` 201 %, `object_detector` 116 %, RViz 106 %,
+  `hand_landmarks` 101 %; memory was 11 of 14 GB. Run alone, the driver and `object_detector` reach 30 and 27 Hz.
+  Not changed yet; the options are listed in the reply.
+- `rviz_bridge` warns every second that `world <- brio_optical_frame` is missing: the stored `projection_corners.yaml`
+  was clicked in the Brio image and does not apply to the Kinect.
+
+### Kinect point cloud off, projector on display 3 (2026-09-25)
+
+**What:**
+- `par_setup.yaml`: `point_cloud` and `rgb_point_cloud` are `false`, and the RViz "Kinect point cloud" display is
+  disabled. `rgb_point_cloud` requires `point_cloud`, and an enabled display without a topic shows a permanent error.
+- `display_id: 3` for `surface_selector_node` and `projection_calibrator_node`, since both drive the same projector.
+
+**Why:** your request. The coloured cloud was the largest part of the driver's CPU load while everything ran
+together, and it is not needed for detection. You named display 3 as the projector; pygame lists it at
+1920x1080, which matches `projector_width`/`projector_height`.
+
+### Per-camera projector mapping, Kinect optional for the build, wrong-intrinsics warning (2026-09-25)
+
+**What:**
+- **One mapping file per camera:**
+  - `projection_mapping_node(context, camera)` stores `config/projection_mapping_<camera>.yaml`; the Brio launch
+    files pass `brio`, the Kinect ones `kinect`;
+  - the existing file (the Kinect calibration from 15:07) was renamed to `projection_mapping_kinect.yaml`;
+  - `.gitignore` covers `projection_mapping_*.yaml`; `CLAUDE.md`, the README and the launch docstrings were updated.
+- **The Kinect no longer breaks the build:**
+  - `azure_kinect_ros_driver` is no longer declared in `par_framework_core/package.xml`;
+  - `rosdep` runs with `--skip-keys K4A` in `docker/Dockerfile`, `scripts/local_build.sh` and the README's manual
+    steps;
+  - `scripts/build_workspace.sh` (the container build) passes `--packages-skip azure_kinect_ros_driver`;
+  - the README gets a "host only" note (SDK, udev rule, local patches in the clone), and `CLAUDE.md` gets a sentence
+    in its container section.
+- **Wrong-intrinsics warning:** `rviz_bridge`'s `__projection` warns (throttled) when `camera_info.header.frame_id`
+  differs from the pixels' frame. `projection_calibrator` got the same check (in `surface_selector`, see that
+  repo's log). Both carry on after warning.
+
+**Why:**
+- **Mapping:** with placeholder poses, each camera's `world` plane is its own, so one shared file would have
+  silently mis-projected after switching cameras.
+  - Alternative: recalibrate on every switch. Rejected: easy to forget.
+  - Alternative: measure both poses. Rejected for now: effort, and it adds a source of error.
+- **Build:** `K4A` has no rosdep rule, so `rosdep install` failed for everyone (confirmed with `--simulate`).
+  - The image cannot build the driver at all without the SDK, and the declaration made colcon skip
+    `par_framework_core`, the Brio launch files included.
+  - Alternative: install the SDK in the image. Rejected: Microsoft only packages it for old Ubuntu releases.
+- **Warning:** it catches intrinsics from the wrong camera (e.g. a forgotten remapping) wherever pixels become
+  table points, not only in today's launch files.
+
+**Tested:**
+- `rosdep install --simulate --skip-keys K4A` exits 0. `bash -n` passes on both scripts, all four launch files
+  parse, `rviz_bridge` passes 2/2 tests, and `ament_flake8` is clean on the changed files. `surface_selector` fails
+  only on the known old findings in `display_info.py`/`show_white_fullscreen.py`.
+- Fake mismatch (camera_info `brio_optical_frame`, fiducials `rgb_camera_link`): the warning fires.
+- Kinect live:
+  - `/projection_mapping` carries 1.6889 px, i.e. the renamed Kinect file;
+  - the warning fires only for the projection area, a true positive: its corners were clicked in the Brio image;
+  - there is no warning for objects, hands or fiducials.
+- **Not tested:** the Docker image build and the Brio live (not connected).
+- **Found:** the Kinect driver aborts intermittently on Ctrl-C (1 of 3 runs): its camera thread calls
+  `count_subscribers()` after the context is shut down. This is in the driver, not fixed.

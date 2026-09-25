@@ -28,10 +28,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # changes, not when node code does.
 COPY docker/deps/ /tmp/deps/
 
-# ROS and apt dependencies from every package.xml.
+# ROS and apt dependencies from every package.xml. K4A (the Azure Kinect SDK) has no rosdep rule
+# and no packages for current Ubuntu releases, so the image does not have it and the Kinect driver
+# is not built here (see scripts/build_workspace.sh); the Kinect runs on the host.
 RUN apt-get update && \
     rosdep update --rosdistro ${ROS_DISTRO} && \
-    rosdep install --from-paths /tmp/deps --ignore-src -y --rosdistro ${ROS_DISTRO} && \
+    rosdep install --from-paths /tmp/deps --ignore-src -y --rosdistro ${ROS_DISTRO} --skip-keys K4A && \
     rm -rf /var/lib/apt/lists/*
 
 # PyPI dependencies from every requirements.txt. All files go into a single pip

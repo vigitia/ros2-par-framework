@@ -20,6 +20,7 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+from par_framework_core.launch_helpers import logitech_brio_node, projection_corners_node
 
 PACKAGE_NAME = 'par_framework_core'
 
@@ -57,39 +58,3 @@ def generate_launch_description():
         # Stores the corners surface_selector sends and publishes them on /projection_corners
         OpaqueFunction(function=projection_corners_node),
     ])
-
-
-# Co-authored by Claude Code
-def logitech_brio_node(context):
-    """Start the Brio with params_file, and camera_info_url on top if it is given."""
-    parameters = [LaunchConfiguration('params_file').perform(context)]
-    # Only added when set: an empty value would replace the URL from params_file with '', which
-    # the node reads as the default ~/.ros/camera_info/ instead
-    camera_info_url = LaunchConfiguration('camera_info_url').perform(context)
-    if camera_info_url:
-        parameters.append({'camera_info_url': camera_info_url})
-    return [Node(
-        package='logitech_brio',
-        executable='logitech_brio',
-        name='logitech_brio_node',
-        output='screen',
-        emulate_tty=True,
-        parameters=parameters,
-    )]
-
-
-# Co-authored by Claude Code
-def projection_corners_node(context):
-    """Start the projection corners owner with its file next to the real par_setup.yaml."""
-    # realpath follows the --symlink-install links back to the source folder, so the file is saved
-    # where it survives rebuilds, on the host and in the container alike
-    params_file = os.path.realpath(LaunchConfiguration('params_file').perform(context))
-    corners_file = os.path.join(os.path.dirname(params_file), 'projection_corners.yaml')
-    return [Node(
-        package='projection_corners',
-        executable='projection_corners',
-        name='projection_corners_node',
-        output='screen',
-        emulate_tty=True,
-        parameters=[{'projection_corners_file': corners_file}],
-    )]

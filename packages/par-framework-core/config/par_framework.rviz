@@ -48,6 +48,18 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /projection_corners/markers
+    # Projector image on the table from the calibrated mapping (projection_calibrator); should
+    # coincide with the clicked projection area
+    - Class: rviz_default_plugins/MarkerArray
+      Enabled: true
+      Name: Projector (calibrated)
+      Namespaces: {}
+      Topic:
+        Depth: 10
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /projection_mapping/markers
     # Objects from the object detector, projected onto the table by rviz_bridge
     - Class: rviz_default_plugins/MarkerArray
       Enabled: true

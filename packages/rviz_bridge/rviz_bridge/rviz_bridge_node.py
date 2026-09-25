@@ -1,10 +1,12 @@
 # Written by Claude Code
-"""Republish framework outputs as RViz markers: objects, hands, fiducials, projection area."""
+"""Republish framework outputs as RViz markers: objects, hands, fiducials, projection."""
 
 from custom_interfaces.msg import (FiducialsList, HandLandmarksList, ObjectList,
-                                   ProjectionCorners)
+                                   ProjectionCorners, ProjectionMapping)
 from geometry_msgs.msg import Point
 import numpy as np
+from par_geometry.par_geometry import (homography_from_msg, pixels_to_table,
+                                       projector_to_table, rotation_matrix)
 import rclpy
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
@@ -14,8 +16,6 @@ from sensor_msgs.msg import CameraInfo
 from std_msgs.msg import ColorRGBA, Header
 from tf2_ros import Buffer, TransformException, TransformListener
 from visualization_msgs.msg import Marker, MarkerArray
-
-from .rviz_bridge import pixels_to_table, rotation_matrix
 
 NODE_NAME = 'rviz_bridge_node'
 TOPIC_NAME_OBJECTS = '/objects'
@@ -27,6 +27,8 @@ TOPIC_NAME_HANDS = '/hand_landmarks'
 TOPIC_NAME_HAND_MARKERS = '/hand_landmarks/markers'
 TOPIC_NAME_FIDUCIALS = '/fiducials'
 TOPIC_NAME_FIDUCIAL_MARKERS = '/fiducials/markers'
+TOPIC_NAME_PROJECTION_MAPPING = '/projection_mapping'
+TOPIC_NAME_MAPPING_MARKERS = '/projection_mapping/markers'
 # The table is the plane z = 0 of this frame
 TABLE_FRAME = 'world'
 CORNER_NAMES = ('top_left', 'top_right', 'bottom_right', 'bottom_left')
@@ -43,6 +45,9 @@ LABEL_COLOR = ColorRGBA(r=1.0, g=1.0, b=1.0, a=1.0)
 AREA_HEIGHT = 0.001
 AREA_OUTLINE_COLOR = ColorRGBA(r=0.2, g=0.5, b=1.0, a=1.0)
 AREA_FILL_COLOR = ColorRGBA(r=0.2, g=0.5, b=1.0, a=0.25)
+# The calibrated projector outline, between the clicked area and the object outlines
+PROJECTOR_HEIGHT = 0.0015
+PROJECTOR_COLOR = ColorRGBA(r=1.0, g=0.2, b=0.8, a=1.0)
 # Hands are drawn where their landmarks' camera rays hit the table, like a shadow straight below
 # the camera, just above the object outlines
 HAND_HEIGHT = 0.003
@@ -83,6 +88,7 @@ class RvizBridgeNode(Node):
         super().__init__(NODE_NAME)
         self.camera_info = None
         self.projection_corners = None
+        self.projection_mapping = None
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
 
@@ -105,7 +111,14 @@ class RvizBridgeNode(Node):
         self.area_marker_publisher = self.create_publisher(MarkerArray,
                                                            TOPIC_NAME_PROJECTION_MARKERS,
                                                            QUEUE_SIZE)
+        self.create_subscription(ProjectionMapping, TOPIC_NAME_PROJECTION_MAPPING,
+                                 self.on_projection_mapping, LATCHED_QOS)
+        self.mapping_marker_publisher = self.create_publisher(MarkerArray,
+                                                              TOPIC_NAME_MAPPING_MARKERS,
+                                                              QUEUE_SIZE)
         self.create_timer(AREA_PERIOD_SEC, self.publish_projection_area)
+        # RViz subscribes Volatile, so a late RViz needs the outline repeated as well
+        self.create_timer(AREA_PERIOD_SEC, self.publish_projector_outline)
 
     def on_camera_info(self, msg):
         self.camera_info = msg
@@ -113,6 +126,28 @@ class RvizBridgeNode(Node):
     def on_projection_corners(self, msg):
         self.projection_corners = msg
         self.publish_projection_area()
+
+    def on_projection_mapping(self, msg):
+        self.projection_mapping = msg
+        self.publish_projector_outline()
+
+    def publish_projector_outline(self):
+        """Draw where the calibrated projector image lies on the table."""
+        mapping = self.projection_mapping
+        if mapping is None:
+            return
+        width, height = mapping.projector_width, mapping.projector_height
+        # The projector's corners back onto the table: no camera needed, only the mapping
+        corners = projector_to_table(homography_from_msg(mapping),
+                                     [(0, 0), (width, 0), (width, height), (0, height)])
+        points = [Point(x=x, y=y, z=PROJECTOR_HEIGHT) for x, y in corners]
+        outline = Marker(header=Header(stamp=self.get_clock().now().to_msg(),
+                                       frame_id=mapping.header.frame_id),
+                         ns='projector_outline', id=0, type=Marker.LINE_STRIP,
+                         color=PROJECTOR_COLOR, points=points + points[:1])
+        outline.scale.x = LINE_WIDTH
+        outline.pose.orientation.w = 1.0
+        self.mapping_marker_publisher.publish(MarkerArray(markers=[outline]))
 
     def on_objects(self, msg):
         projection = self.__projection(msg.header.frame_id, 'objects')
@@ -283,6 +318,12 @@ class RvizBridgeNode(Node):
                 f'No calibrated camera info on {TOPIC_NAME_CAMERA_INFO} yet, {what} not shown',
                 throttle_duration_sec=WARNING_PERIOD_SEC)
             return None
+        # Intrinsics of another camera than the one that saw the pixels, e.g. a missing remapping
+        if self.camera_info.header.frame_id != frame_id:
+            self.get_logger().warning(
+                f'camera_info is for frame {self.camera_info.header.frame_id}, but the pixels of '
+                f'{what} are in frame {frame_id}: wrong intrinsics?',
+                throttle_duration_sec=WARNING_PERIOD_SEC)
         # The transform is static, so the latest one (Time()) is also the one at the image's
         # capture time
         try:

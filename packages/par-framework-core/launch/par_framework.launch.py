@@ -14,7 +14,8 @@ params_file points the Brio calibration into the container; on the host, from th
     ros2 launch par_framework_core par_framework.launch.py \\
         camera_info_url:="file://$PWD/src/logitech_brio/calibration/\\${NAME}.yaml"
 
-The Brio mount transform and the RViz option were written with the help of Claude Code.
+The Brio mount transform, the RViz option and the projection nodes were written with the help
+of Claude Code; the start functions live in par_framework_core/launch_helpers.py.
 """
 
 import os
@@ -26,7 +27,9 @@ from launch.actions import DeclareLaunchArgument, OpaqueFunction
 from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
-import yaml
+from par_framework_core.launch_helpers import (logitech_brio_node, mount_tf_publisher,
+                                               projection_corners_node,
+                                               projection_mapping_node)
 
 PACKAGE_NAME = 'par_framework_core'
 
@@ -56,10 +59,12 @@ def generate_launch_description():
 
         # Where the Brio is mounted: world -> brio_link, pose from params_file. The node itself
         # publishes brio_link -> brio_optical_frame. Frame names must match the Brio node.
-        OpaqueFunction(function=brio_tf_publisher),
+        OpaqueFunction(function=mount_tf_publisher, args=['brio_tf_publisher', 'brio_link']),
 
         # Publishes the stored projection corners on /projection_corners
         OpaqueFunction(function=projection_corners_node),
+        # Publishes the stored table-to-projector mapping on /projection_mapping
+        OpaqueFunction(function=projection_mapping_node, args=['brio']),
 
         Node(
             package='rviz2',
@@ -78,60 +83,3 @@ def generate_launch_description():
             condition=IfCondition(LaunchConfiguration('rviz')),
         ),
     ])
-
-
-# Co-authored by Claude Code
-def logitech_brio_node(context):
-    """Start the Brio with params_file, and camera_info_url on top if it is given."""
-    parameters = [LaunchConfiguration('params_file').perform(context)]
-    # Only added when set: an empty value would replace the URL from params_file with '', which
-    # the node reads as the default ~/.ros/camera_info/ instead
-    camera_info_url = LaunchConfiguration('camera_info_url').perform(context)
-    if camera_info_url:
-        parameters.append({'camera_info_url': camera_info_url})
-    return [Node(
-        package='logitech_brio',
-        executable='logitech_brio',
-        name='logitech_brio_node',
-        output='screen',
-        emulate_tty=True,
-        parameters=parameters,
-    )]
-
-
-# Co-authored by Claude Code
-def brio_tf_publisher(context):
-    """Publish world -> brio_link with the pose from the parameter file."""
-    # static_transform_publisher takes its transform only as command-line flags: parameters from a
-    # file are overridden by the flags' defaults, and without --frame-id it does not start. So the
-    # pose is read from the parameter file here, which is only possible once params_file is known.
-    with open(LaunchConfiguration('params_file').perform(context)) as f:
-        pose = yaml.safe_load(f)['/brio_tf_publisher']['ros__parameters']
-    arguments = ['--frame-id', 'world', '--child-frame-id', 'brio_link']
-    for axis in 'xyz':
-        arguments += [f'--{axis}', str(pose[f'translation.{axis}'])]
-    for axis in 'xyzw':
-        arguments += [f'--q{axis}', str(pose[f'rotation.{axis}'])]
-    return [Node(
-        package='tf2_ros',
-        executable='static_transform_publisher',
-        name='brio_tf_publisher',
-        arguments=arguments,
-    )]
-
-
-# Co-authored by Claude Code
-def projection_corners_node(context):
-    """Start the projection corners owner with its file next to the real par_setup.yaml."""
-    # realpath follows the --symlink-install links back to the source folder, so the file is saved
-    # where it survives rebuilds, on the host and in the container alike
-    params_file = os.path.realpath(LaunchConfiguration('params_file').perform(context))
-    corners_file = os.path.join(os.path.dirname(params_file), 'projection_corners.yaml')
-    return [Node(
-        package='projection_corners',
-        executable='projection_corners',
-        name='projection_corners_node',
-        output='screen',
-        emulate_tty=True,
-        parameters=[{'projection_corners_file': corners_file}],
-    )]

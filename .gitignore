@@ -7,9 +7,10 @@
 # Machine-local configuration.
 /.env
 
-# Projection corners of this physical setup, written by projection_corners_node when surface_selector stores a new
-# selection.
+# Calibration of this physical setup, written by nodes: the projection corners (projection_corners_node, from
+# surface_selector) and the table-to-projector mapping (projection_mapping_node, from projection_calibrator).
 /packages/par-framework-core/config/projection_corners.yaml
+/packages/par-framework-core/config/projection_mapping_*.yaml
 
 # colcon output. These folders will be created when the nodes in src/ are built locally, outside the Docker container
 /build/

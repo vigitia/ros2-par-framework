@@ -26,7 +26,8 @@ have rosdep || die "rosdep not found -- sudo apt install python3-rosdep && sudo 
 have colcon || die "colcon not found -- sudo apt install python3-colcon-common-extensions"
 
 step "Installing apt dependencies (rosdep)"
-rosdep install --from-paths src packages --ignore-src -y
+# K4A (the Azure Kinect SDK) has no rosdep rule: install it by hand, see README.md
+rosdep install --from-paths src packages --ignore-src -y --skip-keys K4A
 
 step "Installing PyPI dependencies into .venv"
 if [[ ! -d .venv ]]; then

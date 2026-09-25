@@ -1,0 +1,129 @@
+# Written by Claude Code
+# RViz view of the PAR setup with the Azure Kinect (par_framework_kinect.launch.py): world grid, TF frames,
+# the Kinect's colour frustum (drawn by the CameraInfo display from /rgb/camera_info), its live image and its
+# coloured depth point cloud. Copy of par_framework.rviz with the Kinect's topics; Best Effort also receives
+# from the driver's Reliable publishers.
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+Visualization Manager:
+  Class: ""
+  Displays:
+    - Class: rviz_default_plugins/Grid
+      Enabled: true
+      Name: Grid
+      Reference Frame: <Fixed Frame>
+    - Class: rviz_default_plugins/TF
+      Enabled: true
+      Name: TF
+      Marker Scale: 0.3
+      Show Names: true
+    - Class: rviz_default_plugins/CameraInfo
+      Enabled: true
+      Name: Kinect frustum
+      # Length of the frustum in metres, i.e. how far from the camera it is drawn
+      Far clip: 1
+      Topic:
+        Depth: 1
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /rgb/camera_info
+    - Class: rviz_default_plugins/Image
+      Enabled: true
+      Name: Kinect image
+      Topic:
+        Depth: 1
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /rgb/image_raw
+    # Coloured depth point cloud from the Kinect driver, in depth_camera_link
+    - Class: rviz_default_plugins/PointCloud2
+      # Off while point_cloud is off in par_setup.yaml
+      Enabled: false
+      Name: Kinect point cloud
+      Style: Points
+      Size (Pixels): 2
+      Color Transformer: RGB8
+      Decay Time: 0
+      Topic:
+        Depth: 1
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /points2
+    # Projection area selected with surface_selector, projected onto the table by rviz_bridge
+    - Class: rviz_default_plugins/MarkerArray
+      Enabled: true
+      Name: Projection area
+      Namespaces: {}
+      Topic:
+        Depth: 10
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /projection_corners/markers
+    # Projector image on the table from the calibrated mapping (projection_calibrator); should
+    # coincide with the clicked projection area
+    - Class: rviz_default_plugins/MarkerArray
+      Enabled: true
+      Name: Projector (calibrated)
+      Namespaces: {}
+      Topic:
+        Depth: 10
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /projection_mapping/markers
+    # Objects from the object detector, projected onto the table by rviz_bridge
+    - Class: rviz_default_plugins/MarkerArray
+      Enabled: true
+      Name: Objects
+      Namespaces: {}
+      Topic:
+        Depth: 10
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /objects/markers
+    # Hands from hand_landmarks, projected onto the table by rviz_bridge
+    - Class: rviz_default_plugins/MarkerArray
+      Enabled: true
+      Name: Hands
+      Namespaces: {}
+      Topic:
+        Depth: 10
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /hand_landmarks/markers
+    # Fiducial markers from fiducials_detector, projected onto the table by rviz_bridge
+    - Class: rviz_default_plugins/MarkerArray
+      Enabled: true
+      Name: Fiducials
+      Namespaces: {}
+      Topic:
+        Depth: 10
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /fiducials/markers
+  Global Options:
+    Fixed Frame: world
+    Frame Rate: 30
+  Tools:
+    - Class: rviz_default_plugins/MoveCamera
+  Value: true
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      Distance: 3
+      Focal Point:
+        X: 0
+        Y: 0
+        Z: 0.5
+      Pitch: 0.5
+      Yaw: 0.8
+      Target Frame: <Fixed Frame>
+      Value: Orbit (rviz_default_plugins)
