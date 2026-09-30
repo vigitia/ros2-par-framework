@@ -21,8 +21,9 @@ Visualization Manager:
     - Class: rviz_default_plugins/CameraInfo
       Enabled: true
       Name: Kinect frustum
-      # Length of the frustum in metres, i.e. how far from the camera it is drawn
-      Far clip: 1
+      # Length of the frustum in metres, i.e. how far from the camera it is drawn: the Kinect's
+      # height above the table (/kinect_tf_publisher in par_setup.yaml), so it ends on the table
+      Far clip: 0.97
       Topic:
         Depth: 1
         Durability Policy: Volatile

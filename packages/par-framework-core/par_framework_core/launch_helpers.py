@@ -32,13 +32,25 @@ def logitech_brio_node(context):
 
 
 def mount_tf_publisher(context, name, child_frame_id):
-    """Publish world -> child_frame_id with the pose stored under /<name> in the parameter file."""
+    """
+    Publish world -> child_frame_id: the measured camera pose, or else the placeholder.
+
+    The placeholder is stored under /<name> in the parameter file. The measurement is
+    camera_pose_<camera>.yaml next to it, written by camera_pose_calibrator (<camera> is <name>
+    without _tf_publisher), and is used while that file exists.
+    """
     # static_transform_publisher takes its transform only as command-line flags: parameters from
     # a file are overridden by the flags' defaults, and without --frame-id it does not start. So
-    # the pose is read from the parameter file here, which is only possible once params_file is
-    # known.
-    with open(LaunchConfiguration('params_file').perform(context)) as f:
-        pose = yaml.safe_load(f)[f'/{name}']['ros__parameters']
+    # the pose is read from the file here, which is only possible once params_file is known.
+    source = next_to_params_file(context, f'camera_pose_{name.removesuffix("_tf_publisher")}.yaml')
+    if os.path.exists(source):
+        with open(source) as f:
+            pose = yaml.safe_load(f)
+    else:
+        source = LaunchConfiguration('params_file').perform(context)
+        with open(source) as f:
+            pose = yaml.safe_load(f)[f'/{name}']['ros__parameters']
+    print(f'[launch_helpers]: {name}: camera pose from {source}')
     arguments = ['--frame-id', 'world', '--child-frame-id', child_frame_id]
     for axis in 'xyz':
         arguments += [f'--{axis}', str(pose[f'translation.{axis}'])]

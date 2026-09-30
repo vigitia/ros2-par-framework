@@ -1,6 +1,7 @@
 # Written by Claude Code
 """Load, save and check the table-to-projector mapping file, free of ROS plumbing."""
 
+from datetime import datetime
 import math
 import os
 
@@ -23,10 +24,12 @@ def load(path):
 
 
 def save(path, mapping):
-    """Write the mapping dict to path."""
+    """Write the mapping dict to path, with the time it was stored as 'measured'."""
+    # Same key and format as camera_pose_calibrator's pose file
+    stored = {**mapping, 'measured': datetime.now().isoformat(timespec='seconds')}
     with open(path, 'w') as f:
         f.write(FILE_HEADER)
-        yaml.safe_dump(mapping, f, sort_keys=False, default_flow_style=None)
+        yaml.safe_dump(stored, f, sort_keys=False, default_flow_style=None)
 
 
 def validate(mapping):

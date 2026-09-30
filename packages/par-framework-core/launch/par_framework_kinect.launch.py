@@ -64,11 +64,15 @@ def generate_launch_description():
         OpaqueFunction(function=mount_tf_publisher, args=['kinect_tf_publisher', 'camera_base']),
 
         # Raw frames: the driver publishes no JPEGs, and compressing 1080p at 30 fps only for the
-        # detector to decode it again would cost CPU, latency and image quality
+        # detector to decode it again would cost CPU, latency and image quality. 3D top outlines
+        # from the registered depth, as for the markers and hands
         framework_node('object_detector', 'object_detector_node',
-                       {'topic_name_frame': '/rgb/image_raw'}),
-        framework_node('fiducials_detector', 'fiducials_detector_node'),
-        framework_node('hand_landmarks', 'hand_landmarks_node'),
+                       {'topic_name_frame': '/rgb/image_raw', 'use_depth': True}),
+        # 3D marker corners from the Kinect's registered depth, as for the hands
+        framework_node('fiducials_detector', 'fiducials_detector_node', {'use_depth': True}),
+        # 3D landmark positions from the Kinect's depth, registered to the colour image
+        # (/depth_to_rgb/image_raw, which the driver only computes while someone subscribes)
+        framework_node('hand_landmarks', 'hand_landmarks_node', {'use_depth': True}),
 
         # Publish the stored projection corners and table-to-projector mapping
         OpaqueFunction(function=projection_corners_node),

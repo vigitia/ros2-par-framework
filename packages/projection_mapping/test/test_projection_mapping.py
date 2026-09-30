@@ -1,6 +1,8 @@
 # Written by Claude Code
 """Check saving, loading and validating the projection mapping file."""
 
+from datetime import datetime, timedelta
+
 from projection_mapping.projection_mapping import load, save, validate
 
 MAPPING = {
@@ -19,7 +21,11 @@ def test_missing_file_means_no_mapping(tmp_path):
 def test_save_and_load_round_trip(tmp_path):
     path = str(tmp_path / 'projection_mapping.yaml')
     save(path, MAPPING)
-    assert load(path) == MAPPING
+    loaded = load(path)
+    # The time it was stored, to the second
+    assert abs(datetime.fromisoformat(loaded.pop('measured')) - datetime.now()) < timedelta(
+        seconds=5)
+    assert loaded == MAPPING
 
 
 def test_validate():

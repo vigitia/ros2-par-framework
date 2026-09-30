@@ -159,19 +159,26 @@ class RvizBridgeNode(Node):
         markers.markers.append(Marker(action=Marker.DELETEALL))
         header = Header(stamp=msg.header.stamp, frame_id=TABLE_FRAME)
         for obj in msg.objects:
-            # The hull has far fewer points than the contour and is enough for an outline
-            pixels = ([(p.x, p.y) for p in obj.hull_contour or obj.contour]
-                      or [(obj.center_x, obj.center_y)])
-            hits = pixels_to_table(pixels, *projection)
-            if len(hits) == 0:
-                continue
+            if obj.hull_contour_3d:
+                # Measured with a depth camera (object_detector with use_depth): the top outline
+                # drawn where it is, moved from the optical frame into the table frame
+                _, _, rotation, translation = projection
+                camera = np.array([(p.x, p.y, p.z) for p in obj.hull_contour_3d])
+                hits = camera @ rotation.T + translation
+            else:
+                # The hull has far fewer points than the contour and is enough for an outline
+                pixels = ([(p.x, p.y) for p in obj.hull_contour or obj.contour]
+                          or [(obj.center_x, obj.center_y)])
+                hits = pixels_to_table(pixels, *projection)
+                if len(hits) == 0:
+                    continue
+                hits[:, 2] = OUTLINE_HEIGHT
 
             outline = Marker(header=header, ns='outline', id=obj.object_id,
                              type=Marker.LINE_STRIP, color=OUTLINE_COLOR)
             outline.scale.x = LINE_WIDTH
             # Repeating the first point closes the outline
-            outline.points = [Point(x=x, y=y, z=OUTLINE_HEIGHT)
-                              for x, y, _ in np.vstack([hits, hits[:1]])]
+            outline.points = [Point(x=x, y=y, z=z) for x, y, z in np.vstack([hits, hits[:1]])]
 
             center = hits.mean(axis=0)
             label = Marker(header=header, ns='label', id=obj.object_id,
@@ -179,7 +186,7 @@ class RvizBridgeNode(Node):
                            # No space: RViz draws it far too wide at this text size
                            text=f'{obj.class_name}#{obj.object_id}')
             label.scale.z = TEXT_SIZE
-            label.pose.position = Point(x=center[0], y=center[1], z=LABEL_HEIGHT)
+            label.pose.position = Point(x=center[0], y=center[1], z=center[2] + LABEL_HEIGHT)
             label.pose.orientation.w = 1.0
 
             markers.markers += [outline, label]
@@ -196,27 +203,47 @@ class RvizBridgeNode(Node):
         markers.markers.append(Marker(action=Marker.DELETEALL))
         header = Header(stamp=msg.header.stamp, frame_id=TABLE_FRAME)
         for hand in msg.hands:
-            hits = pixels_to_table([(lm.x, lm.y) for lm in hand.hand_landmarks], *projection)
-            # Rays that miss the table are dropped, which would shift the ids the bones refer to
-            if len(hits) != NUM_HAND_LANDMARKS:
+            # One entry per landmark, None where it has no position
+            if len(hand.hand_landmarks_3d) == NUM_HAND_LANDMARKS:
+                # Measured with a depth camera (hand_landmarks with use_depth): drawn where they
+                # are, moved from the optical frame into the table frame
+                _, _, rotation, translation = projection
+                camera = np.array([(lm.x, lm.y, lm.z) for lm in hand.hand_landmarks_3d])
+                table = camera @ rotation.T + translation
+                # z <= 0 (in front of the camera is z > 0): -1, -1, -1 marks "no depth"
+                points = [Point(x=x, y=y, z=z) if depth > 0 else None
+                          for (x, y, z), depth in zip(table, camera[:, 2])]
+            else:
+                hits = pixels_to_table([(lm.x, lm.y) for lm in hand.hand_landmarks],
+                                       *projection)
+                # Rays that miss the table are dropped, which would shift the ids the bones
+                # refer to
+                if len(hits) != NUM_HAND_LANDMARKS:
+                    continue
+                points = [Point(x=x, y=y, z=HAND_HEIGHT) for x, y, _ in hits]
+            valid = [point for point in points if point is not None]
+            if not valid:
                 continue
             color = HAND_COLORS.get(hand.handedness, LABEL_COLOR)
-            points = [Point(x=x, y=y, z=HAND_HEIGHT) for x, y, _ in hits]
 
             joints = Marker(header=header, ns='hand_joints', id=hand.id, type=Marker.SPHERE_LIST,
-                            color=color, points=points)
+                            color=color, points=valid)
             joints.scale.x = joints.scale.y = joints.scale.z = JOINT_SIZE
-            # LINE_LIST draws one line per pair of points
-            bone_points = [points[i] for connection in HAND_CONNECTIONS for i in connection]
+            # LINE_LIST draws one line per pair of points; bones to a landmark without a position
+            # are left out
+            bone_points = [points[i] for connection in HAND_CONNECTIONS
+                           if None not in (points[connection[0]], points[connection[1]])
+                           for i in connection]
             bones = Marker(header=header, ns='hand_bones', id=hand.id, type=Marker.LINE_LIST,
                            color=color, points=bone_points)
             bones.scale.x = LINE_WIDTH
-            # Above the wrist (landmark 0)
+            # Above the wrist (landmark 0), or the first landmark with a position
+            anchor = points[0] if points[0] is not None else valid[0]
             label = Marker(header=header, ns='hand_label', id=hand.id,
                            type=Marker.TEXT_VIEW_FACING, color=LABEL_COLOR,
                            text=f'{hand.handedness}#{hand.id}')
             label.scale.z = TEXT_SIZE
-            label.pose.position = Point(x=points[0].x, y=points[0].y, z=LABEL_HEIGHT)
+            label.pose.position = Point(x=anchor.x, y=anchor.y, z=anchor.z + LABEL_HEIGHT)
             for marker in (joints, bones, label):
                 marker.pose.orientation.w = 1.0
 
@@ -235,14 +262,22 @@ class RvizBridgeNode(Node):
         header = Header(stamp=msg.header.stamp, frame_id=TABLE_FRAME)
         for fiducial in msg.fiducials:
             # OpenCV's corner order: clockwise from the marker's top left
-            corners = [(fiducial.x0, fiducial.y0), (fiducial.x1, fiducial.y1),
-                       (fiducial.x2, fiducial.y2), (fiducial.x3, fiducial.y3)]
-            hits = pixels_to_table(corners, *projection)
-            # Rays that miss the table are dropped, which would shift which corner is which
-            if len(hits) != len(corners):
-                continue
-            points = [Point(x=x, y=y, z=OUTLINE_HEIGHT) for x, y, _ in hits]
-            center_x, center_y, _ = hits.mean(axis=0)
+            if len(fiducial.corners_3d) == 4:
+                # Measured with a depth camera (fiducials_detector with use_depth): drawn where
+                # the marker is, moved from the optical frame into the table frame
+                _, _, rotation, translation = projection
+                camera = np.array([(p.x, p.y, p.z) for p in fiducial.corners_3d])
+                hits = camera @ rotation.T + translation
+            else:
+                corners = [(fiducial.x0, fiducial.y0), (fiducial.x1, fiducial.y1),
+                           (fiducial.x2, fiducial.y2), (fiducial.x3, fiducial.y3)]
+                hits = pixels_to_table(corners, *projection)
+                # Rays that miss the table are dropped, which would shift which corner is which
+                if len(hits) != len(corners):
+                    continue
+                hits[:, 2] = OUTLINE_HEIGHT
+            points = [Point(x=x, y=y, z=z) for x, y, z in hits]
+            center = hits.mean(axis=0)
 
             outline = Marker(header=header, ns='fiducial_outline', id=fiducial.id,
                              type=Marker.LINE_STRIP, color=FIDUCIAL_COLOR,
@@ -250,18 +285,18 @@ class RvizBridgeNode(Node):
             outline.scale.x = LINE_WIDTH
             # From the centre to the middle of the first edge, the marker's top: shows its
             # rotation, the same edge fiducials_detector computes its angle from
-            top_x, top_y, _ = (hits[0] + hits[1]) / 2
+            top = (hits[0] + hits[1]) / 2
             direction = Marker(header=header, ns='fiducial_direction', id=fiducial.id,
                                type=Marker.LINE_LIST, color=FIDUCIAL_COLOR,
-                               points=[Point(x=center_x, y=center_y, z=OUTLINE_HEIGHT),
-                                       Point(x=top_x, y=top_y, z=OUTLINE_HEIGHT)])
+                               points=[Point(x=center[0], y=center[1], z=center[2]),
+                                       Point(x=top[0], y=top[1], z=top[2])])
             direction.scale.x = LINE_WIDTH
             label = Marker(header=header, ns='fiducial_label', id=fiducial.id,
                            type=Marker.TEXT_VIEW_FACING, color=LABEL_COLOR,
                            # No space: RViz draws it far too wide at this text size
                            text=f'#{fiducial.id}')
             label.scale.z = TEXT_SIZE
-            label.pose.position = Point(x=center_x, y=center_y, z=LABEL_HEIGHT)
+            label.pose.position = Point(x=center[0], y=center[1], z=center[2] + LABEL_HEIGHT)
             for marker in (outline, direction, label):
                 marker.pose.orientation.w = 1.0
 

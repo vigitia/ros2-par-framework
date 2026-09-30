@@ -795,3 +795,195 @@ together, and it is not needed for detection. You named display 3 as the project
 - **Not tested:** the Docker image build and the Brio live (not connected).
 - **Found:** the Kinect driver aborts intermittently on Ctrl-C (1 of 3 runs): its camera thread calls
   `count_subscribers()` after the context is shut down. This is in the driver, not fixed.
+
+### Hands in 3D in RViz (2026-09-25)
+
+**What:**
+- **`rviz_bridge` `on_hands`:** hands with 21 `hand_landmarks_3d` (`hand_landmarks` with `use_depth`) are drawn
+  where they were measured, moved from the optical frame into `world` with the same TF pose (`p @ R.T + t`).
+  - Landmarks without depth (`z <= 0`, the message's -1) are left out, together with their bones.
+  - Without 3D positions (e.g. the Brio), the hands are projected onto the table as before.
+  - The label sits `LABEL_HEIGHT` above the wrist (or the first landmark with a position) instead of at a fixed
+    height.
+- **`par_framework_kinect.launch.py`:** `hand_landmarks` gets `use_depth: true`.
+
+**Why:** your request, hand landmarks in 3D. The driver only computes `/depth_to_rgb/image_raw` while it has a
+subscriber, so it costs nothing without depth. The 3D math lives in `hand_landmarks`, which has the depth image,
+while `rviz_bridge` only transforms. `par_geometry` stays the place for pixel-to-table math.
+
+**Tested:** `rviz_bridge` passes 2/2 tests including flake8. Live, the pipeline runs (about 10 hand messages/s); a
+hand's 3D markers are not tested yet (no hand in view).
+
+**Live test with a hand (2026-09-25):** RViz draws the hands in 3D. Joint markers are 0.04-0.35 m above `world`
+(median 0.24 m), where before they were all at 3 mm. The heights depend on the Kinect pose in `par_setup.yaml`,
+which is still the placeholder.
+
+### Fiducials in 3D in RViz (2026-09-25)
+
+**What:**
+- **`rviz_bridge` `on_fiducials`:** fiducials with four `corners_3d` (fiducials_detector with `use_depth`) are moved
+  from the optical frame into `world` (`p @ R.T + t`) and drawn there: outline, direction line, and the label
+  `LABEL_HEIGHT` above the centre.
+  - Without 3D, they are projected onto the table as before, now through the same code (`hits`, z = `OUTLINE_HEIGHT`).
+- **`par_framework_kinect.launch.py`:** `fiducials_detector` gets `use_depth: true`. `projection_calibration_kinect`
+  stays without depth: the calibrator needs only the pixel corners.
+
+**Why:** your request, markers in 3D like the hands.
+
+**Tested:** `rviz_bridge` passes 2/2 tests including flake8, and the Kinect launch parses. Live test pending.
+
+### Kinect frustum reaches the table (2026-09-25)
+
+**What:** `par_framework_kinect.rviz`: the frustum's `Far clip` goes from 1 to 1.5, the Kinect's height in
+`/kinect_tf_publisher`.
+
+**Why:** with the Kinect at 1.5 m, RViz drew the 1 m frustum ending 0.5 m above the table. `Far clip` is the frustum's
+length from the camera, so it has to follow the mount height. (The same edit is on branch
+`projector-res-from-display`.)
+
+**Tested:** the installed config (symlink-install) reads `Far clip: 1.5`.
+
+### Kinect height measured: 0.97 m (2026-09-25)
+
+**What:** `/kinect_tf_publisher` `translation.z` goes from 1.5 to 0.97 in `par_setup.yaml`, and `Far clip` in
+`par_framework_kinect.rviz` goes to 0.97 as well.
+
+**Why:**
+- 1.5 m was the projector's height, entered as the Kinect's.
+- With `use_depth`, hand landmarks are placed at `configured height − measured depth`, so a hand on the table
+  floated about 0.5 m above it.
+- The projector's height appears nowhere in the config: the homography covers it. The Kinect mapping has to be
+  recalibrated with the new pose.
+
+**Tested:** the installed config reads 0.97 for both values. **Not tested:** live in RViz.
+
+### Stale Brio projection corners moved aside (2026-09-25)
+
+**What:** `config/projection_corners.yaml` was renamed to `config/projection_corners_old_brio.yaml`.
+
+**Why:** the corners were clicked in the Brio image of the old setup (`frame_id: brio_optical_frame`). The Kinect launch
+republished them, and `rviz_bridge` rightly warned about Kinect intrinsics with Brio pixels. Without the file,
+`projection_corners_node` publishes nothing. Projection itself uses the homography and is unaffected.
+- Alternative: stop starting `projection_corners_node` in the Kinect launch files. Deferred: that file holds
+  uncommitted `use_depth` work.
+
+### Objects in 3D (2026-09-29)
+
+**What:**
+- **`rviz_bridge` `on_objects`:** objects with `hull_contour_3d` (object_detector with `use_depth`) are drawn as their
+  top outline where it was measured, moved from the optical frame into `world` (`p @ R.T + t`). Without it, they are
+  projected onto the table as before. The label sits `LABEL_HEIGHT` above the outline's centre.
+- **`par_framework_kinect.launch.py`:** `object_detector` gets `use_depth: True`.
+- **`par_setup.yaml`:** new `object_detector_node` entry with `min_object_height: 0.0`, the optional filter for flat
+  detections (e.g. pictures projected onto the table), off by default.
+- `custom_interfaces` gets `Object.center_3d` / `hull_contour_3d`. The detector work is on branch `object-depth` in
+  `src/object_detector`; both repos have their own log entries.
+
+**Why:** your request, depth for objects like the markers and hands.
+- The detector computes the 3D values, as the other two detectors do, and `rviz_bridge` only transforms them.
+- The flat-object threshold is a per-setup value (depth-camera noise), so it lives in `par_setup.yaml`.
+- Alternatives (a separate node, per-point depth, 3D boxes) are in `src/object_detector`'s log.
+
+**Tested:** `rviz_bridge` passes 2/2 tests including flake8, and the Kinect launch parses. **Not tested:** live
+(Kinect not connected).
+
+### Projector calibration pattern at 4K (2026-09-30)
+
+**What:** `par_setup.yaml`, `projection_calibrator_node`: new `projector_width: 3840` / `projector_height: 2160`, and
+`marker_size_px` 250 -> 500.
+
+**Why:** the projector is now a 4K one on display 2 (`HDMI-1`, 3840x2160 per `xrandr --listmonitors` and pygame). The
+calibrator renders its marker pattern at `projector_width` x `projector_height`, which default to 1920x1080 and were
+not set: on the 4K display the pattern would fill only the top-left quarter, and the stored mapping would carry the
+wrong resolution and be fitted from one corner of the projection. 500 px keeps the markers as large on the table as
+250 px was at 1080p.
+- Alternative: read the resolution from the display instead of parameters. That is what the `projector-res-from-display`
+  worktree in `src/surface_selector` is for; not touched here.
+- Alternative: keep `marker_size_px: 250`. Rejected: half the physical size, harder for the 1080p colour camera to
+  decode.
+
+**Not tested:** the calibration itself has not been run with these values yet.
+
+### camera_pose_calibrator no longer exhausts the memory (2026-09-30)
+
+**What:** `camera_pose_calibrator.py`, `fit_table_plane`: both `np.linalg.svd` calls get `full_matrices=False`.
+
+**Why:** with the Kinect in WFOV the calibrator froze the machine ("device memory is nearly full"). NumPy's default
+`full_matrices=True` also computes the N x N matrix `U`, of which nothing is used: about 8.4 GB for the ~32 000
+sampled points of a 1080p depth image, on a 14 GB machine. In NFOV only about half the pixels have depth (~2.4 GB), so
+it was slow but survived. The normal is a row of the 3 x 3 `Vt`, which is the same either way.
+- Alternative: a 3 x 3 covariance matrix and `np.linalg.eigh`. Same result and even less work, but a larger change
+  than one argument, and the reduced SVD already needs under 1 MB. It is also what `object_detector`'s `depth.py` does.
+- Alternative: a coarser `SAMPLE_STEP_PX`. Rejected: hides the problem, memory would still grow with N squared.
+
+**Tested:** the package's 4 math tests pass under a 4 GB memory limit, peak 244 MB, about 1 s.
+
+### camera_pose_calibrator finds the table next to floor (2026-09-30)
+
+**What:** `camera_pose_calibrator.py`, `fit_table_plane`: the trimmed fit now starts from the points on the best of
+200 planes through 3 random points (RANSAC, seeded, band `RANSAC_BAND_M` = 2 cm) instead of from all points. The
+trimming loop after it is unchanged. New test `test_floor_beside_the_table_is_ignored`.
+
+**Why:** with the Kinect moved and in WFOV, the calibrator refused an empty table: "only 2 % of the image is table".
+38 % of the depth points were the shelf and floor around the table, 10-80 cm lower. The first plane, fitted through
+all points, came out tilted 21 degrees and matched neither surface, so the 5 cm band around it kept 3.5 % of the points
+and the trimming never recovered. A trimmed least-squares fit only works while the table is nearly everything in view
+(NFOV, the old tests).
+- Alternative: a wider first band. Rejected: any start from all points has the same weakness, it only moves the limit.
+- Alternative: only use the image centre. Rejected: assumes where the table is, and measures tilt from a smaller area.
+- Alternative: `cv2`/scikit RANSAC helpers. Not needed: 10 lines of NumPy, no new dependency.
+- The seed makes the result repeatable: the same depth image gives the same pose.
+
+**Tested:** the new test fails without the change (0.98 m instead of 0.93 m) and passes with it; 5/5 math tests pass.
+On a frame from the real setup: 61.4 % table, RMS 1.8 mm, 0.958 m, tilt 8.7 degrees, 0.07 s, matching an independent
+RANSAC fit.
+
+### The measured camera pose is used, and the "clear table" check means what it says (2026-09-30)
+
+**What:**
+- **`launch_helpers.py` `mount_tf_publisher`:** uses `config/camera_pose_<camera>.yaml` next to `par_setup.yaml` while
+  it exists (`<camera>` is the publisher's name without `_tf_publisher`, so `kinect` / `brio`), otherwise the
+  placeholder under `/<name>` in `par_setup.yaml` as before. Prints which file the pose came from. All four launch
+  files go through this function, so none of them changed.
+- **`.gitignore`:** `config/camera_pose_*.yaml`, like the other calibration results of a physical setup.
+- **`par_setup.yaml`:** the comment of `/kinect_tf_publisher` says it is the placeholder and what overrides it.
+- **`camera_pose_calibrator.py`:** `fit_table_plane` also returns the share of points above the plane. New
+  `MAX_ABOVE_FRACTION = 0.1`; `MIN_TABLE_FRACTION` 0.5 -> 0.25. The file header says where the file has to be to be
+  used, and no longer exceeds the line length (the package's flake8 test passes again).
+- **`camera_pose_calibrator_node.py`:** refuses on the share above the table as well, and the median over the frames is
+  a masked median instead of `nanmedian`.
+- **Tests:** `test_only_what_is_above_the_table_counts_against_it`.
+
+**Why:**
+- The pose file's header claimed it was used instead of the placeholder, but nothing read it: the values had to be
+  copied into `par_setup.yaml` by hand.
+  - Alternative: only correct the header. Rejected: keeps the manual copy, and a measured pose pasted over the
+    placeholder cannot be told from one typed in.
+  - Alternative: a launch argument for the pose file. Rejected: a convention next to `par_setup.yaml` needs no
+    argument, as `projection_mapping_<camera>.yaml` already shows.
+- "At least 50 % table" left little margin in WFOV (61 % with an empty table), because the floor around the table
+  counts against it although it is harmless. What makes a measurement unreliable is what lies *above* the table:
+  clutter, or a plane below the table being the largest one. So that is measured directly.
+  - Alternative: only lower the limit. Rejected: with more floor than table in view the floor would be accepted as
+    the table. With the new check the table then counts as "above" and the measurement is refused.
+  - 0.25 stays as a lower limit so the tilt is measured from enough of the table.
+- `np.errstate` does not silence `nanmedian`'s "All-NaN slice" warning (it is a Python warning), printed for pixels
+  that never have depth. The masked median gives the same values (checked on random data) without it.
+
+**Tested:** 8/8 tests of `camera_pose_calibrator` incl. flake8; `launch_helpers.py` flake8-clean; `mount_tf_publisher`
+called with and without a pose file returns the measured pose and the placeholder; real frame: 61.4 % table, 0.3 %
+above. **Not tested:** the launch files themselves with the pose file in place.
+
+### Timestamp in the projection mapping file (2026-09-30)
+
+**What:** `projection_mapping.py` `save()` adds `measured: '<ISO time, to the second>'` to
+`projection_mapping_<camera>.yaml`. The round-trip test checks it.
+
+**Why:** your request: the same key and format as in `camera_pose_<camera>.yaml`, so it is visible when each
+calibration was made. The mapping depends on the camera pose, so a mapping older than the pose file is stale.
+- In `save()`, not in the node or the `ProjectionMapping` message: it is the time the file was written, and the
+  message, the calibrator and `custom_interfaces` stay unchanged.
+- Loading ignores the key (the node reads the keys it knows), and files without it still load.
+- Alternative: a comment line in the file header. Rejected: the pose file has it as a key, and a key can be read back.
+
+**Tested:** `projection_mapping` 5/5 tests incl. flake8. **Not tested:** a real calibration run writing the file.

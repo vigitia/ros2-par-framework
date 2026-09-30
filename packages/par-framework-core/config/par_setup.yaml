@@ -31,24 +31,32 @@ surface_selector_node:
   ros__parameters:
     topic_name_frame: /camera/brio/image_raw
     # Display the projector is connected to, as counted by pygame (0 = primary).
-    display_id: 3
+    display_id: 2
+
+object_detector_node:
+  ros__parameters:
+    # Only with use_depth (Kinect launch): objects lower than this above the table around them (metres) are not
+    # published, e.g. pictures of objects projected onto the table. 0 = off; about 0.015 is above the Kinect's noise.
+    min_object_height: 0.015
 
 # Automatic table-to-projector calibration (projection_calibration.launch.py).
 projection_calibrator_node:
   ros__parameters:
     # Display the projector is connected to, as counted by pygame (0 = primary).
-    display_id: 3
-    # Projector resolution in pixels. Must match the display: the markers are drawn at
-    # these pixel positions.
-    projector_width: 1920
-    projector_height: 1080
+    display_id: 2
+    # Resolution of that display, which the marker pattern is rendered at. Must match it
+    # (check with: xrandr --listmonitors), otherwise the pattern fills only part of the
+    # projection. Co-authored by Claude Code: 4K projector on HDMI-1.
+    projector_width: 3840
+    projector_height: 2160
     # ArUco dictionary without the DICT_ prefix. Must match fiducials_detector, which
     # uses 4X4_100 unless its dictionary parameter says otherwise.
     dictionary: 4X4_100
     # Ids of the projected markers (3x3 grid). Keep physical markers on the table out of
     # this range.
     marker_ids: [90, 91, 92, 93, 94, 95, 96, 97, 98]
-    marker_size_px: 200
+    # In projector pixels: 500 at 4K is as large on the table as 250 was at 1080p.
+    marker_size_px: 500
     # A fit with a larger RMS error in projector pixels is rejected.
     max_reprojection_error_px: 5.0
 
@@ -61,7 +69,7 @@ projection_calibrator_node:
   ros__parameters:
     translation.x: 0.0
     translation.y: 0.0
-    translation.z: 0.92
+    translation.z: 0.93
     rotation.x: 0.0
     rotation.y: 0.7071068
     rotation.z: 0.0
@@ -80,9 +88,9 @@ k4a_ros_device_node:
     # NFOV_UNBINNED: 640x576, 0.5-3.9 m, suits a table below the camera. The WFOV modes
     # see wider but WFOV_UNBINNED runs at most 15 fps.
     depth_enabled: true
-    depth_mode: NFOV_UNBINNED
+    depth_mode: WFOV_UNBINNED
     # 5, 15 or 30, for both cameras.
-    fps: 30
+    fps: 15
     # Coloured point cloud on /points2. In the depth frame it has the depth resolution
     # (~370k points) instead of the colour resolution (~2M points), which RViz handles
     # far better. Off for now: with all detectors running it saturates the CPU; turn
@@ -92,13 +100,15 @@ k4a_ros_device_node:
     point_cloud_in_depth_frame: true
 
 # Pose of the Kinect body frame (camera_base, x forward, z up) in world, in metres.
-# Placeholder like the Brio's: 1 m above world, looking straight down -- replace with
-# measured values. Read by the *_kinect launch files, see /brio_tf_publisher.
+# Placeholder: height measured on 2026-09-25 (front glass to table, 0.97 m), looking straight
+# down assumed. Read by the *_kinect launch files, see /brio_tf_publisher. They use
+# camera_pose_kinect.yaml next to this file instead while it exists: the pose measured by
+# camera_pose_calibrator (height and tilt from the depth image of the clear table).
 /kinect_tf_publisher:
   ros__parameters:
     translation.x: 0.0
     translation.y: 0.0
-    translation.z: 1.0
+    translation.z: 0.97
     rotation.x: 0.0
     rotation.y: 0.7071068
     rotation.z: 0.0
