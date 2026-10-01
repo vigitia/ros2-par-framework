@@ -93,6 +93,37 @@ A few notes:
   driver clone in `src/azure_kinect_ros_driver` carries local, uncommitted patches for this ROS distro (see
   `claude_usage_documentation.md`); deleting the clone loses them.
 
+## Setup wizard (host, no Docker)
+
+After `./scripts/local_build.sh`, the wizard walks through a setup in a desktop window (written with the help of
+Claude Code):
+
+```bash
+./scripts/wizard.sh
+```
+
+1. **Profile:** a profile is one parameter file, `par_setup.yaml` (default) or `par_setup_<name>.yaml` next to it
+   (gitignored). *Start selected profile* (or a double-click) starts it right away; *Next* sets it up. *New profile*
+   starts from the defaults in `par_setup.yaml` with nothing chosen yet (display, camera, nodes), so the wizard
+   asks everything anew. *Delete profile* removes one (not the default; the calibrations stay, all profiles share
+   them). *Rebuild workspace* runs `local_build.sh`.
+2. **Projector:** the display the projector is on, as pygame counts them (`display_id`), each with its connector,
+   model, resolution, refresh rate, position and whether it is the primary one. *Identify* shows each display's
+   number on it, *Show test pattern* a grid on the chosen one.
+3. **Camera:** Brio or Azure Kinect (one at a time), with a live preview; for the Kinect also its settings
+   (resolution, depth mode, fps, colour controls, point cloud).
+4. **Calibration:** first *automatic* or *manual*, then the steps for that choice, each with its status and *Run*:
+   - automatic: the Kinect pose measured from the clear table (the Brio's pose is entered by hand), then the
+     projector mapping from projected markers;
+   - manual: the camera's distance to the table and its angle, then clicking the four corners;
+   - with the Brio, its checkerboard intrinsics come first.
+5. **Nodes:** which detectors and whether RViz run.
+6. **Start:** runs `par.launch.py` with the profile; closing the wizard stops everything.
+
+Every page stores its choices in the profile when you press *Next*, comments kept. The camera and the nodes go
+into the `par_launch` section that `par.launch.py` reads, so a profile also starts without the wizard:
+`ros2 launch par_framework_core par.launch.py params_file:=<profile>`.
+
 ## Layout
 
 ```
@@ -103,13 +134,16 @@ docker-compose.yaml         how the container is run: devices, X11, networking
 packages/                   this repo's own ROS packages, built together with src/
   par-framework-core/       launch files + parameters (package par_framework_core)
     launch/                 par_framework.launch.py, calibration.launch.py, projection_calibration.launch.py,
-                            par_framework_kinect.launch.py, projection_calibration_kinect.launch.py (Azure Kinect)
+                            par_framework_kinect.launch.py, projection_calibration_kinect.launch.py (Azure Kinect),
+                            par.launch.py (camera and nodes from the profile's par_launch section),
+                            camera_pose_calibration_kinect.launch.py
     config/par_setup.yaml   camera id, resolution, projector display — edit this per setup
     par_framework_core/     launch_helpers.py: node start functions shared by the launch files
   par_geometry/             library: camera pixels -> table (m) -> projector pixels
   projection_corners/       node: holds the projection corners, publishes them on /projection_corners
   projection_mapping/       node: holds the table-to-projector homography, publishes /projection_mapping
   rviz_bridge/              node: framework outputs RViz cannot show (e.g. /objects) as markers
+  par_setup_wizard/         desktop setup wizard (PySide6), started with scripts/wizard.sh
 scripts/                    the individual steps setup.sh runs, usable on their own
 src/                        node repositories, cloned by setup.sh (not tracked here)
 ```
@@ -162,6 +196,7 @@ newly referenced external package (`std_msgs`, `geometry_msgs`, …) in **both**
 | `par_geometry` | this repo | library: `pixels_to_table`, `table_to_projector`, `projector_to_table` — the coordinate conversions every node shares |
 | `projection_mapping` | this repo | stores the homography from `projection_calibrator` in `config/projection_mapping_<camera>.yaml` (one per camera), publishes it latched on `/projection_mapping` |
 | `projection_corners` | this repo | stores the corners from `surface_selector` in `config/projection_corners.yaml`, publishes them latched on `/projection_corners` |
+| `par_setup_wizard` | this repo | desktop wizard: projector display, camera, calibration, nodes and start, stored in named profiles of `par_setup.yaml` |
 | `rviz_bridge` | this repo | projects `/objects`, `/hand_landmarks`, `/fiducials`, `/projection_corners` and `/projection_mapping` onto the table as `/objects/markers`, `/hand_landmarks/markers`, `/fiducials/markers`, `/projection_corners/markers` and `/projection_mapping/markers` for RViz |
 
 Camera frames are published **best-effort, keep-last-1** — a late frame is worthless because a newer one

@@ -27,6 +27,23 @@
     # Publish image_rect_color, needs a calibration from camera_info_url.
     undistort_frame: false
 
+# Generic webcam (camera: webcam), any UVC camera through v4l2_camera; the launch files put it in
+# /camera/webcam. More options, and the camera's own controls (exposure, focus, ...) as parameters:
+# ros2 param list /camera/webcam/webcam_node
+/camera/webcam/webcam_node:
+  ros__parameters:
+    # Find it with: v4l2-ctl --list-devices. The setup wizard enters the /dev/v4l/by-id path,
+    # which stays the same across replugs.
+    video_device: /dev/video0
+    # Must be a size the camera offers in pixel_format: v4l2-ctl -d <device> --list-formats-ext
+    image_size: [640, 480]
+    pixel_format: YUYV
+    # Like the Brio's encoding
+    output_encoding: bgr8
+    # Must match the launch files' webcam_link -> webcam_optical_frame. The calibration is
+    # camera_info_webcam.yaml next to this file, set by the launch files.
+    camera_frame_id: webcam_optical_frame
+
 surface_selector_node:
   ros__parameters:
     topic_name_frame: /camera/brio/image_raw
@@ -62,6 +79,18 @@ projection_calibrator_node:
 # them to static_transform_publisher as command-line flags, because it ignores
 # them as parameters.
 /brio_tf_publisher:
+  ros__parameters:
+    translation.x: 0.0
+    translation.y: 0.0
+    translation.z: 0.93
+    rotation.x: 0.0
+    rotation.y: 0.7071068
+    rotation.z: 0.0
+    rotation.w: 0.7071068
+
+# Pose of the webcam body frame (webcam_link), placeholder like /brio_tf_publisher. The launch files use
+# camera_pose_webcam.yaml next to this file instead while it exists (entered in the setup wizard).
+/webcam_tf_publisher:
   ros__parameters:
     translation.x: 0.0
     translation.y: 0.0
@@ -109,3 +138,16 @@ k4a_ros_device_node:
     rotation.y: 0.7071068
     rotation.z: 0.0
     rotation.w: 0.7071068
+
+# Which camera and nodes par.launch.py starts; the setup wizard (scripts/wizard.sh) writes this. No node has
+# this name, so the nodes ignore it. One switch per node instead of a list: every node parses this whole file,
+# and an empty list has no type a node could read.
+par_launch:
+  ros__parameters:
+    # brio, kinect or webcam
+    camera: kinect
+    object_detector: true
+    fiducials_detector: true
+    hand_landmarks: true
+    # RViz with rviz_bridge
+    rviz: true

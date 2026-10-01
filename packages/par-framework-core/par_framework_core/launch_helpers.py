@@ -31,6 +31,68 @@ def logitech_brio_node(context):
     )]
 
 
+def kinect_driver_node(context):
+    """Start the Azure Kinect driver with params_file."""
+    # No name override: the driver runs several rclcpp nodes in one process, and name= would
+    # rename all of them
+    return Node(
+        package='azure_kinect_ros_driver',
+        executable='node',
+        output='screen',
+        emulate_tty=True,
+        parameters=[LaunchConfiguration('params_file').perform(context)],
+    )
+
+
+def webcam_nodes(context):
+    """Start a generic UVC webcam with v4l2_camera, and its body -> optical frame transform."""
+    # Next to par_setup.yaml like the other calibrations; cameracalibrator's COMMIT writes it there
+    camera_info_url = f'file://{next_to_params_file(context, "camera_info_webcam.yaml")}'
+    return [
+        # Settings (device, size, encoding, frame) under /camera/webcam/webcam_node in params_file
+        Node(
+            package='v4l2_camera',
+            executable='v4l2_camera_node',
+            name='webcam_node',
+            namespace='/camera/webcam',
+            output='screen',
+            emulate_tty=True,
+            parameters=[LaunchConfiguration('params_file'), {'camera_info_url': camera_info_url}],
+        ),
+        # What the Brio node publishes itself: z forward, y down (REP 103), roll -90, yaw -90 deg
+        Node(
+            package='tf2_ros',
+            executable='static_transform_publisher',
+            name='webcam_optical_tf_publisher',
+            arguments=['--frame-id', 'webcam_link', '--child-frame-id', 'webcam_optical_frame',
+                       '--qx', '-0.5', '--qy', '0.5', '--qz', '-0.5', '--qw', '0.5'],
+        ),
+    ]
+
+
+def camera_nodes(context, camera):
+    """Start the camera's driver and its mount transform world -> camera: brio, kinect, webcam."""
+    if camera == 'brio':
+        # The Brio node itself publishes brio_link -> brio_optical_frame
+        return [*logitech_brio_node(context),
+                *mount_tf_publisher(context, 'brio_tf_publisher', 'brio_link')]
+    if camera == 'kinect':
+        # The driver itself publishes camera_base -> depth_camera_link -> rgb_camera_link
+        return [kinect_driver_node(context),
+                *mount_tf_publisher(context, 'kinect_tf_publisher', 'camera_base')]
+    if camera == 'webcam':
+        return [*webcam_nodes(context),
+                *mount_tf_publisher(context, 'webcam_tf_publisher', 'webcam_link')]
+    raise ValueError(f'[launch_helpers]: unknown camera "{camera}", expected brio, kinect or '
+                     'webcam')
+
+
+def read_launch_section(context):
+    """Return the par_launch section of the parameter file: the camera and which nodes run."""
+    with open(LaunchConfiguration('params_file').perform(context)) as f:
+        return yaml.safe_load(f)['par_launch']['ros__parameters']
+
+
 def mount_tf_publisher(context, name, child_frame_id):
     """
     Publish world -> child_frame_id: the measured camera pose, or else the placeholder.
@@ -71,6 +133,13 @@ KINECT_REMAPPINGS = [
     ('/camera/brio/image_raw', '/rgb/image_raw'),
     ('/camera/brio/camera_info', '/rgb/camera_info'),
 ]
+# The same for a generic webcam (v4l2_camera in /camera/webcam)
+WEBCAM_REMAPPINGS = [
+    ('/camera/brio/image_raw', '/camera/webcam/image_raw'),
+    ('/camera/brio/camera_info', '/camera/webcam/camera_info'),
+]
+# Per camera: remappings for the framework nodes
+CAMERA_REMAPPINGS = {'brio': [], 'kinect': KINECT_REMAPPINGS, 'webcam': WEBCAM_REMAPPINGS}
 
 
 def next_to_params_file(context, file_name):

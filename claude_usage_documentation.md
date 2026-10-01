@@ -1068,3 +1068,262 @@ resolution parameters) or were dropped at your choice:
 - `display_id` once under `/**` in `par_setup.yaml` (plus a note in `CLAUDE.md`): dropped. One value for both nodes,
   but less obvious which nodes read it; `display_id` stays under each node.
 - Its 4 log entries described those changes and are dropped with them.
+
+### Setup wizard (2026-10-01, branch `setup-wizard`)
+
+**What:**
+- **`packages/par_setup_wizard`** (new, ament_python, PySide6), started with **`scripts/wizard.sh`**, which sources
+  ROS, `.venv` and `install/` in bash, exports `FASTDDS_BUILTIN_TRANSPORTS`, and names `local_build.sh` when
+  nothing is built. The pages:
+  1. profile: choose, create (a copy), quick start, rebuild the workspace;
+  2. projector: `display_id`, with *Identify* and a test pattern;
+  3. camera: Brio or Kinect, with a live preview;
+  4. calibration: the steps that apply to the camera, with status and Run/Stop;
+  5. nodes;
+  6. start/stop.
+
+  All process output goes into one log below the pages.
+  - `profiles.py`: profiles are `par_setup.yaml` ("default") and `par_setup_<name>.yaml`, edited with `ruamel.yaml`
+    round-trip. Also the Brio pose ↔ height/tilt conversion.
+  - `hardware.py`: the Brio via `/dev/v4l/by-id/*BRIO*`, the Kinect via USB id `045e:097c` in sysfs, without ROS.
+  - `displays.py`: the pygame side (display list, number, grid), run as a subprocess and reusing
+    `surface_selector`'s `display_info` and `display_image`.
+  - `preview.py`: rclpy subscription on its own thread. It keeps the newest frame, and a Qt timer draws it.
+  - `par_setup_wizard.py`: the pages, plus `Processes` (`QProcess`; stop = SIGINT like Ctrl-C, kill after 10 s;
+    everything stops when the wizard closes).
+- **`par_framework_core`:**
+  - `par.launch.py` (new): starts the camera and nodes named in the profile's new **`par_launch`** section, with the
+    Kinect's topics, depth and remappings as in `par_framework_kinect.launch.py`. `camera_only:=true` starts just
+    the camera and its TF.
+  - `camera_pose_calibration_kinect.launch.py` (new): the Kinect driver and `camera_pose_calibrator`, writing
+    `camera_pose_kinect.yaml`, then `Shutdown`.
+  - `calibration.launch.py`: new argument `camera:=brio|kinect`.
+  - `launch_helpers.py`: new `kinect_driver_node`, `camera_nodes`, `read_launch_section`.
+  - `par_setup.yaml`: the `par_launch` section (Kinect, all nodes on, as in `par_framework_kinect.launch.py`).
+  - `package.xml`: declares `camera_pose_calibrator`.
+- `.gitignore`: `par_setup_*.yaml`. README: a wizard section, the layout and the package table. CLAUDE.md: the
+  command.
+
+**Why (your decisions in planning, unless noted):**
+- *PySide6:* already installed through ROS (rqt), and `QWizard` provides the pages. Alternatives were Tkinter (no
+  wizard widget), a web UI (new dependencies, a server, streaming for the preview) and a TUI (no images).
+- *One new launch file instead of the wizard starting nodes itself:* it also works without the wizard, and what
+  starts with which camera stays in launch files. The two existing framework launch files are unchanged.
+  Suggestion: replace them with `par.launch.py` later.
+- *Settings in the profile, comments kept:* `par_setup.yaml` stays the one source of truth. ruamel comes from apt
+  (rosdep key `python3-ruamel.yaml`), not pip, so rosdep installs it like every other declared dependency.
+- *`par_launch` with one bool per node (my choice):* every node parses the whole parameter file, and an empty list
+  has no type rcl could infer, so `nodes: []` would have stopped every node from starting.
+- *pygame in subprocesses (my choice):* SDL and Qt in one process compete for the window system. *Identify*
+  exists because pygame reports only display sizes (three identical 1920x1080 here), which can't be matched to
+  Qt's names (`DP-2`, `HDMI-1`, `eDP-1`).
+- *One camera at a time;* multi-camera setups come later. The data model has one `camera` key for now.
+- *Named profiles* for quick starts.
+- *The projector page writes only `display_id`:* since commit 110f3cd the calibrator reads the resolution from the
+  display.
+
+**Tested:**
+- The ruamel round trip of `par_setup.yaml` is byte-identical. The height/tilt conversion gives the existing
+  placeholder at 0° and round-trips at 15°.
+- All launch files parse. `par.launch.py` live: with a Brio profile it started exactly the Brio, its TF,
+  fiducials and the projection nodes (the Brio itself was unplugged at that moment). With the Kinect,
+  `camera_only:=true` started only the driver and its TF, with the measured pose, at 15 Hz.
+- The wizard driven offscreen through all pages with the Kinect:
+  - it listed the 3 displays;
+  - it detected the Kinect and its serial, and showed the Brio as not connected;
+  - the preview received frames;
+  - the calibration rows showed the right status;
+  - Start ran exactly the camera, TF and projection nodes; Stop ended with exit code 0;
+  - `par_launch` was written to the profile.
+- flake8 and pep257 are clean on all new code.
+- **Not tested:** Identify and the test pattern on the real screens, the calibration runs from the wizard, the Brio
+  path end to end, and the New profile / Rebuild buttons.
+
+### Setup wizard: your feedback round (2026-10-01, branch `setup-wizard`)
+
+**What:**
+- **Profile page:** the profiles are shown in a list. *Start selected profile* (or a double-click) jumps to the
+  Start page and starts the framework there.
+- **Camera page:** the preview scales to fit its label (size policy `Ignored`, scaled with `KeepAspectRatio`)
+  instead of being cropped.
+  - With the Kinect it shows its settings: resolution, depth mode, fps, the colour controls of the extended
+    driver, and the point clouds. They go into `k4a_ros_device_node` of the profile, typed as the driver
+    declares them.
+  - Combinations the Kinect can't run are blocked: 30 fps with `WFOV_UNBINNED` or `3072P`, manual values only in
+    manual mode, and the RGB point cloud only with the point cloud.
+- **Calibration page:** asks *automatic* or *manual* first, and the steps appear only after the choice.
+  - Manual: the camera's distance and angle, then the four corners in `surface_selector`.
+  - The distance/angle form now writes `camera_pose_<camera>.yaml`, marked `entered`, for both cameras. It asks
+    before it replaces a measured pose.
+  - The status shows measured or entered.
+- **Timestamps:** "2 hours ago (today at 17:16)".
+- **Log:** an "Output" heading and a placeholder text while it is empty.
+- **`profiles.py`:**
+  - `current_pose` / `save_manual_pose`.
+  - `set_value` moves the comment that ruamel attaches to a section's last key over to a newly appended key.
+    Without that, new keys landed between the next section's heading comment and that section.
+  - New sections are `CommentedMap`s.
+- **`surface_selector`** (its own repo, branch `rework`): `display_image` opens a real fullscreen window. See
+  that repo's log.
+- README: the wizard section is updated.
+
+**Why:**
+- *The pose form writes the pose file instead of the profile (my choice):* `mount_tf_publisher` prefers the pose
+  file. If a manual pose went into the profile, an existing measured Kinect pose would silently override it. This
+  way the file is the one current pose, whoever produced it. The pose files are shared by all profiles, like the
+  mappings.
+- *Fullscreen fixed in `surface_selector`, not just in the wizard (your choice):* the calibrator's markers go
+  through the same function. With the top bar covering or shifting them, the mapping could come out wrong.
+- *Manual still produces no table-to-projector mapping;* only `/projection_corners`, as before (you chose the
+  corners plus distance and angle).
+
+**Tested:**
+- The pattern window is `_NET_WM_STATE_FULLSCREEN` (xprop, display 2), and SIGINT ends it with exit code 0.
+- The wizard was driven offscreen with the Kinect:
+  - the profile list, and *Start* directly from page 1, then Stop;
+  - the Kinect settings (30 fps disabled with WFOV_UNBINNED, enabled with NFOV_UNBINNED), and the driver started
+    with the stored settings;
+  - the preview at 630x354 in a 630x428 label;
+  - no calibration steps before the choice, the right rows for automatic and manual, and the status texts;
+  - the timestamps;
+  - the manual-pose round trip, on a throwaway camera name.
+- The profile round trip is still byte-identical, new keys sit before the next section's comment, and a new
+  section takes several keys. flake8 and pep257 are clean.
+- **Not tested:** the fullscreen look on the screen itself (it needs your eyes), the pose form's Save and the
+  replace question in the window, and running the corner clicking from the wizard.
+
+### Setup wizard: new profiles start fresh, no Cancel button (2026-10-01, branch `setup-wizard`)
+
+**What:**
+- *New profile* copies `par_setup.yaml` (no longer the selected profile) and unsets the wizard's choices:
+  `display_id: -1` for both projector nodes, `par_launch.camera: ''` and all nodes off.
+  - The projector and camera pages preselect nothing then, and Next stays disabled until a choice is made
+    (`isComplete`).
+  - The Kinect settings appear only once the Kinect is chosen.
+  - The calibration mode is asked anew for every profile.
+  - *Start selected profile* refuses a profile that isn't set up yet and says why.
+- The Cancel button is gone (`QWizard.NoCancelButton`); the window's close button still ends the wizard and stops
+  what it started.
+- `Profile.set_value` writes strings as ruamel `PlainScalarString`. With `preserve_quotes`, a replaced value kept
+  the quotes of the old one (`camera: 'kinect'` after `''`).
+
+**Why:** you expected a new profile to start from defaults, with the wizard asking everything anew; before, it
+was a copy of the selected profile, so every page looked unchanged.
+- *Explicit unset values instead of deleting keys (my choice):* ruamel attaches the comment lines above a key to
+  the key before it, so deleting keys would have taken the next keys' comments with them.
+- *Only the choices are unset;* camera tuning, QoS and the marker dictionary keep the defaults of `par_setup.yaml`.
+
+**Tested (offscreen):**
+- New profile → start refused with the message.
+- Projector and camera pages: nothing selected, Next disabled, then enabled after a choice. The Kinect settings
+  only appear for the Kinect.
+- No calibration mode, all nodes off, and no Cancel button.
+- The profile diff against `par_setup.yaml` shows only the choices and the stored Kinect settings.
+- The unchanged round trip is still byte-identical, and `camera: kinect` is written unquoted. flake8 and pep257
+  are clean.
+
+### Setup wizard: delete profiles, Back only when it works (2026-10-01, branch `setup-wizard`)
+
+**What:**
+- **Delete profile…** on the first page: it asks with the file name, then `profiles.delete_profile` removes the
+  file and the default is selected again. The button is disabled for the default profile, which
+  `delete_profile` refuses as well.
+- **Back** is shown only while it is enabled, i.e. hidden on the first page.
+
+**Why:** your request.
+- *The default can't be deleted:* `par_setup.yaml` is tracked in git and the template for new profiles.
+- *The calibration files stay:* the pose, mapping and corner files sit next to the profiles and are shared by all
+  of them.
+- *Back:* QWizard can only enable or disable it, so its visibility follows the enabled state after every page
+  change. That update is queued (`QTimer.singleShot(0)`) to run after QWizard's own button update.
+
+**Tested (offscreen):**
+- Back is hidden on page 0, shown on page 1, and hidden again after going back.
+- Delete is disabled for the default and enabled for a test profile; after confirming, the file is gone and the
+  default is selected.
+- flake8 and pep257 are clean.
+
+### Setup wizard: Ctrl+C ends it (2026-10-01, branch `setup-wizard`)
+
+**What:** in `main()`:
+- `rclpy.init(signal_handler_options=SignalHandlerOptions.NO)`;
+- a SIGINT handler that closes the window;
+- a 200 ms no-op `QTimer`.
+
+**Why:** your report, Ctrl+C did nothing.
+- Python only runs signal handlers between its own instructions, and Qt's event loop waits in C++. The timer hands
+  control back to Python regularly.
+- rclpy's own SIGINT handler only shut the ROS context down and left the window open.
+- Closing the window takes the normal path: the preview and every process the wizard started are stopped. On
+  Ctrl+C in a terminal the children get the SIGINT themselves as well, since they are in the same process group.
+
+**Tested:** `./scripts/wizard.sh` offscreen in its own process group, then SIGINT to the whole group (as the
+terminal sends it): the group was empty after 0.25 s; flake8 is clean.
+
+### Manual corner calibration ends by itself (2026-10-01, branch `setup-wizard`)
+
+**What:** `calibration.launch.py` gives the surface selector `on_exit=Shutdown`, like the projector calibration
+launch files. The docstring says so, and the wizard's step text is now "click the four corners; Esc cancels".
+
+**Why:** your report: after the four clicks the wizard still showed "Not done yet" and "Stop". The corners were
+stored (`projection_corners.yaml`, 13:37), and the selector ended itself. But the camera and
+`projection_corners_node` kept the launch running, so the wizard never saw the step end and never refreshed the
+status. Ending the launch with the selector loses nothing: `projection_corners_node` writes the file before it
+answers the selector, and the selector only ends after the answer. Esc (cancel) ends the launch the same way.
+
+**Tested:** `calibration.launch.py camera:=kinect` live. After SIGINT to the surface selector (a clean exit), the
+whole launch ended within a second, every process clean, exit code 0. **Not tested:** clicking the corners in the
+wizard itself.
+
+### Generic webcam as a third camera (2026-10-01, branch `setup-wizard`)
+
+**What:** `camera: webcam` next to `brio` and `kinect`, backed by `v4l2_camera` (apt/rosdep
+`ros-lyrical-v4l2-camera`, declared as `exec_depend` of `par_framework_core`).
+- `launch_helpers.py`: `webcam_nodes()` starts `v4l2_camera_node` as `/camera/webcam/webcam_node`, plus a static
+  TF `webcam_link -> webcam_optical_frame` (what the Brio node publishes itself). `camera_nodes()` adds the mount
+  TF from `/webcam_tf_publisher` / `camera_pose_webcam.yaml`. `WEBCAM_REMAPPINGS` and a `CAMERA_REMAPPINGS` dict
+  per camera.
+- `par.launch.py`: per-camera detector overrides (`CAMERA_OVERRIDES`); the webcam points `object_detector` at the
+  raw topic, as the Kinect does. New `par_framework_webcam.rviz` (the Brio config with the webcam topics).
+- `calibration.launch.py`: `camera:=webcam`. `projection_calibration.launch.py`: new `camera` argument (brio or
+  webcam) instead of a hard-coded Brio; the Kinect keeps its own file.
+- `par_setup.yaml`: `/camera/webcam/webcam_node` (device, 640x480 YUYV, `bgr8`, frame id) and a placeholder
+  `/webcam_tf_publisher`.
+- Wizard: "Generic webcam" in the camera list. Detection = the first `/dev/v4l/by-id/*-video-index0` that is not
+  the Brio or the Kinect's colour camera; choosing it stores that by-id path as `video_device`. The calibration
+  page offers intrinsics (checkerboard), the pose by hand, and the projector mapping via
+  `projection_calibration.launch.py camera:=webcam`.
+- `src/logitech_brio/calibration/run_cameracalibrator.sh` (separate repo): optional `CAMERA_NAMESPACE`, default
+  `/camera/brio`, so the wizard reuses it for the webcam.
+
+**Why / alternatives:**
+- A separate driver, not the Brio node: that node forces MJPEG, publishes undecoded JPEGs and sets Brio-only
+  `v4l2-ctl` controls, which many laptop webcams don't support.
+- `v4l2_camera` over `usb_cam` (your choice): fewer options to get right, camera controls as ROS parameters.
+  It publishes RELIABLE, which the framework's BEST_EFFORT subscribers receive too.
+- Calibration file `config/camera_info_webcam.yaml`, set by the launch helper, instead of camera_info_manager's
+  default `~/.ros/camera_info/<card name>.yaml`: the wizard knows the path for its status, and it survives
+  container rebuilds like the other calibrations.
+- `CAMERA_NAMESPACE` in the existing calibrator script instead of a copy: the script holds four camera_calibration
+  workarounds that would otherwise be duplicated. Passing a second `--ros-args -r` block would also work (rcl
+  applies the first matching remap), but only through that rule, which nobody would guess from reading it.
+- Default 640x480 YUYV: the size practically every UVC camera offers uncompressed; raise it in the profile.
+
+### Setup wizard: details for each display (2026-10-01, branch `setup-wizard`)
+
+**What:**
+- `displays.py list` returns name, position and size per SDL display index. It calls `SDL_GetDisplayName` and
+  `SDL_GetDisplayBounds` through `ctypes`, in the SDL library pygame loaded (found in `/proc/self/maps`). Without
+  one, it falls back to the sizes as before.
+- The projector page's `describe_display` adds Qt's model, refresh rate and primary flag for the screen at the same
+  position, e.g. `Display 0: HDMI-1 24" · DELL U2419H · 1920 x 1080 @ 60 Hz · at 0,0`. The README says so.
+
+**Why:** your request. `display_id` is SDL's index, and pygame exposes only sizes for it, so identical screens looked
+the same.
+- *The very library pygame loaded:* it guarantees the same display order `display_id` refers to. A separately
+  loaded SDL could differ.
+- *Matched to Qt by position, not by index:* SDL and Qt count the displays in different orders, but both use the
+  same desktop coordinates.
+
+**Tested:** on the two current screens, `list` gave `HDMI-1 24"` at 0,0 and `DP-1 24"` at 1920,0. Qt matched both
+(DELL U2419H, 60 Hz; DP-1 primary). flake8 and pep257 are clean. **Not tested:** with the projector connected.

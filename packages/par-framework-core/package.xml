@@ -20,6 +20,10 @@
   <exec_depend>fiducials_detector</exec_depend>
   <exec_depend>object_detector</exec_depend>
   <exec_depend>hand_landmarks</exec_depend>
+  <!-- Co-authored by Claude Code: started by camera_pose_calibration_kinect.launch.py -->
+  <exec_depend>camera_pose_calibrator</exec_depend>
+  <!-- Co-authored by Claude Code: the generic webcam (camera: webcam) -->
+  <exec_depend>v4l2_camera</exec_depend>
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>

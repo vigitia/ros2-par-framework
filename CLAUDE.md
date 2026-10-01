@@ -28,6 +28,7 @@ launch files and `config/par_setup.yaml` only, no nodes. Glue nodes get their ow
 ./scripts/launch.sh calibration display_id:=1
 
 ./scripts/local_build.sh [pkg]      # host-only: clone nodes, rosdep, .venv, colcon build -- no Docker; preferred for locally testing the nodes 
+./scripts/wizard.sh                 # host-only: setup wizard (profile, projector, camera, calibration, nodes, start)
 ```
 
 Tests are the standard `ament` lint suite each package carries (`test_flake8`, `test_pep257`,

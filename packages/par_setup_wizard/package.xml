@@ -1,0 +1,29 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<!-- Written by Claude Code -->
+<package format="3">
+  <name>par_setup_wizard</name>
+  <version>0.1.0</version>
+  <description>Desktop wizard that sets up the PAR framework on the host: projector display, camera, calibration, nodes, and starting it all, stored in named profiles of par_setup.yaml.</description>
+  <maintainer email="vitus.maierhoefer@gmail.com">vitus</maintainer>
+  <license>MIT</license>
+
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>cv_bridge</exec_depend>
+  <exec_depend>ament_index_python</exec_depend>
+  <exec_depend>python3-numpy</exec_depend>
+  <exec_depend>python3-pyside6.qtwidgets</exec_depend>
+  <!-- Edits the profiles round-trip, so their comments survive -->
+  <exec_depend>python3-ruamel.yaml</exec_depend>
+  <!-- The plain pose files, written like camera_pose_calibrator writes them -->
+  <exec_depend>python3-yaml</exec_depend>
+  <!-- display_info and the fullscreen helper the projector page uses -->
+  <exec_depend>surface_selector</exec_depend>
+  <!-- The launch files and the config folder the wizard works with -->
+  <exec_depend>par_framework_core</exec_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

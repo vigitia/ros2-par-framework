@@ -4,8 +4,10 @@
 # Dependency manifests staged for the image build (generated).
 /docker/deps/
 
-# Machine-local configuration.
+# Machine-local configuration. par_setup_<name>.yaml are the setup wizard's named profiles; par_setup.yaml, the
+# default profile, stays tracked.
 /.env
+/packages/par-framework-core/config/par_setup_*.yaml
 
 # Calibration of this physical setup, written by nodes: the projection corners (projection_corners_node, from
 # surface_selector), the table-to-projector mapping (projection_mapping_node, from projection_calibrator) and the
