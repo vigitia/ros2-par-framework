@@ -987,3 +987,57 @@ calibration was made. The mapping depends on the camera pose, so a mapping older
 - Alternative: a comment line in the file header. Rejected: the pose file has it as a key, and a key can be read back.
 
 **Tested:** `projection_mapping` 5/5 tests incl. flake8. **Not tested:** a real calibration run writing the file.
+
+### Objects' measured centre in RViz (2026-10-01)
+
+**What:** `rviz_bridge_node.py` `on_objects`: objects with depth (`hull_contour_3d`) also get a sphere marker
+(namespace `center`, diameter `CENTER_SIZE` = 1.5 cm, the outline's green) at `center_3d`, moved from the optical frame
+into `world` with the same transform as the outline. Objects without depth get none: they have no `center_3d`.
+
+**Why:** your request, to see where the detector measured each object's depth (the centre of its top).
+- Own namespace `center`: it can be switched off in RViz's MarkerArray display on its own.
+- Alternative: anchor the label at `center_3d` instead of adding a marker. Rejected: not asked for, and the label sits
+  5 cm above the point, so it would not show where the point is.
+- Alternative: a POINTS marker. Rejected: a sphere has a size in metres and stays visible from every angle.
+
+**Tested:** `rviz_bridge` 2/2 tests incl. flake8; the node, fed a camera 1 m above the table looking straight down and
+an object top at 0.95 m depth, publishes the sphere at world z = 0.05, and none for an object without depth. **Not
+tested:** live in RViz.
+
+### RViz Kinect view: Views panel and docked camera image (2026-10-01)
+
+**What:** `config/par_framework_kinect.rviz`: the `Views` panel is added to `Panels`, and a new `Window Geometry`
+section docks Displays on the left, Views on the right and the "Kinect image" pane below Views.
+
+**Why:** your request, the Views panel and the colour camera's image always visible by default.
+- The config had no `Views` panel and no saved layout, so RViz arranged the docks itself on every start. Its default
+  for new panes is `floating = true` (`addPane` in `rviz_common`), so the image pane can come up as a loose window.
+  In the run I screenshotted it happened to be docked; with the saved layout it no longer depends on that.
+- `QMainWindow State` is Qt's binary dock layout as hex. It was generated with PyQt6 (RViz uses Qt 6) from a window
+  with docks named like RViz's (RViz names a dock after its panel, and `restoreState` matches by that name).
+  - Alternative: arrange the panels in RViz by hand and save. Same result, but needs the GUI; documented in the file
+    for future changes.
+- No `X`/`Y`/`Width`/`Height`: the projector is the display at 0,0, so a saved position could open RViz on it.
+- Only the Kinect config: `par_framework.rviz` (Brio) is unchanged.
+
+**Tested:** RViz started with the old and the new config and screenshotted: the new one shows Displays, Views and the
+Kinect image docked, with no floating windows.
+
+### RViz Kinect view opens maximised (2026-10-01)
+
+**What:** `config/par_framework_kinect.rviz`, `Window Geometry`: `Width: 1920`, `Height: 1080`, still no `X`/`Y`.
+
+**Why:** your request: RViz maximised on start, on the screen being worked on (the one with the terminal that started
+it), not as a floating window.
+- RViz has no "maximised" option, only `--fullscreen` (no title bar, not what was asked).
+- A Wayland terminal's position cannot be read by other programs, so "the terminal's screen" is approximated by where
+  GNOME puts new windows: the current monitor. That only works without a fixed `X`/`Y`.
+- GNOME's `auto-maximize` (on here) maximises a new window that opens at about the size of its monitor, so the
+  monitor size in the config is enough.
+- Tested three variants, all came up maximised: `Width`/`Height` in the config and `--qwindowgeometry 1920x1080`
+  opened on the same monitor; `--qwindowgeometry 10000x10000` (meant to fit any monitor size) on a different one, so
+  it was rejected. The config variant won over the command-line one: same result, one file.
+- Limit: tuned to 1920x1080 monitors (all non-projector screens here). On a much larger monitor the window may not
+  count as monitor-sized and stay unmaximised.
+
+**Tested:** RViz started with the config: `_NET_WM_STATE_MAXIMIZED_HORZ/VERT` set, 1861x1043 on DP-1.

@@ -39,6 +39,8 @@ OUTLINE_HEIGHT = 0.002
 LABEL_HEIGHT = 0.05
 LINE_WIDTH = 0.005
 TEXT_SIZE = 0.04
+# Diameter of the sphere at an object's measured centre (center_3d)
+CENTER_SIZE = 0.015
 OUTLINE_COLOR = ColorRGBA(r=0.1, g=0.9, b=0.2, a=1.0)
 LABEL_COLOR = ColorRGBA(r=1.0, g=1.0, b=1.0, a=1.0)
 # The projection area lies just below the object outlines, so objects stay visible on top of it
@@ -165,6 +167,15 @@ class RvizBridgeNode(Node):
                 _, _, rotation, translation = projection
                 camera = np.array([(p.x, p.y, p.z) for p in obj.hull_contour_3d])
                 hits = camera @ rotation.T + translation
+                # The centre of its top, where its depth was measured
+                c = obj.center_3d
+                x, y, z = np.array([c.x, c.y, c.z]) @ rotation.T + translation
+                center_3d = Marker(header=header, ns='center', id=obj.object_id,
+                                   type=Marker.SPHERE, color=OUTLINE_COLOR)
+                center_3d.scale.x = center_3d.scale.y = center_3d.scale.z = CENTER_SIZE
+                center_3d.pose.position = Point(x=x, y=y, z=z)
+                center_3d.pose.orientation.w = 1.0
+                markers.markers.append(center_3d)
             else:
                 # The hull has far fewer points than the contour and is enough for an outline
                 pixels = ([(p.x, p.y) for p in obj.hull_contour or obj.contour]
