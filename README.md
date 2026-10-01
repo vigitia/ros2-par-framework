@@ -134,7 +134,7 @@ docker-compose.yaml         how the container is run: devices, X11, networking
 packages/                   this repo's own ROS packages, built together with src/
   par-framework-core/       launch files + parameters (package par_framework_core)
     launch/                 par_framework.launch.py, calibration.launch.py, projection_calibration.launch.py,
-                            par_framework_kinect.launch.py, projection_calibration_kinect.launch.py (Azure Kinect),
+                            par_framework_kinect.launch.py (Azure Kinect),
                             par.launch.py (camera and nodes from the profile's par_launch section),
                             camera_pose_calibration_kinect.launch.py
     config/par_setup.yaml   camera id, resolution, projector display — edit this per setup
@@ -187,15 +187,15 @@ newly referenced external package (`std_msgs`, `geometry_msgs`, …) in **both**
 | Package | Repository | Role |
 | --- | --- | --- |
 | `custom_interfaces` | `ros2-par-framework-interfaces` | shared message, service and action definitions |
-| `logitech_brio` | `ros2-logitech-brio` | publishes camera frames on `/camera/brio/image_raw` (+ `/compressed`) and `CameraInfo` on `/camera/brio/camera_info` |
-| `surface_selector` | `ros2-par-framework-calibration` | subscribes to `/camera/brio/image_raw`, lets you mark the projection area; `projection_calibrator` calibrates the table-to-projector mapping automatically from projected ArUco markers seen on `/fiducials` |
-| `object_detector` | `ros2-par-framework-object-detection` | detects objects in `/camera/brio/image_raw/compressed`, publishes them in image pixels on `/objects` |
-| `fiducials_detector` | `ros2-par-framework-fiducials` | detects fiducial markers in `/camera/brio/image_raw`, publishes them on `/fiducials` |
-| `hand_landmarks` | `ros2-par-framework-hand-landmarks` | tracks hands in `/camera/brio/image_raw` with MediaPipe, publishes their landmarks in image pixels on `/hand_landmarks` |
+| `logitech_brio` | `ros2-logitech-brio` | publishes camera frames on `/camera/brio/image_raw` (+ `/compressed`) and `CameraInfo` on `/camera/brio/camera_info`; the launch files remap them onto the framework's `/camera/...` topics |
+| `surface_selector` | `ros2-par-framework-calibration` | subscribes to `/camera/image_raw`, lets you mark the projection area; `projection_calibrator` calibrates the table-to-projector mapping automatically from projected ArUco markers seen on `/fiducials` |
+| `object_detector` | `ros2-par-framework-object-detection` | detects objects in `/camera/image_raw/compressed` (raw image for cameras without JPEGs), publishes them in image pixels on `/objects` |
+| `fiducials_detector` | `ros2-par-framework-fiducials` | detects fiducial markers in `/camera/image_raw`, publishes them on `/fiducials` |
+| `hand_landmarks` | `ros2-par-framework-hand-landmarks` | tracks hands in `/camera/image_raw` with MediaPipe, publishes their landmarks in image pixels on `/hand_landmarks` |
 | `par_framework_core` | this repo | launch files and per-setup parameters |
 | `par_geometry` | this repo | library: `pixels_to_table`, `table_to_projector`, `projector_to_table` — the coordinate conversions every node shares |
 | `projection_mapping` | this repo | stores the homography from `projection_calibrator` in `config/projection_mapping_<camera>.yaml` (one per camera), publishes it latched on `/projection_mapping` |
-| `projection_corners` | this repo | stores the corners from `surface_selector` in `config/projection_corners.yaml`, publishes them latched on `/projection_corners` |
+| `projection_corners` | this repo | stores the corners from `surface_selector` in `config/projection_corners_<camera>.yaml`, publishes them latched on `/projection_corners` |
 | `par_setup_wizard` | this repo | desktop wizard: projector display, camera, calibration, nodes and start, stored in named profiles of `par_setup.yaml` |
 | `rviz_bridge` | this repo | projects `/objects`, `/hand_landmarks`, `/fiducials`, `/projection_corners` and `/projection_mapping` onto the table as `/objects/markers`, `/hand_landmarks/markers`, `/fiducials/markers`, `/projection_corners/markers` and `/projection_mapping/markers` for RViz |
 

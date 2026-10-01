@@ -4,10 +4,9 @@
 import glob
 import os
 
-# What each camera is called in par_launch, and its image topic
+# What each camera is called in par_launch. All publish on the same image topic,
+# launch_helpers.CAMERA_IMAGE
 CAMERAS = {'brio': 'Logitech Brio', 'kinect': 'Azure Kinect', 'webcam': 'Generic webcam'}
-IMAGE_TOPICS = {'brio': '/camera/brio/image_raw', 'kinect': '/rgb/image_raw',
-                'webcam': '/camera/webcam/image_raw'}
 # Video devices that are not a generic webcam: the Brio, and the Kinect's colour camera
 NOT_WEBCAMS = ('BRIO', 'Azure_Kinect')
 # The Kinect's depth camera: Microsoft's vendor id and its product id (lsusb)

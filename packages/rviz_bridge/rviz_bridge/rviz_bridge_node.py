@@ -19,7 +19,8 @@ from visualization_msgs.msg import Marker, MarkerArray
 
 NODE_NAME = 'rviz_bridge_node'
 TOPIC_NAME_OBJECTS = '/objects'
-TOPIC_NAME_CAMERA_INFO = '/camera/brio/camera_info'
+# The framework's camera topic, whichever camera runs (launch_helpers.DRIVER_REMAPPINGS)
+TOPIC_NAME_CAMERA_INFO = '/camera/camera_info'
 TOPIC_NAME_PROJECTION_CORNERS = '/projection_corners'
 TOPIC_NAME_OBJECT_MARKERS = '/objects/markers'
 TOPIC_NAME_PROJECTION_MARKERS = '/projection_corners/markers'

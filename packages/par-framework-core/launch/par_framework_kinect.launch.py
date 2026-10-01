@@ -10,8 +10,8 @@ point cloud. The driver's settings and its mount pose are k4a_ros_device_node an
     ros2 launch par_framework_core par_framework_kinect.launch.py
 
 The Kinect ships with a factory calibration in its camera_info, so no camera calibration is needed.
-The framework nodes are pointed at the Kinect's topics by remapping (KINECT_REMAPPINGS in
-launch_helpers.py).
+The driver is remapped onto the framework's camera topics /camera/... (DRIVER_REMAPPINGS in
+launch_helpers.py), where the framework nodes subscribe.
 """
 
 import os
@@ -21,8 +21,8 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
-from par_framework_core.launch_helpers import (KINECT_REMAPPINGS, mount_tf_publisher,
-                                               projection_corners_node,
+from par_framework_core.launch_helpers import (CAMERA_IMAGE, DRIVER_REMAPPINGS,
+                                               mount_tf_publisher, projection_corners_node,
                                                projection_mapping_node)
 
 PACKAGE_NAME = 'par_framework_core'
@@ -41,7 +41,6 @@ def generate_launch_description():
             output='screen',
             emulate_tty=True,
             parameters=[params_file, *overrides],
-            remappings=KINECT_REMAPPINGS,
         )
 
     return LaunchDescription([
@@ -58,6 +57,7 @@ def generate_launch_description():
             output='screen',
             emulate_tty=True,
             parameters=[params_file],
+            remappings=DRIVER_REMAPPINGS['kinect'],
         ),
         # Where the Kinect is mounted: world -> camera_base. The driver itself publishes
         # camera_base -> depth_camera_link -> rgb_camera_link.
@@ -67,15 +67,16 @@ def generate_launch_description():
         # detector to decode it again would cost CPU, latency and image quality. 3D top outlines
         # from the registered depth, as for the markers and hands
         framework_node('object_detector', 'object_detector_node',
-                       {'topic_name_frame': '/rgb/image_raw', 'use_depth': True}),
+                       {'topic_name_frame': CAMERA_IMAGE, 'use_depth': True}),
         # 3D marker corners from the Kinect's registered depth, as for the hands
         framework_node('fiducials_detector', 'fiducials_detector_node', {'use_depth': True}),
         # 3D landmark positions from the Kinect's depth, registered to the colour image
-        # (/depth_to_rgb/image_raw, which the driver only computes while someone subscribes)
+        # (/camera/depth_registered/image_raw, which the driver only computes while someone
+        # subscribes)
         framework_node('hand_landmarks', 'hand_landmarks_node', {'use_depth': True}),
 
         # Publish the stored projection corners and table-to-projector mapping
-        OpaqueFunction(function=projection_corners_node),
+        OpaqueFunction(function=projection_corners_node, args=['kinect']),
         OpaqueFunction(function=projection_mapping_node, args=['kinect']),
 
         framework_node('rviz_bridge', 'rviz_bridge_node'),

@@ -26,10 +26,11 @@ from .camera_pose_calibrator import (camera_pose, fit_table_plane, matrix_from_q
                                      points_from_depth, sample_grid, save)
 
 NODE_NAME = 'camera_pose_calibrator_node'
-# Depth registered to the colour image (Azure Kinect driver), and the colour camera's intrinsics
-# (the Kinect launch files remap the Brio's name to the Kinect's)
-TOPIC_NAME_DEPTH = '/depth_to_rgb/image_raw'
-TOPIC_NAME_CAMERA_INFO = '/camera/brio/camera_info'
+# The framework's camera topics (launch_helpers remaps each camera driver onto them): depth
+# registered to the colour image (a depth camera such as the Azure Kinect), and the colour
+# camera's intrinsics
+TOPIC_NAME_DEPTH = '/camera/depth_registered/image_raw'
+TOPIC_NAME_CAMERA_INFO = '/camera/camera_info'
 # Camera frames are published best-effort or reliable; a best-effort subscriber takes both
 FRAME_QOS = QoSProfile(reliability=QoSReliabilityPolicy.BEST_EFFORT,
                        history=QoSHistoryPolicy.KEEP_LAST, depth=1)

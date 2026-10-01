@@ -1377,3 +1377,96 @@ the per-camera launch files anyway. Earlier entries of this log keep the old nam
 
 **Note:** after pulling this, rebuild `par_framework_core` (`./scripts/build_workspace.sh par_framework_core` or
 `./scripts/local_build.sh par_framework_core`), so the new name is installed; until then RViz finds no Brio config.
+
+### Camera calibration shared by all cameras (2026-10-01, branch `rework`)
+
+**What:**
+- The Brio's intrinsics move from its driver repository (`src/logitech_brio/calibration/${NAME}.yaml`) to
+  `config/camera_info_brio.yaml` next to `par_setup.yaml`, where the webcam's `camera_info_webcam.yaml` already was:
+  `launch_helpers.logitech_brio_node` sets `camera_info_url` with `next_to_params_file`, like `webcam_nodes`.
+- Removed: the `camera_info_url` launch argument of `par.launch.py`, `par_framework.launch.py`,
+  `calibration.launch.py` and `projection_calibration.launch.py` with their host-run instructions, the container-only
+  `camera_info_url` in `par_setup.yaml`, and the wizard's `LAUNCH_FILES_WITH_CAMERA_INFO_URL`. The wizard finds every
+  camera's intrinsics as `camera_info_<camera>.yaml` in the config folder.
+- The camera-agnostic tools move from the Brio repository to `scripts/`: `run_cameracalibrator.sh` (only its header
+  changed), `generate_checkerboard.py` and `checkerboard.png`. Their earlier history stays in the Brio repository.
+- `.gitignore`: `config/camera_info_*.yaml`, like the other calibration results of a physical setup.
+
+**Why:** the calibration is data of one physical setup, which the framework keeps next to `par_setup.yaml`; a
+driver repository should stay usable on its own without it. The old path also differed between the container
+(`/ros2_ws/src/...`) and the host, which is what the `camera_info_url` launch argument in four launch files and the
+wizard existed for. `next_to_params_file` resolves to the same source folder in both, so that plumbing goes away.
+
+**Trade-offs:** a fixed file name per camera type instead of `${NAME}`, i.e. one Brio per setup, as the projection
+mapping files and TF names already assume. A calibration saved from inside the container is a root-owned file on the
+host, as with the projection mapping. Calibration results are not tracked by git (decision of the maintainer), so a
+fresh clone needs a calibration run or a copied file.
+
+**Alternatives:** keep the file in the driver repository and only move the tools (rejected: the host/container path
+plumbing stays); track `camera_info_*.yaml` in git (rejected: the values belong to one camera unit and machine).
+
+**Migration:** copy an existing `src/logitech_brio/calibration/Logitech_Brio.yaml` to `config/camera_info_brio.yaml`;
+its `camera_name` stays `Logitech_Brio`, which the node still expects, so no recalibration is needed.
+
+**Comments of `run_cameracalibrator.sh` (later the same day):** the header now describes the script as the framework's
+calibrator for any camera node with `set_camera_info` (usage for the Brio and the webcam, where COMMIT writes the
+result, that the Kinect needs none, and which QoS each camera needs), instead of a Brio tool. Comments only.
+
+### Camera-generic calibration launches (2026-10-01, branch `rework`)
+
+An audit for camera-specific code found three small spots, fixed here (a larger one, the Brio's topic names as the
+framework's camera interface, is noted below as not done).
+
+**Projection corners per camera:** `projection_corners_node(context, camera)` stores
+`config/projection_corners_<camera>.yaml`, like `projection_mapping_<camera>.yaml`. The corners are pixels of one
+camera's image; with one shared file, switching cameras republished the other camera's corners (this happened with
+the Brio's corners under the Kinect). Callers: `par.launch.py` and `calibration.launch.py` pass their camera,
+`par_framework.launch.py` / `par_framework_kinect.launch.py` their fixed one. The wizard checks the camera's file,
+`.gitignore` ignores `projection_corners_*.yaml`. Migration: an existing `projection_corners.yaml` is renamed to the
+camera it was clicked with (its `frame_id` tells: `brio_optical_frame`, `rgb_camera_link` = Kinect,
+`webcam_optical_frame`).
+
+**One projection calibration for all cameras:** `projection_calibration_kinect.launch.py` is deleted. It started
+exactly what `projection_calibration.launch.py camera:=kinect` starts through `camera_nodes()` (driver, mount TF,
+`KINECT_REMAPPINGS`, fiducials detector, mapping owner, calibrator); only the argument's description excluded the
+Kinect. The wizard's Kinect branch is gone.
+
+**Camera from the profile:** `calibration.launch.py` and `projection_calibration.launch.py` defaulted to
+`camera:=brio`, while `par.launch.py` takes the camera from `par_launch`. By hand, a Kinect profile without
+`camera:=kinect` silently started the Brio. Both now default to empty and use `launch_helpers.chosen_camera`: the
+argument if given, else `par_launch.camera` from `params_file`; an unknown or empty camera stops with an error that
+names the fix.
+- Alternative: drop the argument and always use the profile. Rejected: the wizard and quick tests pass a camera
+  explicitly, and the argument costs nothing.
+
+**Not done (decision pending):** the consumer nodes subscribe to the Brio's topic names (`/camera/brio/...`), which
+other cameras are remapped onto (`CAMERA_REMAPPINGS`). It works on every launch path; a neutral camera interface
+would touch six node repositories. The per-camera launch files `par_framework*.launch.py` duplicate `par.launch.py`
+but are the documented entry points.
+
+### Neutral camera interface `/camera/...` (2026-10-01, branch `rework`)
+
+**What:** the framework nodes subscribe to camera-neutral topics: `/camera/image_raw` (and the Brio's own JPEGs on
+`/camera/image_raw/compressed`), `/camera/camera_info`, `/camera/set_camera_info`, and `/camera/depth_registered/image_raw`
+(depth on the colour image's pixel grid, the usual ROS name for it). `launch_helpers.DRIVER_REMAPPINGS` remaps each
+driver onto them where it is started (`logitech_brio_node`, `kinect_driver_node`, `webcam_nodes`, the driver in
+`par_framework_kinect.launch.py`, and the wizard's direct Brio start for the intrinsics). The consumer remappings
+(`CAMERA_REMAPPINGS`, `KINECT_REMAPPINGS`, `WEBCAM_REMAPPINGS`) and every `remappings=` on framework nodes are gone.
+Changed to the neutral names: `rviz_bridge`, `camera_pose_calibrator`, the three RViz configs, `surface_selector_node`'s
+`topic_name_frame` in `par_setup.yaml`, the object detector overrides in the launch files, the wizard's preview
+(`hardware.IMAGE_TOPICS` removed) and `run_cameracalibrator.sh` (default namespace `/camera`, so no
+`CAMERA_NAMESPACE` for the webcam any more). The node repositories `fiducials_detector`, `hand_landmarks`,
+`object_detector` and `surface_selector` change their constants and defaults in their own branches.
+
+**Why:** the Brio's names were the de facto interface: six consumers hard-coded `/camera/brio/...` and other cameras
+were remapped *onto the Brio's names*, so a webcam setup subscribed to "brio" topics, and `camera_info` was not even a
+parameter in some nodes. Now only the driver start knows a driver's names; a new camera needs a driver start and a
+`DRIVER_REMAPPINGS` entry, and no consumer changes.
+
+**Kept:** the drivers themselves, their node names (so the `par_setup.yaml` keys stay), TF frames and QoS (the Brio
+still publishes best effort, see the QoS trap). `ros2 topic list` shows the neutral names while the framework runs;
+a driver started by hand without the launch files publishes its own names.
+
+**Alternatives:** put every driver directly into the `/camera` namespace instead of remapping (rejected: the Brio sets
+its namespace in code and its node name is the key of its parameters in `par_setup.yaml`); make every topic a
+parameter of every consumer (rejected: more configuration for a value that is the same for all of them).

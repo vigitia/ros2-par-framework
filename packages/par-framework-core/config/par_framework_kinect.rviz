@@ -1,6 +1,6 @@
 # Written by Claude Code
 # RViz view of the PAR setup with the Azure Kinect (par_framework_kinect.launch.py): world grid, TF frames,
-# the Kinect's colour frustum (drawn by the CameraInfo display from /rgb/camera_info), its live image and its
+# the Kinect's colour frustum (drawn by the CameraInfo display from /camera/camera_info), its live image and its
 # coloured depth point cloud. Copy of par_framework_brio.rviz with the Kinect's topics; Best Effort also receives
 # from the driver's Reliable publishers.
 Panels:
@@ -31,7 +31,7 @@ Visualization Manager:
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Best Effort
-        Value: /rgb/camera_info
+        Value: /camera/camera_info
     - Class: rviz_default_plugins/Image
       Enabled: true
       Name: Kinect image
@@ -40,7 +40,7 @@ Visualization Manager:
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Best Effort
-        Value: /rgb/image_raw
+        Value: /camera/image_raw
     # Coloured depth point cloud from the Kinect driver, in depth_camera_link
     - Class: rviz_default_plugins/PointCloud2
       # Off while point_cloud is off in par_setup.yaml

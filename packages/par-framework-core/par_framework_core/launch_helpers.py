@@ -2,8 +2,8 @@
 """
 Start functions shared by the launch files of par_framework_core.
 
-Each is used as OpaqueFunction(function=...), because it needs the resolved value of a launch
-argument (params_file, camera_info_url) to decide how the node is started.
+Each is used as OpaqueFunction(function=...), because it needs the resolved value of the
+params_file launch argument to decide how the node is started.
 """
 
 import os
@@ -14,20 +14,19 @@ import yaml
 
 
 def logitech_brio_node(context):
-    """Start the Brio with params_file, and camera_info_url on top if it is given."""
-    parameters = [LaunchConfiguration('params_file').perform(context)]
-    # Only added when set: an empty value would replace the URL from params_file with '', which
-    # the node reads as the default ~/.ros/camera_info/ instead
-    camera_info_url = LaunchConfiguration('camera_info_url').perform(context)
-    if camera_info_url:
-        parameters.append({'camera_info_url': camera_info_url})
+    """Start the Brio with params_file and its calibration next to it."""
+    # Next to par_setup.yaml like the other calibrations, on the host and in the container alike;
+    # cameracalibrator's COMMIT writes it there
+    camera_info_url = f'file://{next_to_params_file(context, "camera_info_brio.yaml")}'
     return [Node(
         package='logitech_brio',
         executable='logitech_brio',
         name='logitech_brio_node',
         output='screen',
         emulate_tty=True,
-        parameters=parameters,
+        parameters=[LaunchConfiguration('params_file').perform(context),
+                    {'camera_info_url': camera_info_url}],
+        remappings=DRIVER_REMAPPINGS['brio'],
     )]
 
 
@@ -41,6 +40,7 @@ def kinect_driver_node(context):
         output='screen',
         emulate_tty=True,
         parameters=[LaunchConfiguration('params_file').perform(context)],
+        remappings=DRIVER_REMAPPINGS['kinect'],
     )
 
 
@@ -58,6 +58,7 @@ def webcam_nodes(context):
             output='screen',
             emulate_tty=True,
             parameters=[LaunchConfiguration('params_file'), {'camera_info_url': camera_info_url}],
+            remappings=DRIVER_REMAPPINGS['webcam'],
         ),
         # What the Brio node publishes itself: z forward, y down (REP 103), roll -90, yaw -90 deg
         Node(
@@ -93,6 +94,17 @@ def read_launch_section(context):
         return yaml.safe_load(f)['par_launch']['ros__parameters']
 
 
+def chosen_camera(context):
+    """Return the camera launch argument, or else the camera of params_file's par_launch."""
+    camera = (LaunchConfiguration('camera').perform(context)
+              or read_launch_section(context)['camera'])
+    # Without this, an empty or misspelt camera would end as a KeyError deep in a launch file
+    if camera not in DRIVER_REMAPPINGS:
+        raise RuntimeError(f'[launch_helpers]: unknown camera {camera!r}: pass camera:=brio, '
+                           'kinect or webcam, or set par_launch.camera in the params_file')
+    return camera
+
+
 def mount_tf_publisher(context, name, child_frame_id):
     """
     Publish world -> child_frame_id: the measured camera pose, or else the placeholder.
@@ -126,20 +138,31 @@ def mount_tf_publisher(context, name, child_frame_id):
     )]
 
 
-# Points the framework nodes, which default to the Brio's topics (some hard-coded), at the Azure
-# Kinect driver's topics. The driver publishes without a namespace, like in the old VIGITIA
-# framework, whose depth topic /depth_to_rgb/image_raw the detectors still use.
-KINECT_REMAPPINGS = [
-    ('/camera/brio/image_raw', '/rgb/image_raw'),
-    ('/camera/brio/camera_info', '/rgb/camera_info'),
-]
-# The same for a generic webcam (v4l2_camera in /camera/webcam)
-WEBCAM_REMAPPINGS = [
-    ('/camera/brio/image_raw', '/camera/webcam/image_raw'),
-    ('/camera/brio/camera_info', '/camera/webcam/camera_info'),
-]
-# Per camera: remappings for the framework nodes
-CAMERA_REMAPPINGS = {'brio': [], 'kinect': KINECT_REMAPPINGS, 'webcam': WEBCAM_REMAPPINGS}
+# The framework's camera interface, whichever camera runs. The framework nodes subscribe to these
+# names; each camera driver is remapped onto them where it is started, so only this table knows a
+# driver's own names.
+CAMERA_IMAGE = '/camera/image_raw'
+CAMERA_INFO = '/camera/camera_info'
+# cameracalibrator's COMMIT stores the calibration through this service
+CAMERA_SET_INFO = '/camera/set_camera_info'
+# Depth registered to the colour image (same pixel grid), only from a depth camera
+CAMERA_DEPTH = '/camera/depth_registered/image_raw'
+
+
+def _namespaced(namespace, names):
+    return [(f'{namespace}/{name}', f'/camera/{name}') for name in names]
+
+
+DRIVER_REMAPPINGS = {
+    # The Brio node sets its /camera/brio namespace in code, and publishes its own JPEGs
+    'brio': _namespaced('/camera/brio', ['image_raw', 'image_raw/compressed', 'image_rect_color',
+                                         'camera_info', 'set_camera_info']),
+    # The Kinect driver publishes without a namespace
+    'kinect': [('/rgb/image_raw', CAMERA_IMAGE), ('/rgb/camera_info', CAMERA_INFO),
+               ('/depth_to_rgb/image_raw', CAMERA_DEPTH)],
+    # v4l2_camera in /camera/webcam (webcam_nodes)
+    'webcam': _namespaced('/camera/webcam', ['image_raw', 'camera_info', 'set_camera_info']),
+}
 
 
 def next_to_params_file(context, file_name):
@@ -150,8 +173,10 @@ def next_to_params_file(context, file_name):
     return os.path.join(os.path.dirname(params_file), file_name)
 
 
-def projection_corners_node(context):
-    """Start the projection corners owner with its file next to the real par_setup.yaml."""
+def projection_corners_node(context, camera):
+    """Start the projection corners owner with camera's file next to the real par_setup.yaml."""
+    # One file per camera: the corners are pixels of one camera's image, so another camera's
+    # would point elsewhere
     return [Node(
         package='projection_corners',
         executable='projection_corners',
@@ -159,7 +184,7 @@ def projection_corners_node(context):
         output='screen',
         emulate_tty=True,
         parameters=[{'projection_corners_file':
-                     next_to_params_file(context, 'projection_corners.yaml')}],
+                     next_to_params_file(context, f'projection_corners_{camera}.yaml')}],
     )]
 
 

@@ -20,11 +20,9 @@
     camera_resolution_x: 1920
     camera_resolution_y: 1080
     camera_fps: 60
-    # Calibration file, loaded at startup and written by cameracalibrator's COMMIT button
-    # (set_camera_info). ${NAME} is camera_name. Inside the bind-mounted source tree so it
-    # survives container rebuilds. Missing file = uncalibrated CameraInfo.
-    camera_info_url: file:///ros2_ws/src/logitech_brio/calibration/${NAME}.yaml
-    # Publish image_rect_color, needs a calibration from camera_info_url.
+    # The calibration is camera_info_brio.yaml next to this file: the launch files set camera_info_url,
+    # cameracalibrator's COMMIT button writes it there. Missing file = uncalibrated CameraInfo.
+    # Publish image_rect_color, needs that calibration.
     undistort_frame: false
 
 # Generic webcam (camera: webcam), any UVC camera through v4l2_camera; the launch files put it in
@@ -46,7 +44,8 @@
 
 surface_selector_node:
   ros__parameters:
-    topic_name_frame: /camera/brio/image_raw
+    # The framework's camera image; every camera's driver is remapped onto it (launch_helpers)
+    topic_name_frame: /camera/image_raw
     # Display the projector is connected to, as counted by pygame (0 = primary).
     display_id: 2
 

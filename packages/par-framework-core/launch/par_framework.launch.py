@@ -9,10 +9,8 @@ physical setup means a different parameter file, not different code:
 Add rviz:=true to open RViz with the TF frames, the Brio frustum and its image, plus
 rviz_bridge, which shows the object detector's /objects on the table (the detector itself is
 started separately).
-params_file points the Brio calibration into the container; on the host, from the repo root:
-
-    ros2 launch par_framework_core par_framework.launch.py \\
-        camera_info_url:="file://$PWD/src/logitech_brio/calibration/\\${NAME}.yaml"
+The Brio calibration is config/camera_info_brio.yaml, next to params_file, on the host and in
+the container alike (changed with the help of Claude Code).
 
 The Brio mount transform, the RViz option and the projection nodes were written with the help
 of Claude Code; the start functions live in par_framework_core/launch_helpers.py.
@@ -48,12 +46,6 @@ def generate_launch_description():
             'rviz',
             default_value='false',
             description='Open RViz with the TF frames, the Brio frustum and its image.'),
-        DeclareLaunchArgument(
-            'camera_info_url',
-            default_value='',
-            description='Overrides the Brio calibration URL from params_file, e.g. for a host '
-                        'run: file://<repo>/src/logitech_brio/calibration/${NAME}.yaml. '
-                        'Empty keeps the one from params_file.'),
 
         OpaqueFunction(function=logitech_brio_node),
 
@@ -62,7 +54,7 @@ def generate_launch_description():
         OpaqueFunction(function=mount_tf_publisher, args=['brio_tf_publisher', 'brio_link']),
 
         # Publishes the stored projection corners on /projection_corners
-        OpaqueFunction(function=projection_corners_node),
+        OpaqueFunction(function=projection_corners_node, args=['brio']),
         # Publishes the stored table-to-projector mapping on /projection_mapping
         OpaqueFunction(function=projection_mapping_node, args=['brio']),
 

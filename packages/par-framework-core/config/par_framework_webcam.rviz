@@ -1,5 +1,5 @@
 # Written by Claude Code
-# RViz view of the PAR setup with a generic webcam: par_framework_brio.rviz with the /camera/webcam topics.
+# RViz view of the PAR setup with a generic webcam: par_framework_brio.rviz, the same /camera topics.
 # v4l2_camera publishes Reliable, which the Best Effort displays receive as well.
 Panels:
   - Class: rviz_common/Displays
@@ -26,7 +26,7 @@ Visualization Manager:
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Best Effort
-        Value: /camera/webcam/camera_info
+        Value: /camera/camera_info
     - Class: rviz_default_plugins/Image
       Enabled: true
       Name: Brio image
@@ -35,7 +35,7 @@ Visualization Manager:
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Best Effort
-        Value: /camera/webcam/image_raw
+        Value: /camera/image_raw
     # Projection area selected with surface_selector, projected onto the table by rviz_bridge
     - Class: rviz_default_plugins/MarkerArray
       Enabled: true

@@ -94,12 +94,19 @@ ROS plumbing.
 
 ### Current pipeline
 
-`logitech_brio` publishes `sensor_msgs/Image` on `/camera/brio/image_raw` (plus `CameraInfo` on
-`/camera/brio/camera_info`; the node sets its `/camera/brio` namespace in code), converted with `cv_bridge`; `surface_selector` consumes frames to mark the
-projection area. `page_locator` turns `/fiducials` into `/pages` (`custom_interfaces/PageList`, every frame, corners
+**The camera interface is neutral.** Whichever camera runs, the framework nodes subscribe to `/camera/image_raw`
+(plus the Brio's own JPEGs on `/camera/image_raw/compressed`), `/camera/camera_info`, `/camera/set_camera_info` and,
+from a depth camera, `/camera/depth_registered/image_raw` (depth on the colour image's pixel grid). The drivers keep
+their own names (`/camera/brio/...`, the Kinect's `/rgb/...` and `/depth_to_rgb/...`, `/camera/webcam/...`); where a
+launch file starts a driver, it remaps it onto the neutral names with `launch_helpers.DRIVER_REMAPPINGS`, so that table
+is the only place that knows a driver's topics. A new camera = a driver start in `launch_helpers` plus its entry
+there, and no consumer changes. `surface_selector` consumes frames to mark the projection area. `page_locator` turns `/fiducials` into `/pages` (`custom_interfaces/PageList`, every frame, corners
 in camera pixels): sheets with markers `4n .. 4n+3` in their corners, located by one homography to the printed layout,
 so the `marker_*` layout in `par_setup.yaml` must match the paper (default: the VIGITIA document pages, ids 96-99;
-`make_page_template` prints matching pages). The image `frame_id` doubles as the camera name used to find `calibration/<CameraName>.yaml`.
+`make_page_template` prints matching pages). Camera intrinsics are `config/camera_info_<camera>.yaml` next to
+`par_setup.yaml` (gitignored, one per camera type, the same path on the host and in the container): `launch_helpers`
+sets each camera's `camera_info_url` there, and `scripts/run_cameracalibrator.sh` writes it through the camera's
+`set_camera_info`. The Kinect driver publishes its factory calibration instead.
 
 **QoS is a trap here.** Frames are published BEST_EFFORT / KEEP_LAST depth 1. A subscriber on the default
 reliable profile — including the shorthand of passing an int depth as `qos_profile` — is QoS-incompatible and

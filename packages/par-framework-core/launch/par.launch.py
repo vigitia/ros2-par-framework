@@ -9,7 +9,7 @@ wizard (par_setup_wizard) writes it. Without the wizard:
 
 With the Kinect the detectors get its topics and its depth, as in par_framework_kinect.launch.py.
 camera_only:=true starts just the camera and its mount transform, e.g. for a preview or a
-calibration. On the host, the Brio calibration needs camera_info_url, see par_framework.launch.py.
+calibration. Camera calibrations are config/camera_info_<camera>.yaml, next to params_file.
 """
 
 import os
@@ -19,21 +19,23 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
-from par_framework_core.launch_helpers import (camera_nodes, CAMERA_REMAPPINGS,
+from par_framework_core.launch_helpers import (CAMERA_IMAGE, camera_nodes,
                                                projection_corners_node, projection_mapping_node,
                                                read_launch_section)
 
 PACKAGE_NAME = 'par_framework_core'
-# Per camera: parameter overrides for each detector, and the RViz configuration
+# Per camera: parameter overrides for each detector, and the RViz configuration. Every camera
+# publishes on the same /camera/... topics (launch_helpers.DRIVER_REMAPPINGS); the overrides cover
+# what the cameras offer differently.
 CAMERA_OVERRIDES = {
     'kinect': {
         # Raw frames: the driver publishes no JPEGs
-        'object_detector': {'topic_name_frame': '/rgb/image_raw', 'use_depth': True},
+        'object_detector': {'topic_name_frame': CAMERA_IMAGE, 'use_depth': True},
         'fiducials_detector': {'use_depth': True},
         'hand_landmarks': {'use_depth': True},
     },
     # Raw frames: v4l2_camera publishes JPEGs only with compressed_image_transport installed
-    'webcam': {'object_detector': {'topic_name_frame': '/camera/webcam/image_raw'}},
+    'webcam': {'object_detector': {'topic_name_frame': CAMERA_IMAGE}},
 }
 RVIZ_CONFIGS = {'brio': 'par_framework_brio.rviz', 'kinect': 'par_framework_kinect.rviz',
                 'webcam': 'par_framework_webcam.rviz'}
@@ -47,9 +49,6 @@ def launch_setup(context):
     if LaunchConfiguration('camera_only').perform(context) == 'true':
         return actions
 
-    # The detectors default to the Brio's topics
-    remappings = CAMERA_REMAPPINGS[camera]
-
     def framework_node(package, overrides=None):
         return Node(
             package=package,
@@ -58,7 +57,6 @@ def launch_setup(context):
             output='screen',
             emulate_tty=True,
             parameters=[params_file] + ([overrides] if overrides else []),
-            remappings=remappings,
         )
 
     # page_locator only reads /fiducials, so it needs fiducials_detector but no camera overrides
@@ -68,7 +66,7 @@ def launch_setup(context):
             actions.append(framework_node(detector, overrides))
 
     # Publish the stored projection corners and table-to-projector mapping
-    actions += projection_corners_node(context)
+    actions += projection_corners_node(context, camera)
     actions += projection_mapping_node(context, camera)
 
     if section.get('rviz', False):
@@ -92,12 +90,6 @@ def generate_launch_description():
             default_value=default_params,
             description='Parameter file describing this physical PAR setup, with a par_launch '
                         'section.'),
-        DeclareLaunchArgument(
-            'camera_info_url',
-            default_value='',
-            description='Overrides the Brio calibration URL from params_file, e.g. for a host '
-                        'run: file://<repo>/src/logitech_brio/calibration/${NAME}.yaml. '
-                        'Empty keeps the one from params_file.'),
         DeclareLaunchArgument(
             'camera_only',
             default_value='false',

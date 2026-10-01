@@ -18,8 +18,7 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction, Shutdown
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
-from par_framework_core.launch_helpers import (kinect_driver_node, KINECT_REMAPPINGS,
-                                               next_to_params_file)
+from par_framework_core.launch_helpers import kinect_driver_node, next_to_params_file
 import yaml
 
 PACKAGE_NAME = 'par_framework_core'
@@ -42,7 +41,7 @@ def launch_setup(context):
                 'placeholder_rotation': [float(placeholder[f'rotation.{axis}'])
                                          for axis in 'xyzw'],
             }],
-            remappings=KINECT_REMAPPINGS,
+            # The driver is remapped onto /camera/..., where the calibrator subscribes
             # Stored or failed: the camera is not needed any longer
             on_exit=Shutdown(reason='camera pose calibration finished'),
         ),

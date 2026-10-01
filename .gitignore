@@ -10,11 +10,12 @@
 /packages/par-framework-core/config/par_setup_*.yaml
 
 # Calibration of this physical setup, written by nodes: the projection corners (projection_corners_node, from
-# surface_selector), the table-to-projector mapping (projection_mapping_node, from projection_calibrator) and the
-# measured camera pose (camera_pose_calibrator).
-/packages/par-framework-core/config/projection_corners.yaml
+# surface_selector), the table-to-projector mapping (projection_mapping_node, from projection_calibrator), the
+# measured camera pose (camera_pose_calibrator) and the camera intrinsics (cameracalibrator).
+/packages/par-framework-core/config/projection_corners_*.yaml
 /packages/par-framework-core/config/projection_mapping_*.yaml
 /packages/par-framework-core/config/camera_pose_*.yaml
+/packages/par-framework-core/config/camera_info_*.yaml
 
 # colcon output. These folders will be created when the nodes in src/ are built locally, outside the Docker container
 /build/
