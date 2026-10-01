@@ -42,13 +42,9 @@ object_detector_node:
 # Automatic table-to-projector calibration (projection_calibration.launch.py).
 projection_calibrator_node:
   ros__parameters:
-    # Display the projector is connected to, as counted by pygame (0 = primary).
+    # Display the projector is connected to, as counted by pygame (0 = primary). The projector
+    # resolution is read from it.
     display_id: 2
-    # Resolution of that display, which the marker pattern is rendered at. Must match it
-    # (check with: xrandr --listmonitors), otherwise the pattern fills only part of the
-    # projection. Co-authored by Claude Code: 4K projector on HDMI-1.
-    projector_width: 3840
-    projector_height: 2160
     # ArUco dictionary without the DICT_ prefix. Must match fiducials_detector, which
     # uses 4X4_100 unless its dictionary parameter says otherwise.
     dictionary: 4X4_100

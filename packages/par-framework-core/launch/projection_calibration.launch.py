@@ -2,12 +2,12 @@
 r"""
 Automatic table-to-projector calibration.
 
-The projector shows ArUco markers at known projector pixels (display_id and resolution under
-projection_calibrator_node in par_setup.yaml), fiducials_detector finds them in the camera image,
-and projection_calibrator fits the homography from the table plane to projector pixels. It is
-stored by projection_mapping_node in config/projection_mapping_brio.yaml, next to par_setup.yaml
-(the Kinect has its own file), and published latched on /projection_mapping. The launch ends when
-the calibrator is done.
+The projector shows ArUco markers at known projector pixels (display_id under
+projection_calibrator_node in par_setup.yaml; the resolution is read from that display),
+fiducials_detector finds them in the camera image, and projection_calibrator fits the homography
+from the table plane to projector pixels. It is stored by projection_mapping_node in
+config/projection_mapping_brio.yaml, next to par_setup.yaml (the Kinect has its own file), and
+published latched on /projection_mapping. The launch ends when the calibrator is done.
 
 Needs the camera calibration and the camera pose (/brio_tf_publisher in par_setup.yaml), and a
 clear table. On the host, from the repo root:

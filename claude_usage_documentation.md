@@ -1041,3 +1041,30 @@ it), not as a floating window.
   count as monitor-sized and stay unmaximised.
 
 **Tested:** RViz started with the config: `_NET_WM_STATE_MAXIMIZED_HORZ/VERT` set, 1861x1043 on DP-1.
+
+### Projector resolution read from the display (2026-10-01)
+
+**What:** `par_setup.yaml`, `projection_calibrator_node`: `projector_width` / `projector_height` removed again; the
+`display_id` comment says the resolution is read from that display.
+
+**Why:** your request to move the projector-res worktree onto `rework` in `src/surface_selector`: the calibrator now
+asks the display for its resolution, so the two parameters (added on 2026-09-30 for the 4K projector) are no longer
+read. Left in, they would look authoritative while doing nothing.
+- `marker_size_px: 500` stays: it is still in projector pixels and was chosen for the 4K projector. On a 1080p
+  projector the markers are twice as large on the table.
+
+### Calibration launch docstring, and the framework's projector-res worktree removed (2026-10-01)
+
+**What:**
+- `projection_calibration.launch.py`: the docstring says the projector resolution is read from the display; it still
+  named `projector_width` / `projector_height`.
+- The framework repo's own agent worktree `.claude/worktrees/projector-res` (branch `projector-res-from-display`,
+  uncommitted changes from 2026-09-25) and its branch are removed.
+
+**Why:** the docstring was outdated by moving the resolution lookup onto `rework` in `src/surface_selector`. The
+worktree was the second one of that name: one existed in `src/surface_selector` (removed earlier today) and one here,
+which kept appearing in PyCharm. Its other changes were already in place (Kinect height, frustum `Far clip`, removed
+resolution parameters) or were dropped at your choice:
+- `display_id` once under `/**` in `par_setup.yaml` (plus a note in `CLAUDE.md`): dropped. One value for both nodes,
+  but less obvious which nodes read it; `display_id` stays under each node.
+- Its 4 log entries described those changes and are dropped with them.
