@@ -1327,3 +1327,37 @@ the same.
 
 **Tested:** on the two current screens, `list` gave `HDMI-1 24"` at 0,0 and `DP-1 24"` at 1920,0. Qt matched both
 (DELL U2419H, 60 Hz; DP-1 primary). flake8 and pep257 are clean. **Not tested:** with the projector connected.
+
+### page_locator in the framework (2026-10-01, branch `rework`)
+
+**What:** the ported page tracker (`page_locator`, repo `ros2-par-framework-page-locator`, design notes in its own
+`claude_usage_documentation.md`) is wired in:
+- `config/nodes.list`: new entry, branch `main` like the others. `sync_nodes.sh` leaves an existing checkout on another
+  branch untouched, so the `rework` checkout keeps working and the line needs no change after the merge.
+- `par.launch.py`: `page_locator` joins the detector loop, switched by `par_launch.page_locator`. No camera overrides:
+  it only reads `/fiducials`, which `fiducials_detector` publishes for every camera.
+- `par_setup.yaml`: a `page_locator_node` block (page and marker size, `max_pages`, hold time, smoothing) and the
+  `par_launch` switch. The setup wizard lists it as "Page locator (needs fiducials)".
+- `rviz_bridge`: `/pages` → `/pages/markers`, outline + `page#<id>` label, through `pixels_to_table` like the 2D
+  fiducials. The paper lies on the table, so the plane is where its corners are even with the Kinect. A "Pages"
+  display was added to all three RViz configs.
+
+**Why these choices:** page layout values are parameters of the printed sheets, so they belong with the other
+per-setup values in `par_setup.yaml`, not in node code. `max_pages` keeps page marker ids (`0 .. 4 * max_pages - 1`)
+below the projected calibration markers 90-98; the old node had a page group 96-99 that overlapped them.
+
+**Alternatives:** have `par.launch.py` start `fiducials_detector` automatically when `page_locator` is on. Rejected
+to keep one switch per node; the dependency is noted next to the switch and in the wizard label instead.
+
+**Layout (later the same day):** the `page_locator_node` block also sets the page layout (`marker_margin_mm`,
+`marker_corners`, `marker_quarter_turns`), set to the VIGITIA book pages with 20 mm markers, which page_locator now
+uses as default. The reasoning is in page_locator's own documentation.
+
+**Calibration marker ids and page layout (later the same day):** a live test showed that the printed VIGITIA
+documents carry markers 96-99, which overlap the projected calibration markers 90-98. `projection_calibrator_node`
+`marker_ids` in `par_setup.yaml` moved to 50-58: they are only used while calibrating, the stored
+`projection_mapping_<camera>.yaml` stays valid. The calibrator's code default in `surface_selector` is still
+`range(90, 99)`; every launch file passes `par_setup.yaml`, which overrides it. The `page_locator_node` block now
+holds the documents' layout (measured: 20 mm markers, 5 mm margin, markers turned three quarters) and `max_pages: 25`.
+- Alternative: reprint the documents with ids below 32 and keep 90-98. Rejected: the existing sheets would stop
+  working.

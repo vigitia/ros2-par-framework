@@ -1,9 +1,0 @@
-# Corners of the projected image in pixels of the raw camera image, written by
-# projection_corners_node when surface_selector stores a new selection.
-frame_id: brio_optical_frame
-image_width: 1920
-image_height: 1080
-top_left: [282.0, 198.0]
-top_right: [1468.0, 230.0]
-bottom_right: [1506.0, 898.0]
-bottom_left: [252.0, 924.0]

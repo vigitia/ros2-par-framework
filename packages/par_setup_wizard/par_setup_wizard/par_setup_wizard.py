@@ -33,7 +33,8 @@ from .preview import Preview
 PAGE_PROFILE, PAGE_PROJECTOR, PAGE_CAMERA, PAGE_CALIBRATION, PAGE_NODES, PAGE_START = range(6)
 # par_launch switches and their labels
 NODES = {'object_detector': 'Object detector', 'fiducials_detector': 'Fiducials detector',
-         'hand_landmarks': 'Hand landmarks', 'rviz': 'RViz (with rviz_bridge)'}
+         'hand_landmarks': 'Hand landmarks', 'page_locator': 'Page locator (needs fiducials)',
+         'rviz': 'RViz (with rviz_bridge)'}
 # Nodes that open a window on the projector
 DISPLAY_NODES = ('surface_selector_node', 'projection_calibrator_node')
 # A new profile has these instead of a display and a camera, so the wizard asks for both anew

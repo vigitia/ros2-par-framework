@@ -1,7 +1,7 @@
 # Written by Claude Code
-"""Republish framework outputs as RViz markers: objects, hands, fiducials, projection."""
+"""Republish framework outputs as RViz markers: objects, hands, fiducials, pages, projection."""
 
-from custom_interfaces.msg import (FiducialsList, HandLandmarksList, ObjectList,
+from custom_interfaces.msg import (FiducialsList, HandLandmarksList, ObjectList, PageList,
                                    ProjectionCorners, ProjectionMapping)
 from geometry_msgs.msg import Point
 import numpy as np
@@ -27,6 +27,8 @@ TOPIC_NAME_HANDS = '/hand_landmarks'
 TOPIC_NAME_HAND_MARKERS = '/hand_landmarks/markers'
 TOPIC_NAME_FIDUCIALS = '/fiducials'
 TOPIC_NAME_FIDUCIAL_MARKERS = '/fiducials/markers'
+TOPIC_NAME_PAGES = '/pages'
+TOPIC_NAME_PAGE_MARKERS = '/pages/markers'
 TOPIC_NAME_PROJECTION_MAPPING = '/projection_mapping'
 TOPIC_NAME_MAPPING_MARKERS = '/projection_mapping/markers'
 # The table is the plane z = 0 of this frame
@@ -68,6 +70,9 @@ HAND_CONNECTIONS = ((0, 1), (1, 2), (2, 3), (3, 4),         # thumb
                     (5, 9), (9, 13), (13, 17))              # palm
 # Fiducials lie flat on the table like the objects; yellow, as orange is the left hand
 FIDUCIAL_COLOR = ColorRGBA(r=1.0, g=0.85, b=0.1, a=1.0)
+# Pages lie on the table, just below the fiducials printed on them
+PAGE_HEIGHT = 0.0018
+PAGE_COLOR = ColorRGBA(r=0.1, g=0.9, b=0.9, a=1.0)
 # The corners arrive once, the calibration and TF possibly later: the area is redrawn periodically
 AREA_PERIOD_SEC = 1.0
 WARNING_PERIOD_SEC = 5.0
@@ -105,6 +110,9 @@ class RvizBridgeNode(Node):
         self.fiducial_marker_publisher = self.create_publisher(MarkerArray,
                                                                TOPIC_NAME_FIDUCIAL_MARKERS,
                                                                QUEUE_SIZE)
+        self.create_subscription(PageList, TOPIC_NAME_PAGES, self.on_pages, QUEUE_SIZE)
+        self.page_marker_publisher = self.create_publisher(MarkerArray, TOPIC_NAME_PAGE_MARKERS,
+                                                           QUEUE_SIZE)
         self.hand_marker_publisher = self.create_publisher(MarkerArray, TOPIC_NAME_HAND_MARKERS,
                                                            QUEUE_SIZE)
         self.object_marker_publisher = self.create_publisher(MarkerArray,
@@ -314,6 +322,45 @@ class RvizBridgeNode(Node):
             markers.markers += [outline, direction, label]
 
         self.fiducial_marker_publisher.publish(markers)
+
+    def on_pages(self, msg):
+        projection = self.__projection(msg.header.frame_id, 'pages')
+        if projection is None:
+            return
+
+        markers = MarkerArray()
+        # Removes the previous frame's markers first, so pages that are gone disappear
+        markers.markers.append(Marker(action=Marker.DELETEALL))
+        header = Header(stamp=msg.header.stamp, frame_id=TABLE_FRAME)
+        for page in msg.pages:
+            # Paper lies on the table, so the table plane is where its corners are, with or
+            # without a depth camera
+            corners = [(page.x0, page.y0), (page.x1, page.y1), (page.x2, page.y2),
+                       (page.x3, page.y3)]
+            hits = pixels_to_table(corners, *projection)
+            # Rays that miss the table are dropped, which would shift which corner is which
+            if len(hits) != len(corners):
+                continue
+            hits[:, 2] = PAGE_HEIGHT
+            points = [Point(x=x, y=y, z=z) for x, y, z in hits]
+            center = hits.mean(axis=0)
+
+            outline = Marker(header=header, ns='page_outline', id=page.id,
+                             type=Marker.LINE_STRIP, color=PAGE_COLOR,
+                             points=points + points[:1])
+            outline.scale.x = LINE_WIDTH
+            label = Marker(header=header, ns='page_label', id=page.id,
+                           type=Marker.TEXT_VIEW_FACING, color=LABEL_COLOR,
+                           # No space: RViz draws it far too wide at this text size
+                           text=f'page#{page.id}')
+            label.scale.z = TEXT_SIZE
+            label.pose.position = Point(x=center[0], y=center[1], z=center[2] + LABEL_HEIGHT)
+            for marker in (outline, label):
+                marker.pose.orientation.w = 1.0
+
+            markers.markers += [outline, label]
+
+        self.page_marker_publisher.publish(markers)
 
     def publish_projection_area(self):
         corners = self.projection_corners

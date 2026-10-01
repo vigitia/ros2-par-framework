@@ -56,6 +56,32 @@ object_detector_node:
     # published, e.g. pictures of objects projected onto the table. 0 = off; about 0.015 is above the Kinect's noise.
     min_object_height: 0.015
 
+# Pages of paper with an ArUco marker in each corner (page n: markers 4n .. 4n+3), from /fiducials.
+# Print them with: ros2 run page_locator make_page_template <page ids> --marker-size-mm <marker_size_mm>
+page_locator_node:
+  ros__parameters:
+    page_width_mm: 210.0
+    page_height_mm: 297.0
+    # Printed layout, as on the VIGITIA document pages (measured on a printed sheet). Measure it on the paper:
+    # page corners far from the visible markers are only right if these are.
+    # Side of a marker including its black border.
+    marker_size_mm: 20.0
+    # Gap between a marker and both page edges next to it.
+    marker_margin_mm: 5.0
+    # Page corner of the markers with id % 4 = 0, 1, 2, 3.
+    marker_corners: [bottom_left, top_left, top_right, bottom_right]
+    # Clockwise quarter turns of the printed markers, 0 = upright. The VIGITIA book pages (data/book_pages in
+    # the old framework): [bottom_right, bottom_left, top_left, top_right], 0 turns.
+    marker_quarter_turns: 3
+    # Marker ids from 4 * max_pages on are ignored. 25 allows all ids of DICT_4X4_100; the documents use page
+    # 24 (ids 96-99). Keep the projected calibration markers (projection_calibrator_node) out of the page ids
+    # in use.
+    max_pages: 25
+    # A page not seen for this long counts as removed.
+    hold_time_sec: 0.5
+    # Share of a new position taken over per frame; 1.0 = no smoothing.
+    smoothing: 0.3
+
 # Automatic table-to-projector calibration (projection_calibration.launch.py).
 projection_calibrator_node:
   ros__parameters:
@@ -66,8 +92,8 @@ projection_calibrator_node:
     # uses 4X4_100 unless its dictionary parameter says otherwise.
     dictionary: 4X4_100
     # Ids of the projected markers (3x3 grid). Keep physical markers on the table out of
-    # this range.
-    marker_ids: [90, 91, 92, 93, 94, 95, 96, 97, 98]
+    # this range: the VIGITIA document pages use 96-99, so not the calibrator's default 90-98.
+    marker_ids: [50, 51, 52, 53, 54, 55, 56, 57, 58]
     # In projector pixels: 500 at 4K is as large on the table as 250 was at 1080p.
     marker_size_px: 500
     # A fit with a larger RMS error in projector pixels is rejected.
@@ -125,15 +151,15 @@ k4a_ros_device_node:
     point_cloud_in_depth_frame: true
 
 # Pose of the Kinect body frame (camera_base, x forward, z up) in world, in metres.
-# Placeholder: height measured on 2026-09-25 (front glass to table, 0.97 m), looking straight
-# down assumed. Read by the *_kinect launch files, see /brio_tf_publisher. They use
+# Placeholder: front glass to table, 1.0 m, looking straight down assumed. Read by the *_kinect launch files,
+# see /brio_tf_publisher. They use
 # camera_pose_kinect.yaml next to this file instead while it exists: the pose measured by
 # camera_pose_calibrator (height and tilt from the depth image of the clear table).
 /kinect_tf_publisher:
   ros__parameters:
     translation.x: 0.0
     translation.y: 0.0
-    translation.z: 0.97
+    translation.z: 1.00
     rotation.x: 0.0
     rotation.y: 0.7071068
     rotation.z: 0.0
@@ -149,5 +175,7 @@ par_launch:
     object_detector: true
     fiducials_detector: true
     hand_landmarks: true
+    # Needs fiducials_detector
+    page_locator: true
     # RViz with rviz_bridge
     rviz: true

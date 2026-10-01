@@ -96,7 +96,10 @@ ROS plumbing.
 
 `logitech_brio` publishes `sensor_msgs/Image` on `/camera/brio/image_raw` (plus `CameraInfo` on
 `/camera/brio/camera_info`; the node sets its `/camera/brio` namespace in code), converted with `cv_bridge`; `surface_selector` consumes frames to mark the
-projection area. The image `frame_id` doubles as the camera name used to find `calibration/<CameraName>.yaml`.
+projection area. `page_locator` turns `/fiducials` into `/pages` (`custom_interfaces/PageList`, every frame, corners
+in camera pixels): sheets with markers `4n .. 4n+3` in their corners, located by one homography to the printed layout,
+so the `marker_*` layout in `par_setup.yaml` must match the paper (default: the VIGITIA document pages, ids 96-99;
+`make_page_template` prints matching pages). The image `frame_id` doubles as the camera name used to find `calibration/<CameraName>.yaml`.
 
 **QoS is a trap here.** Frames are published BEST_EFFORT / KEEP_LAST depth 1. A subscriber on the default
 reliable profile — including the shorthand of passing an int depth as `qos_profile` — is QoS-incompatible and
@@ -121,7 +124,7 @@ of `world`, whose pose relative to the camera is `/brio_tf_publisher` in `par_se
 
 Consumers convert locally with `par_geometry`, the one place for this math. They do not call a service per point,
 and images never go through a service. The mapping comes from `projection_calibration.launch.py`: the projector
-shows ArUco markers (ids 90–98) at known pixels, `fiducials_detector` finds them, and `projection_calibrator` (in
+shows ArUco markers (ids 50–58, `marker_ids` in `par_setup.yaml`; not 90–98, the VIGITIA document pages use 96–99) at known pixels, `fiducials_detector` finds them, and `projection_calibrator` (in
 `surface_selector`) fits the homography and sends it to `projection_mapping_node`, which stores
 `config/projection_mapping_<camera>.yaml` (`brio` or `kinect`) next to `par_setup.yaml`. One file per camera, because
 while the camera poses are placeholders each camera has its own table plane, so a mapping only fits the camera it was

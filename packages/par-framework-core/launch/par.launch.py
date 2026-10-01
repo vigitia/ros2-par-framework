@@ -61,7 +61,8 @@ def launch_setup(context):
             remappings=remappings,
         )
 
-    for detector in ('object_detector', 'fiducials_detector', 'hand_landmarks'):
+    # page_locator only reads /fiducials, so it needs fiducials_detector but no camera overrides
+    for detector in ('object_detector', 'fiducials_detector', 'hand_landmarks', 'page_locator'):
         if section.get(detector, False):
             overrides = CAMERA_OVERRIDES.get(camera, {}).get(detector)
             actions.append(framework_node(detector, overrides))
