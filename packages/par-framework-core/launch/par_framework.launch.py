@@ -70,7 +70,7 @@ def generate_launch_description():
             package='rviz2',
             executable='rviz2',
             arguments=['-d', os.path.join(
-                get_package_share_directory(PACKAGE_NAME), 'config', 'par_framework.rviz')],
+                get_package_share_directory(PACKAGE_NAME), 'config', 'par_framework_brio.rviz')],
             condition=IfCondition(LaunchConfiguration('rviz')),
         ),
         # Turns outputs RViz cannot display, like /objects in image pixels, into markers

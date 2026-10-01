@@ -1361,3 +1361,19 @@ documents carry markers 96-99, which overlap the projected calibration markers 9
 holds the documents' layout (measured: 20 mm markers, 5 mm margin, markers turned three quarters) and `max_pages: 25`.
 - Alternative: reprint the documents with ids below 32 and keep 90-98. Rejected: the existing sheets would stop
   working.
+
+### `par_framework.rviz` renamed to `par_framework_brio.rviz` (2026-10-01, branch `rename-brio-rviz`)
+
+**What:** `git mv` of the Brio RViz config; `par.launch.py` (`RVIZ_CONFIGS`), `par_framework.launch.py` and the "copy
+of" comments in the Kinect and webcam configs follow. `setup.py` installs `config/*.rviz` by glob and needs no change.
+
+**Why:** the file only shows the Brio (its frustum, image and topics), and its siblings are already named by camera
+(`_kinect`, `_webcam`), which `par.launch.py` picks by the camera key. The unsuffixed name dates from when the Brio was
+the only camera.
+
+**Alternatives:** also rename `par_framework.launch.py` to `par_framework_brio.launch.py` for full symmetry. Not done:
+it is the documented entry point (`./scripts/launch.sh par_framework`), and the generic `par.launch.py` may replace
+the per-camera launch files anyway. Earlier entries of this log keep the old name, as history.
+
+**Note:** after pulling this, rebuild `par_framework_core` (`./scripts/build_workspace.sh par_framework_core` or
+`./scripts/local_build.sh par_framework_core`), so the new name is installed; until then RViz finds no Brio config.

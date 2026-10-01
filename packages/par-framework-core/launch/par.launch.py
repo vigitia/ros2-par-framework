@@ -35,7 +35,7 @@ CAMERA_OVERRIDES = {
     # Raw frames: v4l2_camera publishes JPEGs only with compressed_image_transport installed
     'webcam': {'object_detector': {'topic_name_frame': '/camera/webcam/image_raw'}},
 }
-RVIZ_CONFIGS = {'brio': 'par_framework.rviz', 'kinect': 'par_framework_kinect.rviz',
+RVIZ_CONFIGS = {'brio': 'par_framework_brio.rviz', 'kinect': 'par_framework_kinect.rviz',
                 'webcam': 'par_framework_webcam.rviz'}
 
 

@@ -1,5 +1,5 @@
 # Written by Claude Code
-# RViz view of the PAR setup with a generic webcam: par_framework.rviz with the /camera/webcam topics.
+# RViz view of the PAR setup with a generic webcam: par_framework_brio.rviz with the /camera/webcam topics.
 # v4l2_camera publishes Reliable, which the Best Effort displays receive as well.
 Panels:
   - Class: rviz_common/Displays
