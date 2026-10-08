@@ -1,5 +1,5 @@
 # Written by Claude Code
-# RViz view of the PAR setup with the Azure Kinect (par_framework_kinect.launch.py): world grid, TF frames,
+# RViz view of the PAR setup with the Azure Kinect (par.launch.py with camera kinect): world grid, TF frames,
 # the Kinect's colour frustum (drawn by the CameraInfo display from /camera/camera_info), its live image and its
 # coloured depth point cloud. Copy of par_framework_brio.rviz with the Kinect's topics; Best Effort also receives
 # from the driver's Reliable publishers.

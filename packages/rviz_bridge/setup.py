@@ -1,4 +1,3 @@
-# Written by Claude Code
 from setuptools import find_packages, setup
 
 package_name = 'rviz_bridge'
@@ -12,7 +11,6 @@ setup(
         ('share/' + package_name, ['package.xml']),
     ],
     install_requires=['setuptools'],
-    # Makes colcon test run pytest; without it, it falls back to unittest and finds no tests
     extras_require={'test': ['pytest']},
     zip_safe=True,
     maintainer='vitus',

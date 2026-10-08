@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Written by Claude Code
 #
-# Clone every node from config/nodes.list and build the workspace on the host,
-# without Docker -- the scripted form of "Testing nodes locally without Docker"
-# in README.md. Needs ROS 2 on the host, in the distro set in .env. Safe to re-run.
+# This script will clone every node from config/nodes.list and build the workspace on the host,
+# without Docker. It allows testing nodes locally without Docker.
+# in README.md. Needs ROS2 installed on the host, in the distro set in .env. Safe to re-run.
 #   ./scripts/local_build.sh                 # everything
 #   ./scripts/local_build.sh logitech_brio   # rebuild one package
 

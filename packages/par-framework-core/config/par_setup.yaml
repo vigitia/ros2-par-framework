@@ -100,7 +100,7 @@ projection_calibrator_node:
 
 # Pose of the Brio body frame (brio_link, x forward, z up) in world, in metres.
 # Placeholder: 1 m above world, looking straight down (pitch +90 deg) -- replace
-# with measured values. par_framework.launch.py reads these values and passes
+# with measured values. The launch files (launch_helpers.mount_tf_publisher) read these and pass
 # them to static_transform_publisher as command-line flags, because it ignores
 # them as parameters.
 /brio_tf_publisher:

@@ -133,9 +133,9 @@ docker/Dockerfile           runtime environment (ROS + dependencies, no node sou
 docker-compose.yaml         how the container is run: devices, X11, networking
 packages/                   this repo's own ROS packages, built together with src/
   par-framework-core/       launch files + parameters (package par_framework_core)
-    launch/                 par_framework.launch.py, calibration.launch.py, projection_calibration.launch.py,
-                            par_framework_kinect.launch.py (Azure Kinect),
-                            par.launch.py (camera and nodes from the profile's par_launch section),
+    launch/                 par.launch.py (the framework: camera and nodes from the profile's par_launch
+                            section, each overridable per run, e.g. camera:=kinect rviz:=true),
+                            calibration.launch.py, projection_calibration.launch.py,
                             camera_pose_calibration_kinect.launch.py
     config/par_setup.yaml   camera id, resolution, projector display — edit this per setup
     par_framework_core/     launch_helpers.py: node start functions shared by the launch files

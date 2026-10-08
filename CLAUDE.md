@@ -24,7 +24,8 @@ launch files and `config/par_setup.yaml` only, no nodes. Glue nodes get their ow
 
 ./scripts/shell.sh                  # shell in the container (ROS + workspace sourced)
 ./scripts/build_workspace.sh [pkg]  # colcon build --symlink-install, optionally one package
-./scripts/launch.sh [name] [args]   # ros2 launch par_framework_core <name>.launch.py
+./scripts/launch.sh [name] [args]   # ros2 launch par_framework_core <name>.launch.py, default: par
+./scripts/launch.sh par camera:=kinect rviz:=true   # one entry point; args override par_launch per run
 ./scripts/launch.sh calibration display_id:=1
 
 ./scripts/local_build.sh [pkg]      # host-only: clone nodes, rosdep, .venv, colcon build -- no Docker; preferred for locally testing the nodes 

@@ -19,7 +19,6 @@ from visualization_msgs.msg import Marker, MarkerArray
 
 NODE_NAME = 'rviz_bridge_node'
 TOPIC_NAME_OBJECTS = '/objects'
-# The framework's camera topic, whichever camera runs (launch_helpers.DRIVER_REMAPPINGS)
 TOPIC_NAME_CAMERA_INFO = '/camera/camera_info'
 TOPIC_NAME_PROJECTION_CORNERS = '/projection_corners'
 TOPIC_NAME_OBJECT_MARKERS = '/objects/markers'
@@ -32,7 +31,7 @@ TOPIC_NAME_PAGES = '/pages'
 TOPIC_NAME_PAGE_MARKERS = '/pages/markers'
 TOPIC_NAME_PROJECTION_MAPPING = '/projection_mapping'
 TOPIC_NAME_MAPPING_MARKERS = '/projection_mapping/markers'
-# The table is the plane z = 0 of this frame
+# The tabletop is the plane z = 0 of this frame
 TABLE_FRAME = 'world'
 CORNER_NAMES = ('top_left', 'top_right', 'bottom_right', 'bottom_left')
 

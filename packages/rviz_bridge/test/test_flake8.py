@@ -1,4 +1,3 @@
-# Written by Claude Code
 from ament_flake8.main import main_with_errors
 import pytest
 

@@ -1,30 +1,34 @@
-# Nodes that make up the PAR framework.
+# Nodes that make up the ROS2 PAR Framework.
 #
 # One node repository per line:
+# <directory>   <git-url>   [branch]
 #
-#   <directory>   <git-url>   [branch]
-#
-# <directory>  name of the checkout under src/ (use the ROS package name)
+# <directory>  name of the checkout under src/ (use the ROS package name for consistency)
 # <git-url>    cloned by scripts/sync_nodes.sh over SSH -- needs a GitHub key
 #              in your ssh-agent (setup.sh checks this for you)
 # [branch]     optional; "-" or omitted means the remote's default branch
 #
-# Adding a node here is the ONLY step needed to add it to the framework:
-# setup.sh clones it, installs its package.xml + requirements.txt dependencies
-# into the image, and colcon picks it up on the next build. A repository may
-# hold its package at the root or in a subdirectory, and may hold several.
+# Every node listed here will be cloned and installed automatically on setup, including
+# its package.xml + requirements.txt dependencies
 
-# Shared message, service and action definitions. Listed first because every
-# other package depends on it -- colcon works the real build order out from the
-# package.xml files, this order is only for the reader.
+
+# Framework Core:
 
 custom_interfaces         git@github.com:vigitia/ros2-par-framework-interfaces.git          main
+surface_selector          git@github.com:vigitia/ros2-par-framework-calibration.git         main
+
+# Sensors:
 
 logitech_brio             git@github.com:vigitia/ros2-logitech-brio.git                     main
-surface_selector          git@github.com:vigitia/ros2-par-framework-calibration.git         main
+azure_kinect_ros_driver   git@github.com:nlouman/azure_kinect_ros_driver_extended.git       main
+
+
+# Sensor Processing Nodes:
+
 object_detector           git@github.com:vigitia/ros2-par-framework-object-detection.git    main
 fiducials_detector        git@github.com:vigitia/ros2-par-framework-fiducials.git           main
 hand_landmarks            git@github.com:vigitia/ros2-par-framework-hand-landmarks.git      main
 page_locator              git@github.com:vigitia/ros2-par-framework-page-locator.git        main
 
-azure_kinect_ros_driver   git@github.com:nlouman/azure_kinect_ros_driver_extended.git              main
+
+# Applications:

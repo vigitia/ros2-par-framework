@@ -1470,3 +1470,48 @@ a driver started by hand without the launch files publishes its own names.
 **Alternatives:** put every driver directly into the `/camera` namespace instead of remapping (rejected: the Brio sets
 its namespace in code and its node name is the key of its parameters in `par_setup.yaml`); make every topic a
 parameter of every consumer (rejected: more configuration for a value that is the same for all of them).
+
+### `par.launch.py` as the only framework entry point (2026-10-01, branch `rework`)
+
+**What:** `par_framework.launch.py` (Brio) and `par_framework_kinect.launch.py` are deleted; `par.launch.py` starts the
+framework for every camera. It takes the camera and the node switches from the profile's `par_launch` section, and
+each can be overridden for one run with a launch argument: `camera:=` (through `launch_helpers.chosen_camera`) and
+`object_detector:=`, `fiducials_detector:=`, `hand_landmarks:=`, `page_locator:=`, `rviz:=` (`true`/`false`, empty
+= the profile's value; any other value stops with an error). `scripts/launch.sh` starts `par` by default (it started
+`par_framework`); README, CLAUDE.md, a `par_setup.yaml` comment, the Kinect RViz config's header and the
+projection_corners error message follow.
+
+**Why:** three entry points had drifted apart: `par_framework.launch.py` started no detectors, the Kinect file always
+started all of them with RViz, and `page_locator` existed only in `par.launch.py`. Every new node had to be added in
+several places. The launch arguments keep the per-run convenience of the old files (`rviz:=true`) without editing the
+profile.
+
+**Equivalents:** the old Brio launch = `./scripts/launch.sh par camera:=brio object_detector:=false
+fiducials_detector:=false hand_landmarks:=false page_locator:=false` (plus `rviz:=true` for its option); the old
+Kinect launch = `./scripts/launch.sh par camera:=kinect page_locator:=false rviz:=true` with the other detectors on.
+
+**Alternatives:** keep the old files as thin wrappers around `par.launch.py` (rejected: still several entry points to
+document and keep in step, for names that only habit needs); no override arguments, the profile only (rejected: a
+quick test would mean editing the YAML).
+
+**Live test and a driver fix (later the same day):** with the Azure Kinect, the remapped driver advertised
+`/camera/image_raw` but published nothing. The driver decides per frame whether to publish with
+`count_subscribers("rgb/image_raw")`, and rclcpp resolves that name *without* the remap rules, while the publishers
+were created with them: a remapped topic always counted zero subscribers. Verified A/B on the same device: 15 Hz
+unremapped, 0 Hz remapped. The Brio is not affected (it asks its publisher, `get_subscription_count()`, which follows
+remapping).
+- Fix in `src/azure_kinect_ros_driver`, branch `remap-aware-subscriber-count`: a helper `countSubscribers()` resolves
+  the name with the remap rules (`get_node_topics_interface()->resolve_topic_name()`) before counting; all 15 checks
+  use it. The branch also carries the earlier, still uncommitted port fixes for this ROS distribution (cv_bridge
+  header, `ImageTransport` constructor, CMake), which the driver needs to build here.
+- The driver is a third-party fork (`nlouman/azure_kinect_ros_driver_extended`). To keep the fix: fork it to
+  `github.com/vigitia`, push the branch there, and point the `azure_kinect_ros_driver` line in `config/nodes.list` at
+  the fork. Until then a fresh `./setup.sh` clones the unpatched driver, and the Kinect publishes nothing.
+- Verified live afterwards: `par.launch.py camera:=kinect` delivers about 15 Hz on `/camera/image_raw` and
+  `/camera/depth_registered/image_raw`; with all detectors running, fiducials (with 3D corners), hands, objects, pages
+  and rviz_bridge's markers all arrive through the neutral names.
+- Alternatives: remap only the consumers for the Kinect (rejected: the interface would not be uniform again); a relay
+  node per topic (rejected: copies every 1080p frame and the depth image once more).
+- Note for `--symlink-install`: after deleting launch files, `build/` keeps dangling symlinks to them and the next
+  build of `par_framework_core` fails ("can't copy ... doesn't exist"). `find build/par_framework_core
+  install/par_framework_core -xtype l -delete` removes just those.

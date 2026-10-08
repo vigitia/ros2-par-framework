@@ -36,7 +36,7 @@ class ProjectionCornersNode(Node):
         self.file = self.get_parameter(PARAMETER_FILE).value
         if not self.file:
             raise RuntimeError(f'Parameter {PARAMETER_FILE} is not set, start the node through '
-                               f'par_framework.launch.py or calibration.launch.py')
+                               f'par.launch.py or calibration.launch.py')
 
         self.publisher = self.create_publisher(ProjectionCorners, TOPIC_NAME_CORNERS, LATCHED_QOS)
         self.create_service(SetProjectionCorners, SERVICE_NAME_SET_CORNERS, self.on_set_corners)
