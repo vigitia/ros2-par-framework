@@ -21,7 +21,8 @@ PARAMETER_FILE = 'projection_corners_file'
 # last value. Subscribers must request Transient Local too, or they only receive the next change.
 LATCHED_QOS = QoSProfile(reliability=QoSReliabilityPolicy.RELIABLE,
                          durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
-                         history=QoSHistoryPolicy.KEEP_LAST, depth=1)
+                         history=QoSHistoryPolicy.KEEP_LAST,
+                         depth=1)
 
 
 class ProjectionCornersNode(Node):

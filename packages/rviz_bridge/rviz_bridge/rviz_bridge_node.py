@@ -62,19 +62,19 @@ NUM_HAND_LANDMARKS = 21
 # Pairs of landmark ids forming the bones, as mediapipe's
 # HandLandmarksConnections.HAND_CONNECTIONS; copied, so rviz_bridge does not need mediapipe
 # just for this list
-HAND_CONNECTIONS = ((0, 1), (1, 2), (2, 3), (3, 4),         # thumb
-                    (0, 5), (5, 6), (6, 7), (7, 8),         # index finger
-                    (9, 10), (10, 11), (11, 12),            # middle finger
-                    (13, 14), (14, 15), (15, 16),           # ring finger
+HAND_CONNECTIONS = ((0, 1), (1, 2), (2, 3), (3, 4),  # thumb
+                    (0, 5), (5, 6), (6, 7), (7, 8),  # index finger
+                    (9, 10), (10, 11), (11, 12),  # middle finger
+                    (13, 14), (14, 15), (15, 16),  # ring finger
                     (0, 17), (17, 18), (18, 19), (19, 20),  # pinky
-                    (5, 9), (9, 13), (13, 17))              # palm
+                    (5, 9), (9, 13), (13, 17))  # palm
 # Fiducials lie flat on the table like the objects; yellow, as orange is the left hand
 FIDUCIAL_COLOR = ColorRGBA(r=1.0, g=0.85, b=0.1, a=1.0)
 # Pages lie on the table, just below the fiducials printed on them
 PAGE_HEIGHT = 0.0018
 PAGE_COLOR = ColorRGBA(r=0.1, g=0.9, b=0.9, a=1.0)
 # The corners arrive once, the calibration and TF possibly later: the area is redrawn periodically
-AREA_PERIOD_SEC = 1.0
+AREA_REDRAW_INTERVAL_SEC = 1.0
 WARNING_PERIOD_SEC = 5.0
 
 # The Brio publishes best effort, a reliable subscriber would receive nothing
@@ -99,6 +99,14 @@ class RvizBridgeNode(Node):
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
 
+        self._create_subscriptions()
+        self._create_publishers()
+
+        # Periodically send projection_area and projector_outline
+        self.create_timer(AREA_REDRAW_INTERVAL_SEC, self.publish_projection_area)
+        self.create_timer(AREA_REDRAW_INTERVAL_SEC, self.publish_projector_outline)
+
+    def _create_subscriptions(self):
         self.create_subscription(CameraInfo, TOPIC_NAME_CAMERA_INFO, self.on_camera_info,
                                  CAMERA_INFO_QOS)
         self.create_subscription(ObjectList, TOPIC_NAME_OBJECTS, self.on_objects, QUEUE_SIZE)
@@ -107,10 +115,14 @@ class RvizBridgeNode(Node):
         self.create_subscription(HandLandmarksList, TOPIC_NAME_HANDS, self.on_hands, QUEUE_SIZE)
         self.create_subscription(FiducialsList, TOPIC_NAME_FIDUCIALS, self.on_fiducials,
                                  QUEUE_SIZE)
+        self.create_subscription(PageList, TOPIC_NAME_PAGES, self.on_pages, QUEUE_SIZE)
+        self.create_subscription(ProjectionMapping, TOPIC_NAME_PROJECTION_MAPPING,
+                                 self.on_projection_mapping, LATCHED_QOS)
+
+    def _create_publishers(self):
         self.fiducial_marker_publisher = self.create_publisher(MarkerArray,
                                                                TOPIC_NAME_FIDUCIAL_MARKERS,
                                                                QUEUE_SIZE)
-        self.create_subscription(PageList, TOPIC_NAME_PAGES, self.on_pages, QUEUE_SIZE)
         self.page_marker_publisher = self.create_publisher(MarkerArray, TOPIC_NAME_PAGE_MARKERS,
                                                            QUEUE_SIZE)
         self.hand_marker_publisher = self.create_publisher(MarkerArray, TOPIC_NAME_HAND_MARKERS,
@@ -121,14 +133,9 @@ class RvizBridgeNode(Node):
         self.area_marker_publisher = self.create_publisher(MarkerArray,
                                                            TOPIC_NAME_PROJECTION_MARKERS,
                                                            QUEUE_SIZE)
-        self.create_subscription(ProjectionMapping, TOPIC_NAME_PROJECTION_MAPPING,
-                                 self.on_projection_mapping, LATCHED_QOS)
         self.mapping_marker_publisher = self.create_publisher(MarkerArray,
                                                               TOPIC_NAME_MAPPING_MARKERS,
                                                               QUEUE_SIZE)
-        self.create_timer(AREA_PERIOD_SEC, self.publish_projection_area)
-        # RViz subscribes Volatile, so a late RViz needs the outline repeated as well
-        self.create_timer(AREA_PERIOD_SEC, self.publish_projector_outline)
 
     def on_camera_info(self, msg):
         self.camera_info = msg

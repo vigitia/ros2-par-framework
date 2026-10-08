@@ -1515,3 +1515,23 @@ remapping).
 - Note for `--symlink-install`: after deleting launch files, `build/` keeps dangling symlinks to them and the next
   build of `par_framework_core` fails ("can't copy ... doesn't exist"). `find build/par_framework_core
   install/par_framework_core -xtype l -delete` removes just those.
+
+## 2026-10-08: RealSense driver in `config/nodes.list`
+
+**What changed:** `config/nodes.list` lists `realsenseai/realsense-ros` under Sensors, checked out as
+`src/realsense2_camera` on branch `ros2-master`.
+
+**Why:** It adds support for Intel RealSense depth cameras as another camera option.
+
+**Decisions:**
+- *Branch `ros2-master` named explicitly* instead of `-`. It is the remote's current default, but naming it keeps a
+  later upstream change of the default branch from silently switching what gets built, the same way the other
+  entries name `main`.
+- *Directory `realsense2_camera`*, after the main package, following the list's "use the ROS package name"
+  convention. The repo also holds `realsense2_camera_msgs` and `realsense2_description`; staging finds all three
+  one level down and keys them by their declared names.
+- *No Docker workaround needed*, unlike the Kinect: `librealsense2` has a rosdep rule and a released apt package for
+  this distribution, so the image resolves it through the normal `package.xml` path.
+- *Alternative considered:* the driver is also released as an apt package (`ros-<distro>-realsense2-camera`), which
+  would avoid building it from source. Kept as a source checkout because it was asked for this way, and because
+  it allows patching the driver like the other nodes.

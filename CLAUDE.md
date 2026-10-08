@@ -1,5 +1,7 @@
 # CLAUDE.md
 
+<!-- Co-authored by Claude Code -->
+
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## What this repository is
@@ -88,10 +90,13 @@ order); pulling in a new *external* message package changes a declared dependenc
 constants belong there, not in node source. A node in a namespace (the Brio sets `/camera/brio` in code) must
 be keyed by its full name, e.g. `/camera/brio/logitech_brio_node` — a bare name is silently ignored.
 
-**Node package convention** (followed by both current nodes, worth keeping): `<pkg>/<pkg>_node.py` holds the
-`rclpy.node.Node` subclass — topics, `declare_parameter` with `ParameterDescriptor`, and the `main()` that
-`setup.py` exposes as a `console_scripts` entry point; `<pkg>/<pkg>.py` holds device/algorithm logic free of
-ROS plumbing.
+**Node package convention** (follow it for every new node): `<pkg>/<pkg>_node.py` does only the ROS work,
+where possible — the `rclpy.node.Node` subclass with its topics, services, `declare_parameter` with
+`ParameterDescriptor`, message conversion, and the `main()` that `setup.py` exposes as a `console_scripts` entry
+point. All other logic (device access, algorithms, geometry, display) lives in other Python files of the package,
+`<pkg>/<pkg>.py` or more where it helps, which import nothing from `rclpy` or the message packages. The node calls
+into them with plain Python and NumPy values. That keeps the logic testable with plain pytest, without a running
+ROS graph, and reusable outside the node.
 
 ### Current pipeline
 

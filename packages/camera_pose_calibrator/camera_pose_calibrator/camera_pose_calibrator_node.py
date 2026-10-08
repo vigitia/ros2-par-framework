@@ -26,9 +26,6 @@ from .camera_pose_calibrator import (camera_pose, fit_table_plane, matrix_from_q
                                      points_from_depth, sample_grid, save)
 
 NODE_NAME = 'camera_pose_calibrator_node'
-# The framework's camera topics (launch_helpers remaps each camera driver onto them): depth
-# registered to the colour image (a depth camera such as the Azure Kinect), and the colour
-# camera's intrinsics
 TOPIC_NAME_DEPTH = '/camera/depth_registered/image_raw'
 TOPIC_NAME_CAMERA_INFO = '/camera/camera_info'
 # Camera frames are published best-effort or reliable; a best-effort subscriber takes both
@@ -41,20 +38,10 @@ class CameraPoseCalibratorNode(Node):
 
     def __init__(self):
         super().__init__(NODE_NAME)
-        self.declare_parameter('camera_pose_file', '', ParameterDescriptor(
-            description='File the measured pose is written to.', read_only=True))
-        self.declare_parameter('base_frame', 'camera_base', ParameterDescriptor(
-            description='Camera frame whose pose in world is measured (the child frame of the '
-                        'mount transform).', read_only=True))
-        self.declare_parameter('placeholder_rotation', [0.0, 0.7071068, 0.0, 0.7071068],
-                               ParameterDescriptor(
-            description='Quaternion (x, y, z, w) of the placeholder pose. Its direction of the '
-                        'world x axis is kept, the rest is measured.', read_only=True))
-        self.declare_parameter('frames', 30, ParameterDescriptor(
-            description='Depth frames whose median is fitted.', read_only=True))
-        self.declare_parameter('timeout_sec', 20.0, ParameterDescriptor(
-            description='Give up when the frames have not arrived after this long.',
-            read_only=True))
+
+        self._declare_parameters()
+
+        # Read out parameters
         self.pose_file = self.get_parameter('camera_pose_file').value
         self.base_frame = self.get_parameter('base_frame').value
         self.frames = self.get_parameter('frames').value
@@ -67,9 +54,9 @@ class CameraPoseCalibratorNode(Node):
         self.samples = []
         self.grid = None
         self.optical_frame = None
-        self.create_subscription(CameraInfo, TOPIC_NAME_CAMERA_INFO, self.on_camera_info,
-                                 FRAME_QOS)
-        self.create_subscription(Image, TOPIC_NAME_DEPTH, self.on_depth, FRAME_QOS)
+
+        self._create_subscriptions()
+
         self.start_time = time.monotonic()
         self.create_timer(1.0, self.check_timeout)
         # Set once the pose is stored or the measurement failed; main() then ends the node
@@ -79,6 +66,28 @@ class CameraPoseCalibratorNode(Node):
                                f'{self.frames} depth frames, keep the table clear')
         if not self.pose_file:
             self.fail('camera_pose_file is empty, there is nowhere to store the pose')
+
+    def _declare_parameters(self):
+        self.declare_parameter('camera_pose_file', '', ParameterDescriptor(
+            description='File the measured pose is written to.', read_only=True))
+        self.declare_parameter('base_frame', 'camera_base', ParameterDescriptor(
+            description='Camera frame whose pose in world is measured (the child frame of the '
+                        'mount transform).', read_only=True))
+        self.declare_parameter('placeholder_rotation', [0.0, 0.7071068, 0.0, 0.7071068],
+                               ParameterDescriptor(
+                                   description='Quaternion (x, y, z, w) of the placeholder pose. Its direction of the '
+                                               'world x axis is kept, the rest is measured.', read_only=True))
+        self.declare_parameter('frames', 30, ParameterDescriptor(
+            description='Depth frames whose median is fitted.', read_only=True))
+        self.declare_parameter('timeout_sec', 20.0, ParameterDescriptor(
+            description='Give up when the frames have not arrived after this long.',
+            read_only=True))
+
+    def _create_subscriptions(self):
+        self.create_subscription(CameraInfo, TOPIC_NAME_CAMERA_INFO, self.on_camera_info,
+                                 FRAME_QOS)
+        self.create_subscription(Image, TOPIC_NAME_DEPTH, self.on_depth, FRAME_QOS)
+
 
     def on_camera_info(self, msg):
         self.camera_info = msg

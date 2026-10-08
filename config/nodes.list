@@ -21,6 +21,7 @@ surface_selector          git@github.com:vigitia/ros2-par-framework-calibration.
 
 logitech_brio             git@github.com:vigitia/ros2-logitech-brio.git                     main
 azure_kinect_ros_driver   git@github.com:nlouman/azure_kinect_ros_driver_extended.git       main
+realsense2_camera         git@github.com:realsenseai/realsense-ros.git                      ros2-master
 
 
 # Sensor Processing Nodes:
