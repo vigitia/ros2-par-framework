@@ -1,3 +1,4 @@
+# Co-authored by Claude Code
 from glob import glob
 
 from setuptools import find_packages, setup
@@ -13,7 +14,8 @@ setup(
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
         ('share/' + package_name + '/launch', glob('launch/*.launch.py')),
-        ('share/' + package_name + '/config', glob('config/*.yaml') + glob('config/*.rviz')),
+        ('share/' + package_name + '/config', glob('config/*.yaml')),
+        ('share/' + package_name + '/config/rviz', glob('config/rviz/*.rviz')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,

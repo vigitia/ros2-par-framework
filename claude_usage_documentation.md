@@ -1535,3 +1535,25 @@ remapping).
 - *Alternative considered:* the driver is also released as an apt package (`ros-<distro>-realsense2-camera`), which
   would avoid building it from source. Kept as a source checkout because it was asked for this way, and because
   it allows patching the driver like the other nodes.
+
+## 2026-10-08: RViz configs in `config/rviz/`
+
+**What changed:** the three `par_framework_<camera>.rviz` files moved from `packages/par-framework-core/config/` to
+`config/rviz/` (with `git mv`, so the history follows them). `setup.py` installs them with their own `data_files` entry
+to `share/par_framework_core/config/rviz`, and `par.launch.py` adds `rviz` to the path it hands to `rviz2 -d`.
+
+**Why:** your request: the config folder mixes per-setup parameters, machine-local calibrations and RViz layouts;
+the layouts are a different kind of file and now sit apart.
+
+**Decisions:**
+- *A separate `data_files` entry instead of a recursive glob:* `data_files` installs a list of files into one target
+  directory, so `config/*` cannot reproduce a subfolder; each installed folder needs its own entry. Without it the
+  files would silently stop being installed and RViz would open with an empty layout.
+- *Only the path in `par.launch.py` changed,* `RVIZ_CONFIGS` keeps the bare file names, so it stays the one place
+  that maps a camera to its layout.
+
+**Tested:** host build of `par_framework_core` (with `--base-paths src packages`, as `local_build.sh` does; without it
+colcon also finds the staged manifest in `docker/deps/` and stops on a duplicate package name). All three files
+resolve at the path `par.launch.py` builds. A `--symlink-install` tree keeps dangling links to the old locations
+until they are removed (`find build/par_framework_core install/par_framework_core -xtype l -delete`), and the
+container's build volumes need `./scripts/build_workspace.sh par_framework_core` once.

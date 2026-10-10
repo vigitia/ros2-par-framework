@@ -88,7 +88,7 @@ def launch_setup(context):
             package='rviz2',
             executable='rviz2',
             arguments=['-d', os.path.join(get_package_share_directory(PACKAGE_NAME), 'config',
-                                          RVIZ_CONFIGS[camera])],
+                                          'rviz', RVIZ_CONFIGS[camera])],
         ))
     return actions
 
