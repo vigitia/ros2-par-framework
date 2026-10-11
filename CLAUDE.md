@@ -109,8 +109,8 @@ is the only place that knows a driver's topics. A new camera = a driver start in
 there, and no consumer changes. `surface_selector` consumes frames to mark the projection area. `page_locator` turns `/fiducials` into `/pages` (`custom_interfaces/PageList`, every frame, corners
 in camera pixels): sheets with markers `4n .. 4n+3` in their corners, located by one homography to the printed layout,
 so the `marker_*` layout in `par_setup.yaml` must match the paper (default: the VIGITIA document pages, ids 96-99;
-`make_page_template` prints matching pages). Camera intrinsics are `config/camera_info_<camera>.yaml` next to
-`par_setup.yaml` (gitignored, one per camera type, the same path on the host and in the container): `launch_helpers`
+`make_page_template` prints matching pages). Camera intrinsics are
+`config/calibration/intrinsics/camera_info_<camera>.yaml` (gitignored, one per camera type, the same path on the host and in the container): `launch_helpers`
 sets each camera's `camera_info_url` there, and `scripts/run_cameracalibrator.sh` writes it through the camera's
 `set_camera_info`. The Kinect driver publishes its factory calibration instead.
 
@@ -139,7 +139,8 @@ Consumers convert locally with `par_geometry`, the one place for this math. They
 and images never go through a service. The mapping comes from `projection_calibration.launch.py`: the projector
 shows ArUco markers (ids 50–58, `marker_ids` in `par_setup.yaml`; not 90–98, the VIGITIA document pages use 96–99) at known pixels, `fiducials_detector` finds them, and `projection_calibrator` (in
 `surface_selector`) fits the homography and sends it to `projection_mapping_node`, which stores
-`config/projection_mapping_<camera>.yaml` (`brio` or `kinect`) next to `par_setup.yaml`. One file per camera, because
+`config/calibration/extrinsics/projection_mapping_<camera>.yaml` (`brio` or `kinect`), next to the camera poses
+(`camera_pose_<camera>.yaml`) and the projection corners. One file per camera, because
 while the camera poses are placeholders each camera has its own table plane, so a mapping only fits the camera it was
 calibrated with.
 

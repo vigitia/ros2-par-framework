@@ -102,7 +102,7 @@ Claude Code):
 ./scripts/wizard.sh
 ```
 
-1. **Profile:** a profile is one parameter file, `par_setup.yaml` (default) or `par_setup_<name>.yaml` next to it
+1. **Profile:** a profile is one parameter file, `par_setup.yaml` (default) or `profiles/<name>.yaml` below it
    (gitignored). *Start selected profile* (or a double-click) starts it right away; *Next* sets it up. *New profile*
    starts from the defaults in `par_setup.yaml` with nothing chosen yet (display, camera, nodes), so the wizard
    asks everything anew. *Delete profile* removes one (not the default; the calibrations stay, all profiles share
@@ -194,8 +194,8 @@ newly referenced external package (`std_msgs`, `geometry_msgs`, …) in **both**
 | `hand_landmarks` | `ros2-par-framework-hand-landmarks` | tracks hands in `/camera/image_raw` with MediaPipe, publishes their landmarks in image pixels on `/hand_landmarks` |
 | `par_framework_core` | this repo | launch files and per-setup parameters |
 | `par_geometry` | this repo | library: `pixels_to_table`, `table_to_projector`, `projector_to_table` — the coordinate conversions every node shares |
-| `projection_mapping` | this repo | stores the homography from `projection_calibrator` in `config/projection_mapping_<camera>.yaml` (one per camera), publishes it latched on `/projection_mapping` |
-| `projection_corners` | this repo | stores the corners from `surface_selector` in `config/projection_corners_<camera>.yaml`, publishes them latched on `/projection_corners` |
+| `projection_mapping` | this repo | stores the homography from `projection_calibrator` in `config/calibration/extrinsics/projection_mapping_<camera>.yaml` (one per camera), publishes it latched on `/projection_mapping` |
+| `projection_corners` | this repo | stores the corners from `surface_selector` in `config/calibration/extrinsics/projection_corners_<camera>.yaml`, publishes them latched on `/projection_corners` |
 | `par_setup_wizard` | this repo | desktop wizard: projector display, camera, calibration, nodes and start, stored in named profiles of `par_setup.yaml` |
 | `rviz_bridge` | this repo | projects `/objects`, `/hand_landmarks`, `/fiducials`, `/projection_corners` and `/projection_mapping` onto the table as `/objects/markers`, `/hand_landmarks/markers`, `/fiducials/markers`, `/projection_corners/markers` and `/projection_mapping/markers` for RViz |
 

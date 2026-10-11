@@ -2,22 +2,23 @@
 """
 Start functions shared by the launch files of par_framework_core.
 
-Each is used as OpaqueFunction(function=...), because it needs the resolved value of the
-params_file launch argument to decide how the node is started.
+Those that take the launch context are used inside OpaqueFunction(function=...), because they
+need the resolved value of a launch argument (params_file, camera) to decide how the node is
+started.
 """
 
 import os
 
+from ament_index_python.packages import get_package_share_directory
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 import yaml
 
 
 def logitech_brio_node(context):
-    """Start the Brio with params_file and its calibration next to it."""
-    # Next to par_setup.yaml like the other calibrations, on the host and in the container alike;
-    # cameracalibrator's COMMIT writes it there
-    camera_info_url = f'file://{next_to_params_file(context, "camera_info_brio.yaml")}'
+    """Start the Brio with params_file and its calibration from INTRINSICS."""
+    # The same path on the host and in the container; cameracalibrator's COMMIT writes it there
+    camera_info_url = f'file://{config_file(f"{INTRINSICS}/camera_info_brio.yaml")}'
     return [Node(
         package='logitech_brio',
         executable='logitech_brio',
@@ -44,10 +45,10 @@ def kinect_driver_node(context):
     )
 
 
-def webcam_nodes(context):
+def webcam_nodes():
     """Start a generic UVC webcam with v4l2_camera, and its body -> optical frame transform."""
-    # Next to par_setup.yaml like the other calibrations; cameracalibrator's COMMIT writes it there
-    camera_info_url = f'file://{next_to_params_file(context, "camera_info_webcam.yaml")}'
+    # In INTRINSICS like the Brio's; cameracalibrator's COMMIT writes it there
+    camera_info_url = f'file://{config_file(f"{INTRINSICS}/camera_info_webcam.yaml")}'
     return [
         # Settings (device, size, encoding, frame) under /camera/webcam/webcam_node in params_file
         Node(
@@ -82,7 +83,7 @@ def camera_nodes(context, camera):
         return [kinect_driver_node(context),
                 *mount_tf_publisher(context, 'kinect_tf_publisher', 'camera_base')]
     if camera == 'webcam':
-        return [*webcam_nodes(context),
+        return [*webcam_nodes(),
                 *mount_tf_publisher(context, 'webcam_tf_publisher', 'webcam_link')]
     raise ValueError(f'[launch_helpers]: unknown camera "{camera}", expected brio, kinect or '
                      'webcam')
@@ -110,13 +111,13 @@ def mount_tf_publisher(context, name, child_frame_id):
     Publish world -> child_frame_id: the measured camera pose, or else the placeholder.
 
     The placeholder is stored under /<name> in the parameter file. The measurement is
-    camera_pose_<camera>.yaml next to it, written by camera_pose_calibrator (<camera> is <name>
+    camera_pose_<camera>.yaml in EXTRINSICS, written by camera_pose_calibrator (<camera> is <name>
     without _tf_publisher), and is used while that file exists.
     """
     # static_transform_publisher takes its transform only as command-line flags: parameters from
     # a file are overridden by the flags' defaults, and without --frame-id it does not start. So
     # the pose is read from the file here, which is only possible once params_file is known.
-    source = next_to_params_file(context, f'camera_pose_{name.removesuffix("_tf_publisher")}.yaml')
+    source = config_file(f'{EXTRINSICS}/camera_pose_{name.removesuffix("_tf_publisher")}.yaml')
     if os.path.exists(source):
         with open(source) as f:
             pose = yaml.safe_load(f)
@@ -165,16 +166,29 @@ DRIVER_REMAPPINGS = {
 }
 
 
-def next_to_params_file(context, file_name):
-    """Return the path of file_name in the folder of the real par_setup.yaml."""
-    # realpath follows the --symlink-install links back to the source folder, so files written
-    # there survive rebuilds, on the host and in the container alike
-    params_file = os.path.realpath(LaunchConfiguration('params_file').perform(context))
-    return os.path.join(os.path.dirname(params_file), file_name)
+# The machine-local calibrations below config/ (gitignored), for config_file: the camera
+# intrinsics, and where camera and projection sit relative to the table
+INTRINSICS = 'calibration/intrinsics'
+EXTRINSICS = 'calibration/extrinsics'
 
 
-def projection_corners_node(context, camera):
-    """Start the projection corners owner with camera's file next to the real par_setup.yaml."""
+def config_file(file_name):
+    """Return the path of file_name below the folder of the real par_setup.yaml."""
+    # The default par_setup.yaml, not params_file: the calibrations are shared by every profile,
+    # also those in config/profiles/. realpath follows the --symlink-install links back to the
+    # source folder, so files written there survive rebuilds, on the host and in the container
+    # alike
+    installed = os.path.join(get_package_share_directory('par_framework_core'), 'config',
+                             'par_setup.yaml')
+    path = os.path.join(os.path.dirname(os.path.realpath(installed)), file_name)
+    # The writers (camera_info_manager, camera_pose_calibrator, ...) open the file without
+    # creating its folder
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    return path
+
+
+def projection_corners_node(camera):
+    """Start the projection corners owner with camera's file in EXTRINSICS."""
     # One file per camera: the corners are pixels of one camera's image, so another camera's
     # would point elsewhere
     return [Node(
@@ -184,12 +198,12 @@ def projection_corners_node(context, camera):
         output='screen',
         emulate_tty=True,
         parameters=[{'projection_corners_file':
-                     next_to_params_file(context, f'projection_corners_{camera}.yaml')}],
+                     config_file(f'{EXTRINSICS}/projection_corners_{camera}.yaml')}],
     )]
 
 
-def projection_mapping_node(context, camera):
-    """Start the table-to-projector mapping owner with camera's file next to par_setup.yaml."""
+def projection_mapping_node(camera):
+    """Start the table-to-projector mapping owner with camera's file in EXTRINSICS."""
     # One file per camera: while the camera poses in par_setup.yaml are placeholders, each
     # camera's table plane is its own, so a mapping only fits the camera it was calibrated with
     return [Node(
@@ -199,5 +213,5 @@ def projection_mapping_node(context, camera):
         output='screen',
         emulate_tty=True,
         parameters=[{'projection_mapping_file':
-                     next_to_params_file(context, f'projection_mapping_{camera}.yaml')}],
+                     config_file(f'{EXTRINSICS}/projection_mapping_{camera}.yaml')}],
     )]

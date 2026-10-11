@@ -8,28 +8,31 @@ import numpy as np
 import yaml
 
 FILE_HEADER = ('# Pose of the camera body frame in world (the table plane is z = 0), measured by\n'
-               '# camera_pose_calibrator from the clear table in a depth image. As\n'
-               '# camera_pose_<camera>.yaml next to par_setup.yaml, the launch files use it\n'
-               '# instead of the placeholder there; delete it to go back.\n')
+               '# camera_pose_calibrator from the table in a depth image. As\n'
+               '# camera_pose_<camera>.yaml in config/calibration/extrinsics, the launch\n'
+               '# files use it instead of the placeholder in par_setup.yaml; delete it to\n'
+               '# go back.\n')
 # Every SAMPLE_STEP_PX-th pixel in both directions: about 32 000 points in a 1080p image, plenty
 # for a plane and cheap to keep for many frames
 SAMPLE_STEP_PX = 8
-# Trimmed fit: after each fit, only points this close to the plane are kept for the next one. The
-# table is by far the largest surface, so a cube, a hand or the floor beyond the table edge drop
-# out step by step.
+# Trimmed fit: after each fit, only points this close to the plane are kept for the next one.
+# Starting from the RANSAC plane below, a cube, a hand or the floor beyond the table edge drop out
+# step by step.
 TABLE_BANDS_M = (0.05, 0.02, 0.01)
-# The trimmed fit starts from the plane through 3 random points that the most points lie on
-# (RANSAC), not from a plane through all points: a wide depth camera also sees the floor around the
-# table, which tilts a plane through everything so far that it matches neither. 200 tries miss a
-# table covering half the image with a chance of 1e-11.
-RANSAC_ITERATIONS = 200
+# The trimmed fit starts from a plane through 3 random points (RANSAC), not from a plane through
+# all points: a wide depth camera also sees the floor around the table, which tilts a plane through
+# everything so far that it matches neither. Of these planes, the table is the one nearest to the
+# camera that at least MIN_TABLE_FRACTION of the points lie on: the floor is farther away, even
+# where more of it is in view, and what stands on the table covers too little of the image. So the
+# table need not be clear, only free enough. 1000 tries miss a table holding a quarter of the
+# points with a chance of 1e-7.
+RANSAC_ITERATIONS = 1000
 RANSAC_BAND_M = 0.02
-# A measurement is refused when more of the image than this is above the table (nearer to the
-# camera): the table is not clear, or the plane found is the floor with the table above it. What is
-# below the table, the floor around it, does not count: a wide depth camera sees a lot of it.
-MAX_ABOVE_FRACTION = 0.1
-# Also refused when less of the image than this is table, too little to measure the tilt from, or
-# the table is not flat within this RMS: the depth is unusable
+# A plane tilted further than this against the view direction is no table but a wall or the side
+# of something on it: the camera looks down at the table
+MAX_TABLE_TILT_DEG = 45.0
+# A measurement is refused when less of the image than this is table, too little to measure the
+# tilt from, or the table is not flat within this RMS: the depth is unusable
 MIN_TABLE_FRACTION = 0.25
 MAX_TABLE_RMS_M = 0.01
 
@@ -52,22 +55,29 @@ def points_from_depth(u, v, z, k, d):
 
 def fit_table_plane(points):
     """
-    Return (normal, centroid, table fraction, RMS in metres, fraction above) of the dominant plane.
+    Return (normal, centroid, table fraction, RMS in metres) of the table plane.
 
     The normal points towards the camera (the origin), so the table is below the camera along it.
-    The fractions are shares of the points: those on the plane, and those above it.
+    The table fraction is the share of the points on the plane; 0 when no plane qualifies.
     """
-    table = np.ones(len(points), bool)
-    most = 0
+    nearest = np.inf
     # Seeded: the same depth image gives the same pose
     for a, b, c in points[np.random.default_rng(0).choice(len(points), (RANSAC_ITERATIONS, 3))]:
         normal = np.cross(b - a, c - a)
         length = np.linalg.norm(normal)
-        if length < 1e-12:
+        # The view direction is the optical frame's z axis
+        if length < 1e-12 or abs(normal[2]) < np.cos(np.radians(MAX_TABLE_TILT_DEG)) * length:
             continue
-        on_plane = np.abs((points - a) @ (normal / length)) <= RANSAC_BAND_M
-        if on_plane.sum() > most:
-            table, most = on_plane, on_plane.sum()
+        normal /= length
+        # Checked before counting the points on the plane, the slow part
+        if abs(a @ normal) >= nearest:
+            continue
+        on_plane = np.abs((points - a) @ normal) <= RANSAC_BAND_M
+        if on_plane.mean() >= MIN_TABLE_FRACTION:
+            table, nearest = on_plane, abs(a @ normal)
+    if nearest == np.inf:
+        # No plane facing the camera holds enough points: too little free table in view
+        return np.array([0.0, 0.0, -1.0]), np.zeros(3), 0.0, np.inf
     for band in TABLE_BANDS_M:
         centroid = points[table].mean(axis=0)
         # The direction of least spread is the normal. full_matrices=False: the default also
@@ -79,8 +89,7 @@ def fit_table_plane(points):
     if normal @ -centroid < 0:
         normal = -normal
     rms = np.sqrt(np.mean(((points[table] - centroid) @ normal) ** 2))
-    above = np.mean((points - centroid) @ normal > TABLE_BANDS_M[-1])
-    return normal, centroid, table.mean(), rms, above
+    return normal, centroid, table.mean(), rms
 
 
 def matrix_from_quaternion(q):

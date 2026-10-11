@@ -32,7 +32,7 @@ class ProjectionCornersNode(Node):
         super().__init__(NODE_NAME)
         self.declare_parameter(PARAMETER_FILE, '', ParameterDescriptor(
             description='YAML file the corners are loaded from and saved to. The launch files '
-                        'put it next to par_setup.yaml.',
+                        'put it in config/calibration/extrinsics.',
             read_only=True))
         self.file = self.get_parameter(PARAMETER_FILE).value
         if not self.file:

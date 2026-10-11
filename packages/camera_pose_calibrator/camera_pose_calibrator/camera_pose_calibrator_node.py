@@ -1,6 +1,8 @@
-# Written by Claude Code
+# Co-authored by Claude Code: written by Claude Code, since edited by hand
 """
-Measure the camera's pose from the clear table and store it, then exit.
+Measure the camera's pose from the table and store it, then exit.
+
+Things may stand on the table, as long as enough of it is free (MIN_TABLE_FRACTION of the image).
 
 Collects depth images registered to the colour image, fits the table plane and writes the pose of
 the camera body frame (base_frame) in world to camera_pose_file: height and tilt from the plane,
@@ -22,7 +24,7 @@ from sensor_msgs.msg import CameraInfo, Image
 from tf2_ros import Buffer, TransformException, TransformListener
 
 from .camera_pose_calibrator import (camera_pose, fit_table_plane, matrix_from_quaternion,
-                                     MAX_ABOVE_FRACTION, MAX_TABLE_RMS_M, MIN_TABLE_FRACTION,
+                                     MAX_TABLE_RMS_M, MIN_TABLE_FRACTION,
                                      points_from_depth, sample_grid, save)
 
 NODE_NAME = 'camera_pose_calibrator_node'
@@ -37,6 +39,7 @@ class CameraPoseCalibratorNode(Node):
     """Collects depth frames of the table and stores the camera pose measured from them."""
 
     def __init__(self):
+        # Co-authored by Claude Code
         super().__init__(NODE_NAME)
 
         self._declare_parameters()
@@ -63,7 +66,8 @@ class CameraPoseCalibratorNode(Node):
         self.done = False
         self.succeeded = False
         self.get_logger().info(f'[CameraPoseCalibratorNode]: Measuring the camera pose from '
-                               f'{self.frames} depth frames, keep the table clear')
+                               f'{self.frames} depth frames, keep at least '
+                               f'{100 * MIN_TABLE_FRACTION:.0f} % of the image free table')
         if not self.pose_file:
             self.fail('camera_pose_file is empty, there is nowhere to store the pose')
 
@@ -121,18 +125,20 @@ class CameraPoseCalibratorNode(Node):
         self.fail(f'{reason} after {self.timeout:.0f} s (is the depth camera running?)')
 
     def measure(self):
+        # Co-authored by Claude Code
         # Median per sample over all frames, ignoring pixels without depth (0), against noise
         # Masked instead of NaN: a pixel without depth in any frame is no warning, its median is 0
         z = np.ma.median(np.ma.masked_less_equal(np.array(self.samples), 0), axis=0).filled(0)
         k = np.reshape(self.camera_info.k, (3, 3))
         points = points_from_depth(*self.grid, z, k, np.array(self.camera_info.d))
-        normal, centroid, fraction, rms, above = fit_table_plane(points)
-        if (above > MAX_ABOVE_FRACTION or fraction < MIN_TABLE_FRACTION
-                or rms > MAX_TABLE_RMS_M):
-            self.fail(f'{100 * above:.0f} % of the image is above the table (at most '
-                      f'{100 * MAX_ABOVE_FRACTION:.0f} %), {100 * fraction:.0f} % is table (at '
-                      f'least {100 * MIN_TABLE_FRACTION:.0f} %), RMS {1000 * rms:.1f} mm (at most '
-                      f'{1000 * MAX_TABLE_RMS_M:.0f} mm): clear the table and try again')
+        normal, centroid, fraction, rms = fit_table_plane(points)
+        if fraction < MIN_TABLE_FRACTION:
+            self.fail(f'{100 * fraction:.0f} % of the image is free table (at least '
+                      f'{100 * MIN_TABLE_FRACTION:.0f} %): free more of the table and try again')
+            return
+        if rms > MAX_TABLE_RMS_M:
+            self.fail(f'the table is flat to only {1000 * rms:.1f} mm RMS (at most '
+                      f'{1000 * MAX_TABLE_RMS_M:.0f} mm): the depth is unusable')
             return
         try:
             transform = self.tf_buffer.lookup_transform(self.base_frame, self.optical_frame,

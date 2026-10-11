@@ -31,7 +31,7 @@ class ProjectionMappingNode(Node):
         super().__init__(NODE_NAME)
         self.declare_parameter(PARAMETER_FILE, '', ParameterDescriptor(
             description='YAML file the mapping is loaded from and saved to. The launch files put '
-                        'it next to par_setup.yaml.',
+                        'it in config/calibration/extrinsics.',
             read_only=True))
         self.file = self.get_parameter(PARAMETER_FILE).value
         if not self.file:

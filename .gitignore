@@ -1,21 +1,20 @@
+# Co-authored by Claude Code (named profiles folder).
 # Node repositories are automatically cloned to the src/ folder and should not be commited to the core framework
 /src/
 
 # Dependency manifests staged for the image build (generated).
 /docker/deps/
 
-# Machine-local configuration. par_setup_<name>.yaml are the setup wizard's named profiles; par_setup.yaml, the
+# Machine-local configuration. config/profiles/ holds the setup wizard's named profiles; par_setup.yaml, the
 # default profile, stays tracked.
 /.env
-/packages/par-framework-core/config/par_setup_*.yaml
+/packages/par-framework-core/config/profiles/
 
 # Calibration of this physical setup, written by nodes: the projection corners (projection_corners_node, from
 # surface_selector), the table-to-projector mapping (projection_mapping_node, from projection_calibrator), the
-# measured camera pose (camera_pose_calibrator) and the camera intrinsics (cameracalibrator).
-/packages/par-framework-core/config/projection_corners_*.yaml
-/packages/par-framework-core/config/projection_mapping_*.yaml
-/packages/par-framework-core/config/camera_pose_*.yaml
-/packages/par-framework-core/config/camera_info_*.yaml
+# measured camera pose (camera_pose_calibrator) in calibration/extrinsics/, and the camera intrinsics
+# (cameracalibrator) in calibration/intrinsics/.
+/packages/par-framework-core/config/calibration/
 
 # colcon output. These folders will be created when the nodes in src/ are built locally, outside the Docker container
 /build/

@@ -1557,3 +1557,115 @@ colcon also finds the staged manifest in `docker/deps/` and stops on a duplicate
 resolve at the path `par.launch.py` builds. A `--symlink-install` tree keeps dangling links to the old locations
 until they are removed (`find build/par_framework_core install/par_framework_core -xtype l -delete`), and the
 container's build volumes need `./scripts/build_workspace.sh par_framework_core` once.
+
+## 2026-10-11: Setup wizard lists the displays again
+
+- **What:** `par_setup_wizard/displays.py` imports its display helpers from `surface_selector.utils`
+  (`get_connected_displays`, `get_resolution_of_display_by_id`, `display_calibration_image`) instead of the
+  modules `surface_selector.display_info` and `surface_selector.show_white_fullscreen`.
+- **Why:** a cleanup in `surface_selector` merged those two modules into `utils.py` under new names. The
+  display listing runs as a subprocess of the wizard, so the import error only killed that subprocess, and the
+  projector page showed no displays instead of an error.
+- **Alternatives:** restoring the old modules in `surface_selector` was rejected, it would undo that repo's
+  cleanup for one caller. Copying the helpers into the wizard was rejected too: the projector calibration in
+  `surface_selector` uses the same functions, so the wizard and the calibration count displays the same way only
+  while they share them. Note that `display_calibration_image` raises on a size mismatch (display scaling not at
+  100 %) where the old function only printed a warning, so the identify and grid views now end in that case.
+
+## 2026-10-11: Camera pose calibration works with things standing on the table
+
+- **What:** `camera_pose_calibrator.py`, `fit_table_plane`: RANSAC no longer takes the plane with the most points
+  but the one nearest to the camera that holds at least `MIN_TABLE_FRACTION` (25 %) of the points and is tilted at
+  most `MAX_TABLE_TILT_DEG` (45 degrees) against the view direction. `RANSAC_ITERATIONS` 200 -> 1000; a candidate
+  farther away than the best so far is skipped before its points are counted. The share of points above the table
+  and `MAX_ABOVE_FRACTION` are gone, `fit_table_plane` returns 4 values, 0 % table when no plane qualifies. The
+  node refuses only on too little table or a non-flat one, with one message each. The test for the above-share is
+  replaced by `test_cluttered_table_above_more_floor_is_found`.
+- **Why:** a camera that sees much more than the projection area also sees a desk that cannot be cleared. The plane
+  fit found the desk, but the measurement was refused because more than 10 % of the image was above it. That check
+  was also the only guard against fitting the floor when more floor than free table is in view; choosing the nearest
+  large plane replaces it: the floor is farther away, objects on the table are too small, a wall or a box side is
+  tilted too far.
+- **Alternatives:** raising `MAX_ABOVE_FRACTION` was rejected, it only moves the limit to the next more cluttered
+  desk. Checking the measured height against the placeholder height in `par_setup.yaml` was rejected, it is only as
+  good as a hand-entered value. Fitting only inside the projection corners was rejected, for a new setup they belong
+  to the old one. Known limit: a flat surface above the desk that covers a quarter of the image (a large shelf) would
+  be taken for the table.
+- **Tested:** 6/6 math tests. The new test fails with the previous code (it fits the floor and refuses) and passes
+  with this one. flake8 reports only the three errors already in `camera_pose_calibrator_node.py`.
+
+## 2026-10-11: `marker_size_px` removed from the profiles
+
+- **What:** the `projection_calibrator_node` section of the profiles in `packages/par-framework-core/config/`
+  no longer has `marker_size_px`.
+- **Why:** `surface_selector` now derives the size of the projected markers from the projector's resolution
+  (largest size that fits the grid), and the node no longer declares the parameter. A leftover key would be
+  ignored silently and suggest a setting that does nothing.
+- **Alternatives:** keeping the key as an optional override was rejected: no setup needs a smaller pattern, and
+  a wrong value is exactly what made the rows overlap before.
+
+## 2026-10-11: camera pose placeholders marked as "do not edit"
+
+- **What:** the comments on `/brio_tf_publisher`, `/webcam_tf_publisher` and `/kinect_tf_publisher` in
+  `packages/par-framework-core/config/par_setup.yaml` now mark them as placeholders not to be edited, and name
+  where the real pose comes from (`camera_pose_<camera>.yaml`, written by the setup wizard or
+  `camera_pose_calibrator`). Values unchanged.
+- **Why:** the entries look like the place to set the camera pose, and the Brio's comment even said "replace with
+  measured values". But `launch_helpers.mount_tf_publisher` ignores them as soon as a pose file exists, and both
+  pose tools copy what they do not set (x/y position, the Kinect's rotation about the vertical) from them, so an
+  edit is either silently ignored or leaks into later measurements.
+- **Alternatives:** moving the placeholder into `launch_helpers` as a Python constant was rejected: the launch
+  files, the wizard (`profiles.current_pose`) and `camera_pose_calibration_kinect.launch.py` all read it from the
+  profile, and hardware defaults belong in `par_setup.yaml` by the repo's convention. Removing the entries was
+  rejected: launching without a pose file would then fail with a `KeyError`.
+
+## 2026-10-11: named profiles moved to `config/profiles/<name>.yaml`
+
+- **What:** the setup wizard's named profiles are now `config/profiles/<name>.yaml` instead of
+  `config/par_setup_<name>.yaml` (`profiles.profiles_dir`, `profile_path`, `list_profiles`, `create_profile`, which
+  creates the folder). The default stays `config/par_setup.yaml`. `launch_helpers.next_to_params_file` now resolves
+  to the folder of the real default `par_setup.yaml` instead of the folder of `params_file`. `.gitignore` ignores
+  `config/profiles/`. Docstrings, the wizard's subtitle and the README name the new path.
+- **Why:** keeps the config folder readable: the tracked default and the shared calibrations on top, every
+  machine-local profile below. The calibrations stay shared by all profiles (keyed by camera, as documented): with
+  the old `next_to_params_file`, a launch with a profile from the subfolder would have written its calibrations
+  into `config/profiles/`, while the wizard reads them from `config/`.
+- **Alternatives:** per-profile calibrations in a folder per profile (`config/profiles/<name>/par_setup.yaml`) were
+  rejected for now: it changes the documented sharing, and the wizard would have to read calibrations from the
+  profile's folder. Keeping the `par_setup_` prefix inside the subfolder was rejected as redundant. Renaming
+  `next_to_params_file`, whose `context` argument is now unused, was left out to keep the change small. Existing
+  profiles are moved by hand, not migrated by code.
+
+## 2026-10-11: `next_to_params_file` renamed to `config_file`, unused `context` arguments removed
+
+- **What:** `launch_helpers.next_to_params_file(context, file_name)` is now `config_file(file_name)`;
+  `webcam_nodes`, `projection_corners_node` and `projection_mapping_node` no longer take `context`, and their callers
+  in `par.launch.py`, `calibration.launch.py`, `projection_calibration.launch.py` and
+  `camera_pose_calibration_kinect.launch.py` are updated. `par_framework_core/package.xml` declares
+  `ament_index_python`, which the launch files and now `launch_helpers` import.
+- **Why:** since the calibrations resolve to the shared config folder, the helper no longer reads `params_file`, so
+  its name described something it no longer does and its `context` was unused; the three node helpers only had
+  `context` to pass it on. The dependency was used without being declared, against the rule that `package.xml`
+  declares everything (it only worked because the ROS base ships it).
+- **Alternatives:** keeping the old signatures for compatibility was rejected: every caller is in this package, so
+  the rename is complete and a leftover `context` would suggest a dependency on the launch arguments that is gone.
+
+## 2026-10-11: calibrations moved to `config/calibration/intrinsics/` and `config/calibration/extrinsics/`
+
+- **What:** the camera intrinsics (`camera_info_<camera>.yaml`) are now in `config/calibration/intrinsics/`; the
+  camera poses (`camera_pose_<camera>.yaml`), the table-to-projector mappings (`projection_mapping_<camera>.yaml`)
+  and the projection corners (`projection_corners_<camera>.yaml`) in `config/calibration/extrinsics/`. File names are
+  unchanged. `launch_helpers` has the constants `INTRINSICS` / `EXTRINSICS`, and `config_file` creates the file's
+  folder. The wizard (`par_setup_wizard.py`, `profiles.pose_file`) builds its calibration paths with
+  `config_file` and the constants instead of joining them to `config_dir()` itself. `.gitignore` ignores
+  `config/calibration/` instead of four file patterns. Docstrings, parameter descriptions, `par_setup.yaml`,
+  `CLAUDE.md`, the README and `run_cameracalibrator.sh` name the new paths.
+- **Why:** `config/` showed the tracked default profile between machine-local calibration files; now it holds
+  `par_setup.yaml`, `profiles/`, `calibration/` and `rviz/`. Projector mapping and corners count as extrinsics: like
+  the camera pose they describe where things sit relative to the table. The folder is created in `config_file`
+  because none of the writers creates it: `camera_info_manager`'s `saveCalibrationFile` (despite its comment),
+  `camera_pose_calibrator.save` and the wizard's `save_manual_pose` all just open the file.
+- **Alternatives:** committing the empty folders with a `.gitkeep` was rejected: no code, but it breaks as soon as
+  the folder is deleted. Making each writer create its folder was rejected: three places, two of them third-party.
+  Shortening the file names to `<camera>.yaml` was rejected: they appear in node parameters and logs, where the folder
+  is not visible. Letting the wizard keep its own path joins was rejected: a second copy of the folder names.

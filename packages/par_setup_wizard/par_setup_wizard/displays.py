@@ -17,8 +17,8 @@ import sys
 import cv2
 import numpy as np
 import pygame
-from surface_selector.display_info import get_connected_monitors, get_resolution_of_monitor_by_id
-from surface_selector.show_white_fullscreen import display_image
+from surface_selector.utils import (display_calibration_image, get_connected_displays,
+                                    get_resolution_of_display_by_id)
 
 GRID_STEP_PX = 100
 
@@ -37,7 +37,7 @@ def list_displays():
     if library is None:
         # Sizes only, as pygame reports them
         return [{'name': '', 'x': None, 'y': None, 'width': w, 'height': h}
-                for w, h in (monitor.resolution for monitor in get_connected_monitors())]
+                for w, h in (display.resolution for display in get_connected_displays())]
     sdl = ctypes.CDLL(library)
     sdl.SDL_GetDisplayName.restype = ctypes.c_char_p
     displays = []
@@ -80,10 +80,10 @@ def main():
         print(json.dumps(list_displays()))
         return
     index = int(sys.argv[2])
-    width, height = get_resolution_of_monitor_by_id(index)
+    width, height = get_resolution_of_display_by_id(index)
     image = number_image(width, height, index) if mode == 'number' else grid_image(width, height)
     try:
-        display_image(index, image)
+        display_calibration_image(index, image)
     except KeyboardInterrupt:
         # The wizard ends this process with SIGINT: the normal end, no traceback
         pass

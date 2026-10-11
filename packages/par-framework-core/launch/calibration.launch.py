@@ -5,12 +5,13 @@ image; the resulting corners are what the rest of the framework warps against.
 The projector window opens on the display given by `display_id` in the
 parameter file.
 The selected corners are stored by projection_corners_node in
-config/projection_corners_<camera>.yaml, next to par_setup.yaml (added with the help of Claude
+config/calibration/extrinsics/projection_corners_<camera>.yaml (added with the help of Claude
 Code).
 camera:=kinect uses the Azure Kinect instead of the Brio, camera:=webcam a generic webcam (both
 added with the help of Claude Code), and the launch ends once the corners are
 stored or the selection is cancelled with Esc (added with the help of Claude Code).
-Camera calibrations are config/camera_info_<camera>.yaml, next to params_file (changed with the
+Camera calibrations are config/calibration/intrinsics/camera_info_<camera>.yaml, shared by all
+profiles (changed with the
 help of Claude Code).
 """
 
@@ -34,7 +35,7 @@ def camera_and_surface_selector(context):
     camera = chosen_camera(context)
     # The corners owner stores what surface_selector sends, in the camera's own file, and
     # publishes it on /projection_corners
-    return camera_nodes(context, camera) + projection_corners_node(context, camera) + [Node(
+    return camera_nodes(context, camera) + projection_corners_node(camera) + [Node(
         package='surface_selector',
         executable='surface_selector',
         name='surface_selector_node',

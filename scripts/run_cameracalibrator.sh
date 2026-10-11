@@ -11,7 +11,7 @@
 # the webcam. CAMERA_NAMESPACE points it at a camera node outside the framework, e.g.
 #   CAMERA_NAMESPACE=/my_camera scripts/run_cameracalibrator.sh 0.031
 # COMMIT stores the result through set_camera_info at the node's camera_info_url, which the framework's launch
-# files set to config/camera_info_<camera>.yaml next to par_setup.yaml. The Kinect needs none: its driver
+# files set to config/calibration/intrinsics/camera_info_<camera>.yaml. The Kinect needs none: its driver
 # publishes its factory calibration.
 # Needs ROS sourced and the camera node running and publishing reliably (the Brio with
 # qos_reliability:=reliable; v4l2_camera does already): the calibrator only copies the publisher's QoS if it

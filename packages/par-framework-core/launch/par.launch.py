@@ -6,12 +6,13 @@ The framework's one entry point for every camera. par_launch names the camera (b
 webcam) and switches each node on or off; the setup wizard (par_setup_wizard) writes it. Without
 the wizard:
 
-    ros2 launch par_framework_core par.launch.py params_file:=/path/to/par_setup_<profile>.yaml
+    ros2 launch par_framework_core par.launch.py params_file:=/path/to/profiles/<profile>.yaml
 
 Each of them can be overridden for one run, e.g. camera:=kinect rviz:=true hand_landmarks:=false;
 an argument left empty keeps the profile's value. With the Kinect the detectors also use its
 depth. camera_only:=true starts just the camera and its mount transform, e.g. for a preview or a
-calibration. Camera calibrations are config/camera_info_<camera>.yaml, next to params_file.
+calibration. Camera calibrations are config/calibration/intrinsics/camera_info_<camera>.yaml,
+shared by all profiles.
 """
 
 import os
@@ -79,8 +80,8 @@ def launch_setup(context):
             actions.append(framework_node(detector, overrides))
 
     # Publish the stored projection corners and table-to-projector mapping
-    actions += projection_corners_node(context, camera)
-    actions += projection_mapping_node(context, camera)
+    actions += projection_corners_node(camera)
+    actions += projection_mapping_node(camera)
 
     if enabled('rviz'):
         actions.append(framework_node('rviz_bridge'))
