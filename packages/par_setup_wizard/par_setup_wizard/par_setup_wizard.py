@@ -3,7 +3,7 @@
 Setup wizard for the PAR framework on the host.
 
 Pages: profile, projector, camera, calibration, nodes, start. Every choice is stored in the chosen
-profile (par_setup.yaml or par_setup_<name>.yaml); calibrations, launches and builds run as
+profile (par_setup.yaml or profiles/<name>.yaml); calibrations, launches and builds run as
 subprocesses whose output goes to the log below the pages. Start it with ./scripts/wizard.sh,
 which sources the workspace.
 """
@@ -15,7 +15,8 @@ import signal
 import subprocess
 import sys
 
-from par_framework_core.launch_helpers import CAMERA_IMAGE, DRIVER_REMAPPINGS
+from par_framework_core.launch_helpers import (CAMERA_IMAGE, config_file, DRIVER_REMAPPINGS,
+                                               EXTRINSICS, INTRINSICS)
 from PySide6.QtCore import QProcess, QProcessEnvironment, Qt, QTimer
 from PySide6.QtGui import QGuiApplication, QImage, QPixmap
 from PySide6.QtWidgets import (QApplication, QButtonGroup, QCheckBox, QComboBox, QDoubleSpinBox,
@@ -47,8 +48,8 @@ PREVIEW_PERIOD_MS = 100
 SIGNAL_CHECK_MS = 200
 # The generic webcam's v4l2_camera node
 WEBCAM_NODE = '/camera/webcam/webcam_node'
-# A camera's intrinsics, next to the profiles (launch_helpers sets each camera's camera_info_url)
-CAMERA_CALIBRATION = 'camera_info_{}.yaml'
+# A camera's intrinsics, shared by all profiles (launch_helpers sets each camera's camera_info_url)
+CAMERA_CALIBRATION = INTRINSICS + '/camera_info_{}.yaml'
 # Square size of scripts/checkerboard.png as printed for the setup, in metres
 DEFAULT_SQUARE_M = 0.031
 
@@ -208,7 +209,7 @@ class ProfilePage(QWizardPage):
         super().__init__()
         self.setTitle('Profile')
         self.setSubTitle('A profile is one parameter file: par_setup.yaml (default) or '
-                         'par_setup_<name>.yaml. Start one directly, or press Next to set it up; '
+                         'profiles/<name>.yaml. Start one directly, or press Next to set it up; '
                          'every page stores its choices in it.')
         self.processes = wizard.processes
         self.quick_start = False
@@ -611,9 +612,8 @@ class CalibrationPage(QWizardPage):
 
         camera = self.wizard().camera()
         automatic = self.automatic.isChecked()
-        config = profiles.config_dir()
         if camera in ('brio', 'webcam'):
-            intrinsics = os.path.join(config, CAMERA_CALIBRATION.format(camera))
+            intrinsics = config_file(CAMERA_CALIBRATION.format(camera))
             self.square = QDoubleSpinBox(decimals=4, minimum=0.001, maximum=1.0,
                                          singleStep=0.001, value=DEFAULT_SQUARE_M, suffix=' m')
             self.add_step('Camera intrinsics (checkerboard, square size:)',
@@ -627,14 +627,14 @@ class CalibrationPage(QWizardPage):
             # Only the Kinect has depth, the others need their pose by hand even when automatic
             self.add_pose_form(camera)
         if automatic:
-            mapping = os.path.join(config, f'projection_mapping_{camera}.yaml')
+            mapping = config_file(f'{EXTRINSICS}/projection_mapping_{camera}.yaml')
             self.add_step('Projector mapping (projected markers, clear table)',
                           lambda: file_status(mapping),
                           lambda done: self.start_launch('projector mapping',
                                                          'projection_calibration.launch.py', done,
                                                          f'camera:={camera}'))
         else:
-            corners = os.path.join(config, f'projection_corners_{camera}.yaml')
+            corners = config_file(f'{EXTRINSICS}/projection_corners_{camera}.yaml')
             self.add_step('Projection corners (click the four corners; Esc cancels)',
                           lambda: file_status(corners),
                           lambda done: self.start_launch('projection corners',
@@ -847,7 +847,7 @@ class SetupWizard(QWizard):
     def brio_camera_info_url(self):
         """Return the Brio calibration as a camera_info_url parameter, for a Brio run directly."""
         # The launch files set it themselves (launch_helpers.logitech_brio_node)
-        calibration = os.path.join(profiles.config_dir(), CAMERA_CALIBRATION.format('brio'))
+        calibration = config_file(CAMERA_CALIBRATION.format('brio'))
         return f'camera_info_url:=file://{calibration}'
 
     def launch_command(self, launch_file, *arguments):

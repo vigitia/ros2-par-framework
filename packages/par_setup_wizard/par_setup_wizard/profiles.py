@@ -1,5 +1,5 @@
 # Written by Claude Code
-"""Named setup profiles: par_setup.yaml and par_setup_<name>.yaml, edited with comments kept."""
+"""Named setup profiles: par_setup.yaml and profiles/<name>.yaml, edited with comments kept."""
 
 from datetime import datetime
 import math
@@ -8,13 +8,14 @@ import re
 import shutil
 
 from ament_index_python.packages import get_package_share_directory
+from par_framework_core.launch_helpers import config_file, EXTRINSICS
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap
 from ruamel.yaml.scalarstring import PlainScalarString
 import yaml
 
 DEFAULT_PROFILE = 'default'
-PROFILE_FILE = re.compile(r'par_setup_([A-Za-z0-9_-]+)\.yaml')
+PROFILE_FILE = re.compile(r'([A-Za-z0-9_-]+)\.yaml')
 # The keys of a mount pose, in par_setup.yaml and in the pose files
 POSE_KEYS = ('translation.x', 'translation.y', 'translation.z',
              'rotation.x', 'rotation.y', 'rotation.z', 'rotation.w')
@@ -27,7 +28,7 @@ MANUAL_POSE_HEADER = (
 def config_dir():
     """Return par_framework_core's config folder in the source tree."""
     # realpath follows the --symlink-install link back to the source folder, where the
-    # calibrations are stored too (launch_helpers.next_to_params_file)
+    # calibrations are stored too (launch_helpers.config_file)
     installed = os.path.join(get_package_share_directory('par_framework_core'), 'config',
                              'par_setup.yaml')
     return os.path.dirname(os.path.realpath(installed))
@@ -38,25 +39,35 @@ def repo_root():
     return os.path.dirname(os.path.dirname(os.path.dirname(config_dir())))
 
 
+def profiles_dir():
+    """Return the folder of the named profiles, config/profiles (gitignored)."""
+    return os.path.join(config_dir(), 'profiles')
+
+
 def profile_path(name):
     """Return the file of the profile name."""
-    file_name = 'par_setup.yaml' if name == DEFAULT_PROFILE else f'par_setup_{name}.yaml'
-    return os.path.join(config_dir(), file_name)
+    if name == DEFAULT_PROFILE:
+        return os.path.join(config_dir(), 'par_setup.yaml')
+    return os.path.join(profiles_dir(), f'{name}.yaml')
 
 
 def list_profiles():
     """Return the profile names, the default first."""
-    names = sorted(m.group(1) for m in map(PROFILE_FILE.fullmatch, os.listdir(config_dir())) if m)
+    # The folder only exists once a profile has been created
+    folder = profiles_dir()
+    files = os.listdir(folder) if os.path.isdir(folder) else []
+    names = sorted(m.group(1) for m in map(PROFILE_FILE.fullmatch, files) if m)
     return [DEFAULT_PROFILE] + names
 
 
 def create_profile(name, source):
     """Create profile name as a copy of profile source."""
-    if name == DEFAULT_PROFILE or not PROFILE_FILE.fullmatch(f'par_setup_{name}.yaml'):
+    if name == DEFAULT_PROFILE or not PROFILE_FILE.fullmatch(f'{name}.yaml'):
         raise ValueError(f'"{name}" is no valid profile name: letters, digits, _ and - only')
     path = profile_path(name)
     if os.path.exists(path):
         raise FileExistsError(f'profile "{name}" exists already')
+    os.makedirs(profiles_dir(), exist_ok=True)
     shutil.copyfile(profile_path(source), path)
 
 
@@ -113,7 +124,7 @@ class Profile:
 
 def pose_file(camera):
     """Return the camera's pose file, which the launch files prefer to the profile's pose."""
-    return os.path.join(config_dir(), f'camera_pose_{camera}.yaml')
+    return config_file(f'{EXTRINSICS}/camera_pose_{camera}.yaml')
 
 
 def current_pose(profile, camera):
