@@ -138,7 +138,8 @@ of `world`, whose pose relative to the camera is `/brio_tf_publisher` in `par_se
 Consumers convert locally with `par_geometry`, the one place for this math. They do not call a service per point,
 and images never go through a service. The mapping comes from `projection_calibration.launch.py`: the projector
 shows ArUco markers (ids 50–58, `marker_ids` in `par_setup.yaml`; not 90–98, the VIGITIA document pages use 96–99) at known pixels, `fiducials_detector` finds them, and `projection_calibrator` (in
-`surface_selector`) fits the homography and sends it to `projection_mapping_node`, which stores
+`surface_selector`) fits the homography and sends it to `projection_calibration_server_node` (which also holds the
+clicked projection corners), which stores
 `config/calibration/extrinsics/projection_mapping_<camera>.yaml` (`brio` or `kinect`), next to the camera poses
 (`camera_pose_<camera>.yaml`) and the projection corners. One file per camera, because
 while the camera poses are placeholders each camera has its own table plane, so a mapping only fits the camera it was

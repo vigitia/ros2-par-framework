@@ -1,7 +1,7 @@
 # Written by Claude Code
 from setuptools import find_packages, setup
 
-package_name = 'projection_mapping'
+package_name = 'projection_calibration_server'
 
 setup(
     name=package_name,
@@ -17,11 +17,13 @@ setup(
     zip_safe=True,
     maintainer='vitus',
     maintainer_email='vitus.maierhoefer@gmail.com',
-    description='Holds the table-to-projector mapping and publishes it latched.',
+    description='Holds the projection corners and the table-to-projector mapping, publishes '
+                'them latched.',
     license='MIT',
     entry_points={
         'console_scripts': [
-            'projection_mapping = projection_mapping.projection_mapping_node:main',
+            'projection_calibration_server = '
+            'projection_calibration_server.projection_calibration_server_node:main',
         ],
     },
 )

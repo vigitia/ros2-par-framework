@@ -5,7 +5,7 @@ Automatic table-to-projector calibration.
 The projector shows ArUco markers at known projector pixels (display_id under
 projection_calibrator_node in par_setup.yaml; the resolution is read from that display),
 fiducials_detector finds them in the camera image, and projection_calibrator fits the homography
-from the table plane to projector pixels. It is stored by projection_mapping_node in
+from the table plane to projector pixels. It is stored by projection_calibration_server_node in
 config/calibration/extrinsics/projection_mapping_<camera>.yaml, and published latched on
 /projection_mapping. The launch ends when the calibrator is done. camera:= (brio, kinect or
 webcam) picks the camera; without it, par_launch.camera from params_file.
@@ -23,7 +23,7 @@ from launch.actions import DeclareLaunchArgument, OpaqueFunction, Shutdown
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from par_framework_core.launch_helpers import (camera_nodes, chosen_camera,
-                                               projection_mapping_node)
+                                               projection_calibration_server_node)
 
 PACKAGE_NAME = 'par_framework_core'
 
@@ -42,7 +42,7 @@ def launch_setup(context):
             emulate_tty=True,
             parameters=[params_file],
         ),
-        *projection_mapping_node(camera),
+        *projection_calibration_server_node(camera),
         Node(
             package='surface_selector',
             executable='projection_calibrator',

@@ -2,14 +2,15 @@
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <!-- Written by Claude Code -->
 <package format="3">
-  <name>projection_mapping</name>
+  <name>projection_calibration_server</name>
   <version>0.1.0</version>
-  <description>Holds the homography from the table plane to projector pixels: loads it from a file, publishes it latched on /projection_mapping and stores new ones from projection_calibrator.</description>
+  <description>Holds the projection calibrations: the corners of the projected image in the camera image (from surface_selector) and the homography from the table plane to projector pixels (from projection_calibrator). Loads each from its file, publishes it latched on /projection_corners and /projection_mapping, and stores new ones.</description>
   <maintainer email="vitus.maierhoefer@gmail.com">vitus</maintainer>
   <license>MIT</license>
 
   <exec_depend>rclpy</exec_depend>
   <exec_depend>rcl_interfaces</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
   <exec_depend>custom_interfaces</exec_depend>
   <exec_depend>python3-numpy</exec_depend>
   <exec_depend>python3-yaml</exec_depend>

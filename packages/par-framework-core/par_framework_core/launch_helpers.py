@@ -187,31 +187,21 @@ def config_file(file_name):
     return path
 
 
-def projection_corners_node(camera):
-    """Start the projection corners owner with camera's file in EXTRINSICS."""
-    # One file per camera: the corners are pixels of one camera's image, so another camera's
-    # would point elsewhere
-    return [Node(
-        package='projection_corners',
-        executable='projection_corners',
-        name='projection_corners_node',
-        output='screen',
-        emulate_tty=True,
-        parameters=[{'projection_corners_file':
-                     config_file(f'{EXTRINSICS}/projection_corners_{camera}.yaml')}],
-    )]
-
-
-def projection_mapping_node(camera):
-    """Start the table-to-projector mapping owner with camera's file in EXTRINSICS."""
-    # One file per camera: while the camera poses in par_setup.yaml are placeholders, each
+def projection_calibration_server_node(camera):
+    """Start the owner of the projection corners and mapping with camera's files in EXTRINSICS."""
+    # One file per camera each: the corners are pixels of one camera's image, so another camera's
+    # would point elsewhere. And while the camera poses in par_setup.yaml are placeholders, each
     # camera's table plane is its own, so a mapping only fits the camera it was calibrated with
     return [Node(
-        package='projection_mapping',
-        executable='projection_mapping',
-        name='projection_mapping_node',
+        package='projection_calibration_server',
+        executable='projection_calibration_server',
+        name='projection_calibration_server_node',
         output='screen',
         emulate_tty=True,
-        parameters=[{'projection_mapping_file':
-                     config_file(f'{EXTRINSICS}/projection_mapping_{camera}.yaml')}],
+        parameters=[{
+            'projection_corners_file':
+                config_file(f'{EXTRINSICS}/projection_corners_{camera}.yaml'),
+            'projection_mapping_file':
+                config_file(f'{EXTRINSICS}/projection_mapping_{camera}.yaml'),
+        }],
     )]

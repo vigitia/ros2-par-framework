@@ -1669,3 +1669,37 @@ container's build volumes need `./scripts/build_workspace.sh par_framework_core`
   the folder is deleted. Making each writer create its folder was rejected: three places, two of them third-party.
   Shortening the file names to `<camera>.yaml` was rejected: they appear in node parameters and logs, where the folder
   is not visible. Letting the wizard keep its own path joins was rejected: a second copy of the folder names.
+
+## 2026-10-12: `projection_corners` and `projection_mapping` merged into `projection_calibration_server`
+
+- **What:** one package and node, `projection_calibration_server` / `projection_calibration_server_node`, replaces
+  `projection_corners_node` and `projection_mapping_node`. It serves both calibrations under the unchanged names
+  (`/projection_corners`, `/projection_mapping`, `/set_projection_corners`, `/set_projection_mapping`, parameters
+  `projection_corners_file` / `projection_mapping_file`, the same files in `config/calibration/extrinsics/`). A
+  `Calibration` namedtuple holds what differs between the two (log name, file, validate, save, message conversion,
+  publisher); one `publish_stored` / `store` path handles both. `launch_helpers.projection_calibration_server_node`
+  replaces the two start functions, and `par.launch.py`, `calibration.launch.py` and `projection_calibration.launch.py`
+  start it. `load` now raises `ValueError` for an empty or non-YAML file, and the node logs and skips a stored file
+  that is missing keys or holds wrong types instead of crashing at startup.
+- **Why:** the two nodes were copies of one pattern (load a YAML, validate, publish latched, store through a set
+  service), and `projection_mapping` read like the projection itself rather than the owner of a stored result. The
+  `_server` suffix follows Nav2's `map_server`, which does the same for maps. Because the topic and service names stay,
+  `surface_selector`, `projection_calibrator`, `rviz_bridge` and the wizard need no change. The load errors are
+  isolated because after the merge one broken file would otherwise also stop the other calibration from being served.
+- **Alternatives:** only renaming `projection_mapping_node` was rejected: it fixes the name but keeps the duplicate
+  code. Also folding in the camera pose (as a static TF broadcaster) and the intrinsics was rejected: those use the
+  standard ROS channels (`/tf_static`, `camera_info_manager`) that third-party tools read. Two separate code paths in
+  one class were rejected as the same duplication in one file; a dataclass instead of the namedtuple would need type
+  annotations for a record that never changes.
+
+## 2026-10-12: `par_geometry` importable as `from par_geometry import ...`
+
+- **What:** `par_geometry/__init__.py` re-exports the six functions of `par_geometry/par_geometry.py` and lists them
+  in `__all__`. `rviz_bridge_node.py` imports `from par_geometry import ...` (now one line); `surface_selector` and
+  `gesture_detector` were changed the same way in their repositories. The long form still works.
+- **Why:** `par_geometry.par_geometry` read like a package with a node module, while it is a library of shared
+  functions. The short path is the usual form for a library (`from image_geometry import PinholeCameraModel`), and
+  the package name stays, following ROS's `image_geometry`, which is a library of camera model math too.
+- **Alternatives:** renaming the package (e.g. `par_coordinates`) was rejected for now: three `package.xml`, the
+  imports, docs and an image rebuild, for a name that already follows a ROS precedent. Silencing flake8's F401 with a
+  `# noqa` per name instead of `__all__` was rejected: `__all__` states that the names are the public API.

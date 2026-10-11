@@ -23,7 +23,7 @@ from launch.actions import DeclareLaunchArgument, OpaqueFunction
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from par_framework_core.launch_helpers import (CAMERA_IMAGE, camera_nodes, chosen_camera,
-                                               projection_corners_node, projection_mapping_node,
+                                               projection_calibration_server_node,
                                                read_launch_section)
 
 PACKAGE_NAME = 'par_framework_core'
@@ -80,8 +80,7 @@ def launch_setup(context):
             actions.append(framework_node(detector, overrides))
 
     # Publish the stored projection corners and table-to-projector mapping
-    actions += projection_corners_node(camera)
-    actions += projection_mapping_node(camera)
+    actions += projection_calibration_server_node(camera)
 
     if enabled('rviz'):
         actions.append(framework_node('rviz_bridge'))

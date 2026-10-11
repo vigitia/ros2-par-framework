@@ -5,8 +5,7 @@ from custom_interfaces.msg import (FiducialsList, HandLandmarksList, ObjectList,
                                    ProjectionCorners, ProjectionMapping)
 from geometry_msgs.msg import Point
 import numpy as np
-from par_geometry.par_geometry import (homography_from_msg, pixels_to_table,
-                                       projector_to_table, rotation_matrix)
+from par_geometry import homography_from_msg, pixels_to_table, projector_to_table, rotation_matrix
 import rclpy
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
