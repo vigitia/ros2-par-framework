@@ -1742,3 +1742,13 @@ container's build volumes need `./scripts/build_workspace.sh par_framework_core`
   calibration launch files call it too, and there a missing server must fail loudly instead of being skipped. Moving
   the calibration launch files too: left for later, the task was the two packages; they now need the calibration repo
   at runtime, not at build time.
+
+## 2026-10-12: `.gitignore`: ignore `.pytest_cache/`
+
+- **What:** `.pytest_cache/` added next to the existing Python cache rules.
+- **Why:** pytest writes this cache into the directory it runs from, and the packages here are meant to be testable
+  with plain pytest, so it would otherwise show up as untracked. The node repos got the same rule (plus
+  `__pycache__/` where it was missing) in their own `.gitignore` files.
+- **Alternatives:** a broad Python template (as in `logitech_brio`): rejected, nearly all of its rules match nothing
+  this repo produces and make the file harder to read. Setting `PYTHONDONTWRITEBYTECODE` / `-p no:cacheprovider`:
+  rejected, the caches are useful and an environment setting is easy to miss on another machine.
