@@ -1752,3 +1752,25 @@ container's build volumes need `./scripts/build_workspace.sh par_framework_core`
 - **Alternatives:** a broad Python template (as in `logitech_brio`): rejected, nearly all of its rules match nothing
   this repo produces and make the file harder to read. Setting `PYTHONDONTWRITEBYTECODE` / `-p no:cacheprovider`:
   rejected, the caches are useful and an environment setting is easy to miss on another machine.
+
+## 2026-10-12: `config/ros_packages.list` for released packages (RealSense, webcam)
+
+- **What changed:** a second list next to `config/nodes.list`: `config/ros_packages.list` holds rosdep keys of
+  released packages that are installed instead of cloned, active by default: `v4l2_camera` (generic webcam) and
+  `realsense2_camera` (Intel RealSense, until now cloned from `realsenseai/realsense-ros`, which `nodes.list` no
+  longer lists). `scripts/common.sh` turns the list into a generated `package.xml` (`par_ros_packages`, one
+  `<exec_depend>` per key): `sync_nodes.sh` stages it into `docker/deps/`, so the image's existing rosdep call
+  installs it, and `local_build.sh` adds it from a temporary directory to its rosdep call. `par_framework_core`
+  no longer declares `v4l2_camera`.
+- **Why:** your request. `nodes.list` only lists repositories to clone; released drivers that are used unchanged
+  do not need a checkout, a C++ build and its extra build dependencies, nor the risk that an upstream branch does
+  not build on the current distro. Declared in `par_framework_core`, they were mandatory for every setup; in the
+  list, a setup comments out what it does not use. This reverses the 2026-10-08 decision to keep RealSense as a
+  source checkout.
+- **Alternatives:** apt package names instead of rosdep keys: rejected, they carry the distro
+  (`ros-lyrical-...`), and rosdep keys also cover non-ROS packages and `--skip-keys`. A loop over
+  `rosdep resolve` + `apt-get install` in both the Dockerfile and `local_build.sh`: rejected, two copies of new
+  install logic instead of one generator feeding the existing rosdep path. Declaring the drivers in
+  `par_framework_core/package.xml` (tried first): rejected, it makes every driver mandatory. Each key is checked
+  against the form of a rosdep key, because it is written into XML. A package that needs patching goes into
+  `nodes.list` again; a checkout in `src/` overrides the installed one.

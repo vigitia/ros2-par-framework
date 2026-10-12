@@ -35,6 +35,46 @@ read_nodes_list() {
     ' "$list"
 }
 
+# Co-authored by Claude Code
+# Read config/ros_packages.list and emit one rosdep key per line, with comments and
+# blank lines stripped. A key ends up in a generated package.xml, so anything that
+# is not a plain key fails here instead of producing broken XML.
+read_ros_packages_list() {
+    local list="${REPO_ROOT}/config/ros_packages.list"
+    [[ -f "$list" ]] || die "missing $list"
+    awk '
+        { sub(/#.*/, "") }
+        NF == 0 { next }
+        NF > 1 || $1 !~ /^[A-Za-z0-9_.-]+$/ {
+            printf("ros_packages.list line %d: expected one rosdep key\n", NR) > "/dev/stderr"; exit 1
+        }
+        { print $1 }
+    ' "$list"
+}
+
+# Co-authored by Claude Code
+# Write <dir>/par_ros_packages/package.xml, a package that only depends on every key
+# of config/ros_packages.list, so that `rosdep install --from-paths <dir>` installs
+# them the same way it installs the nodes' dependencies.
+write_ros_packages_manifest() {
+    local keys key
+    keys="$(read_ros_packages_list)" || die "fix config/ros_packages.list"
+    mkdir -p "$1/par_ros_packages"
+    {
+        echo '<?xml version="1.0"?>'
+        echo '<!-- Generated from config/ros_packages.list by scripts/common.sh -->'
+        echo '<package format="3">'
+        echo '  <name>par_ros_packages</name>'
+        echo '  <version>0.0.0</version>'
+        echo '  <description>Released packages listed in config/ros_packages.list.</description>'
+        echo '  <maintainer email="none@example.com">generated</maintainer>'
+        # Required by rosdep's manifest parser; the same as par_framework_core's
+        echo '  <license>MIT</license>'
+        for key in $keys; do echo "  <exec_depend>${key}</exec_depend>"; done
+        echo '</package>'
+    } > "$1/par_ros_packages/package.xml"
+}
+
 # Name of the compose service everything runs in.
 SERVICE=ros2
 

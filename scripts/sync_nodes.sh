@@ -123,6 +123,11 @@ done < <(
 (( staged > 0 )) || die "no ROS packages found under src/ -- nothing to build"
 ok "staged manifests for ${staged} package(s)"
 
+# Co-authored by Claude Code: the released packages of config/ros_packages.list
+# resolve through the same rosdep call as the nodes' dependencies.
+write_ros_packages_manifest "$DEPS_DIR"
+ok "staged config/ros_packages.list"
+
 if (( ${#failures[@]} > 0 )); then
     die "could not sync: ${failures[*]}"
 fi

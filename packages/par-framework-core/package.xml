@@ -23,8 +23,8 @@
   <!-- Calibration is optional: surface_selector, projection_calibration_server and
        camera_pose_calibrator (ros2-par-framework-calibration) are not declared. par.launch.py
        starts the server only when it is installed; the calibration launch files need the repo. -->
-
-  <exec_depend>v4l2_camera</exec_depend>
+  <!-- Camera drivers are optional too: config/ros_packages.list installs the released ones
+       (v4l2_camera for camera:=webcam), config/nodes.list clones the others. -->
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>

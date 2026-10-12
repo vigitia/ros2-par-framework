@@ -24,11 +24,11 @@ custom_interfaces         git@github.com:vigitia/ros2-par-framework-interfaces.g
 framework-calibration     git@github.com:vigitia/ros2-par-framework-calibration.git         main
 
 
-# Sensors:
+# Sensors (check also ros_packages.list, especially some cameras already provide prebuilt rosdep packages):
 
 logitech_brio             git@github.com:vigitia/ros2-logitech-brio.git                     main
 azure_kinect_ros_driver   git@github.com:nlouman/azure_kinect_ros_driver_extended.git       main
-realsense2_camera         git@github.com:realsenseai/realsense-ros.git                      ros2-master
+# Released packages, e.g. the RealSense driver, are installed from ros_packages.list instead
 
 
 # Sensor Processing Nodes:

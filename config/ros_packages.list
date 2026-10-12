@@ -1,0 +1,16 @@
+# Released packages that make up the current ROS2 PAR Framework, installed instead of cloned.
+# Written by Claude Code
+#
+# One rosdep key per line: usually the ROS package name, e.g. realsense2_camera for
+# ros-<distro>-realsense2-camera. rosdep picks the right apt package for the distro in .env.
+# Find a key with: rosdep resolve <key>
+#
+# Every package listed here is installed on setup (scripts/local_build.sh on the host, the image in
+# Docker), like the repositories in nodes.list. Comment out what your setup does not use. A package
+# you want to patch goes into nodes.list instead: a checkout in src/ overrides the installed one.
+
+
+# Sensors:
+
+v4l2_camera               # generic UVC webcam (camera: webcam)
+realsense2_camera         # Intel RealSense depth cameras

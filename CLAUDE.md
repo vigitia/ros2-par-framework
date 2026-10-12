@@ -79,6 +79,12 @@ PyPI deps go in an optional `requirements.txt` at the repo root. Every repo curr
 tolerates a package one level down, or several per repo, keying each by the declared `<name>` rather than the
 directory name.
 
+**Released packages** used unchanged (`v4l2_camera` for the webcam, `realsense2_camera`) are not cloned: they are
+rosdep keys in `config/ros_packages.list`. `scripts/common.sh` (`write_ros_packages_manifest`) turns the list into a
+generated `package.xml` that the existing rosdep calls read: `sync_nodes.sh` stages it into `docker/deps/`,
+`local_build.sh` adds it from a temporary directory. So camera drivers stay optional: `par_framework_core` declares
+none of them.
+
 ### Custom interfaces
 
 All `.msg`, `.srv` and `.action` definitions live in one package, `custom_interfaces`, from

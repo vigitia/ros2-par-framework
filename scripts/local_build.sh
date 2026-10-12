@@ -26,8 +26,13 @@ have rosdep || die "rosdep not found -- sudo apt install python3-rosdep && sudo 
 have colcon || die "colcon not found -- sudo apt install python3-colcon-common-extensions"
 
 step "Installing apt dependencies (rosdep)"
+# The released packages of config/ros_packages.list, as a package.xml rosdep can read. Outside the
+# workspace, so colcon never builds it.
+ros_packages_dir="$(mktemp -d)"
+trap 'rm -rf "$ros_packages_dir"' EXIT
+write_ros_packages_manifest "$ros_packages_dir"
 # K4A (the Azure Kinect SDK) has no rosdep rule: install it by hand, see README.md
-rosdep install --from-paths src packages --ignore-src -y --skip-keys K4A
+rosdep install --from-paths src packages "$ros_packages_dir" --ignore-src -y --skip-keys K4A
 
 step "Installing PyPI dependencies into .venv"
 if [[ ! -d .venv ]]; then
