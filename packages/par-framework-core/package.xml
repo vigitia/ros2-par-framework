@@ -1,5 +1,6 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<!-- Co-authored by Claude Code: the calibration packages are no longer declared -->
 <package format="3">
   <name>par_framework_core</name>
   <version>0.1.0</version>
@@ -16,13 +17,13 @@
   <exec_depend>rviz_default_plugins</exec_depend>
 
   <exec_depend>rviz_bridge</exec_depend>
-  <exec_depend>projection_calibration_server</exec_depend>
-  <exec_depend>surface_selector</exec_depend>
   <exec_depend>fiducials_detector</exec_depend>
   <exec_depend>object_detector</exec_depend>
   <exec_depend>hand_landmarks</exec_depend>
+  <!-- Calibration is optional: surface_selector, projection_calibration_server and
+       camera_pose_calibrator (ros2-par-framework-calibration) are not declared. par.launch.py
+       starts the server only when it is installed; the calibration launch files need the repo. -->
 
-  <exec_depend>camera_pose_calibrator</exec_depend>
   <exec_depend>v4l2_camera</exec_depend>
 
   <test_depend>ament_copyright</test_depend>

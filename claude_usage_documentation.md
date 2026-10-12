@@ -1703,3 +1703,42 @@ container's build volumes need `./scripts/build_workspace.sh par_framework_core`
 - **Alternatives:** renaming the package (e.g. `par_coordinates`) was rejected for now: three `package.xml`, the
   imports, docs and an image rebuild, for a name that already follows a ROS precedent. Silencing flake8's F401 with a
   `# noqa` per name instead of `__all__` was rejected: `__all__` states that the names are the public API.
+
+## 2026-10-12: `gesture_detector` is part of the framework
+
+- **What:** `config/nodes.list` lists `gesture_detector` (`ros2-par-framework-gestures`, branch `main`) under the
+  sensor processing nodes.
+- **Why:** the node consumes `hand_landmarks` and now also works without intrinsics and camera pose (in camera pixels),
+  so it fits the framework's rule that calibration is optional.
+- **Alternatives:** listing branch `rework`, where the code currently lives, was rejected: every other entry names
+  `main`, and `sync_nodes.sh` never switches an existing checkout's branch. Until `rework` is merged, a fresh clone of
+  `main` contains no package.
+
+## 2026-10-12: `CLAUDE.md`: calibration is optional and lives in the calibration repo
+
+- **What:** "What this repository is" sharpens the glue test to "no purpose existing without the framework" and names
+  `par_geometry` and the setup wizard next to `rviz_bridge`. A new paragraph states that calibration is optional:
+  everything that produces or serves the camera pose, projection corners and projection mapping belongs in
+  `ros2-par-framework-calibration`, nodes that can work uncalibrated publish camera pixels and add table coordinates
+  only when available, and intrinsics stay with the camera side here. `camera_pose_calibrator` and
+  `projection_calibration_server` are named as not yet moved.
+- **Why:** your decision. `camera_pose_calibrator` fails the glue test (it uses no framework messages), and no
+  application consumes `/projection_mapping` yet, so moving the whole calibration out breaks nothing and makes "add the
+  calibration repo" the one step to a calibrated setup.
+- **Alternatives:** keeping `projection_calibration_server` in core as the runtime store, with the calibration repo
+  only producing files: rejected, it splits one feature across two repos and needs an exception in the rule. Moving
+  the intrinsics procedure too: rejected, intrinsics belong to the camera and use ROS's standard `camera_info`
+  channel, which third-party tools read.
+
+## 2026-10-12: `camera_pose_calibrator` and `projection_calibration_server` moved to the calibration repo
+
+- **What:** both packages were removed from `packages/` and copied unchanged (from `HEAD`, via `git archive`) into
+  `ros2-par-framework-calibration`. `par_framework_core/package.xml` no longer declares them, nor `surface_selector`.
+  `par.launch.py` starts `projection_calibration_server` only when `has_resource('packages', ...)` finds it, and logs
+  that it runs without a projection calibration otherwise. README tree and package table and `CLAUDE.md` updated.
+- **Why:** the rule from the same day, calibration is optional and lives in its own repo. All three exec_depends had
+  to go, `surface_selector` included: otherwise core could still not be installed without the calibration repo.
+- **Alternatives:** an optional check inside `launch_helpers.projection_calibration_server_node`: rejected, the
+  calibration launch files call it too, and there a missing server must fail loudly instead of being skipped. Moving
+  the calibration launch files too: left for later, the task was the two packages; they now need the calibration repo
+  at runtime, not at build time.

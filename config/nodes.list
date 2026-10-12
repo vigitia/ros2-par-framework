@@ -1,4 +1,5 @@
-# Nodes that make up the ROS2 PAR Framework.
+# Nodes that make up the current ROS2 PAR Framework.
+# Co-authored by Claude Code
 #
 # One node repository per line:
 # <directory>   <git-url>   [branch]
@@ -9,13 +10,19 @@
 # [branch]     optional; "-" or omitted means the remote's default branch
 #
 # Every node listed here will be cloned and installed automatically on setup, including
-# its package.xml + requirements.txt dependencies
+# its package.xml + requirements.txt dependencies. From then on, the node will be available for
+# you to use, but you still decide what you need depending on your launch configuration.
 
 
 # Framework Core:
 
 custom_interfaces         git@github.com:vigitia/ros2-par-framework-interfaces.git          main
-surface_selector          git@github.com:vigitia/ros2-par-framework-calibration.git         main
+
+
+# Calibration:
+
+framework-calibration     git@github.com:vigitia/ros2-par-framework-calibration.git         main
+
 
 # Sensors:
 
@@ -29,6 +36,7 @@ realsense2_camera         git@github.com:realsenseai/realsense-ros.git          
 object_detector           git@github.com:vigitia/ros2-par-framework-object-detection.git    main
 fiducials_detector        git@github.com:vigitia/ros2-par-framework-fiducials.git           main
 hand_landmarks            git@github.com:vigitia/ros2-par-framework-hand-landmarks.git      main
+gesture_detector          git@github.com:vigitia/ros2-par-framework-gestures.git            main
 page_locator              git@github.com:vigitia/ros2-par-framework-page-locator.git        main
 
 

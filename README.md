@@ -140,8 +140,6 @@ packages/                   this repo's own ROS packages, built together with sr
     config/par_setup.yaml   camera id, resolution, projector display — edit this per setup
     par_framework_core/     launch_helpers.py: node start functions shared by the launch files
   par_geometry/             library: camera pixels -> table (m) -> projector pixels
-  projection_calibration_server/  node: holds the projection corners and the table-to-projector
-                            homography, publishes /projection_corners and /projection_mapping
   rviz_bridge/              node: framework outputs RViz cannot show (e.g. /objects) as markers
   par_setup_wizard/         desktop setup wizard (PySide6), started with scripts/wizard.sh
 scripts/                    the individual steps setup.sh runs, usable on their own
@@ -194,7 +192,8 @@ newly referenced external package (`std_msgs`, `geometry_msgs`, …) in **both**
 | `hand_landmarks` | `ros2-par-framework-hand-landmarks` | tracks hands in `/camera/image_raw` with MediaPipe, publishes their landmarks in image pixels on `/hand_landmarks` |
 | `par_framework_core` | this repo | launch files and per-setup parameters |
 | `par_geometry` | this repo | library: `pixels_to_table`, `table_to_projector`, `projector_to_table` — the coordinate conversions every node shares |
-| `projection_calibration_server` | this repo | stores the homography from `projection_calibrator` in `config/calibration/extrinsics/projection_mapping_<camera>.yaml` and the corners from `surface_selector` in `projection_corners_<camera>.yaml` next to it (one of each per camera), publishes them latched on `/projection_mapping` and `/projection_corners` |
+| `camera_pose_calibrator` | `ros2-par-framework-calibration` | fits the table plane in the depth camera's registered depth image and writes the camera pose to `config/calibration/extrinsics/camera_pose_<camera>.yaml` |
+| `projection_calibration_server` | `ros2-par-framework-calibration` | optional (`par.launch.py` starts it only when installed); stores the homography from `projection_calibrator` in `config/calibration/extrinsics/projection_mapping_<camera>.yaml` and the corners from `surface_selector` in `projection_corners_<camera>.yaml` next to it (one of each per camera), publishes them latched on `/projection_mapping` and `/projection_corners` |
 | `par_setup_wizard` | this repo | desktop wizard: projector display, camera, calibration, nodes and start, stored in named profiles of `par_setup.yaml` |
 | `rviz_bridge` | this repo | projects `/objects`, `/hand_landmarks`, `/fiducials`, `/projection_corners` and `/projection_mapping` onto the table as `/objects/markers`, `/hand_landmarks/markers`, `/fiducials/markers`, `/projection_corners/markers` and `/projection_mapping/markers` for RViz |
 

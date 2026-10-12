@@ -18,8 +18,9 @@ shared by all profiles.
 import os
 
 from ament_index_python.packages import get_package_share_directory
+from ament_index_python.resources import has_resource
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, OpaqueFunction
+from launch.actions import DeclareLaunchArgument, LogInfo, OpaqueFunction
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from par_framework_core.launch_helpers import (CAMERA_IMAGE, camera_nodes, chosen_camera,
@@ -79,8 +80,14 @@ def launch_setup(context):
             overrides = CAMERA_OVERRIDES.get(camera, {}).get(detector)
             actions.append(framework_node(detector, overrides))
 
-    # Publish the stored projection corners and table-to-projector mapping
-    actions += projection_calibration_server_node(camera)
+    # Publish the stored projection corners and table-to-projector mapping. Calibration is
+    # optional: without ros2-par-framework-calibration the framework runs in camera pixels.
+    if has_resource('packages', 'projection_calibration_server'):
+        actions += projection_calibration_server_node(camera)
+    else:
+        actions.append(LogInfo(msg='[par.launch]: projection_calibration_server is not '
+                                   'installed (ros2-par-framework-calibration): running '
+                                   'without a projection calibration'))
 
     if enabled('rviz'):
         actions.append(framework_node('rviz_bridge'))

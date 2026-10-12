@@ -7,12 +7,25 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## What this repository is
 
 Core repository of a projected augmented reality (PAR) framework on ROS 2 — a camera and a projector aimed at
-the same surface. It contains **no node source, except framework glue**: nodes that only make sense inside this
-framework, because they are built on its messages, topic names and frame conventions (currently `rviz_bridge`,
-which turns framework outputs into RViz markers). Every other node — anything useful on its own, like a camera driver
-or a detector — lives in its own private repo under
+the same surface. It contains **no node source, except framework glue**: packages that have no purpose existing
+without the framework, because they are built on its messages, topic names and frame conventions (currently
+`rviz_bridge`, which turns framework outputs into RViz markers, the `par_geometry` library and the setup wizard).
+Every other node — anything useful on its own, like a camera driver or a detector — lives in its own private repo under
 `github.com/vigitia` or comes from another public GitHub repo; this repo declares which ones make up the framework, provides the container they run in,
 and provides the launch files and per-setup parameters that compose them.
+
+**Calibration is optional, and lives in its own repo.** The framework runs without any calibration, in camera pixels:
+an application that, say, detects gestures and changes what is projected needs none. Everything that produces or
+serves a calibration — camera pose, projection corners, projection mapping, and the node that loads and publishes
+them latched — belongs in `ros2-par-framework-calibration`; adding that repo to a setup is what makes it fully
+calibrated. So a node that can work without calibration must: it publishes camera pixels always and adds table or
+projector coordinates only when the calibration is there (e.g. `gesture_detector`: `pixel` always, `position` with
+`position_valid`), instead of publishing nothing. Camera intrinsics are not part of this split: they belong to the
+camera and travel on ROS's standard `camera_info` channel, so `launch_helpers` setting each driver's
+`camera_info_url` and `scripts/run_cameracalibrator.sh` stay here. The calibration repo holds three packages one level
+down (`surface_selector`, `camera_pose_calibrator`, `projection_calibration_server`); `par_framework_core` declares
+none of them, `par.launch.py` starts the server only when it is installed, and the calibration launch files here need
+the repo.
 
 This repo's own ROS packages live under `packages/`, which the build scripts and the container take as a whole, so a
 new package there needs no path changes. `packages/par-framework-core/` (package `par_framework_core`) holds the
@@ -138,7 +151,8 @@ of `world`, whose pose relative to the camera is `/brio_tf_publisher` in `par_se
 Consumers convert locally with `par_geometry`, the one place for this math. They do not call a service per point,
 and images never go through a service. The mapping comes from `projection_calibration.launch.py`: the projector
 shows ArUco markers (ids 50–58, `marker_ids` in `par_setup.yaml`; not 90–98, the VIGITIA document pages use 96–99) at known pixels, `fiducials_detector` finds them, and `projection_calibrator` (in
-`surface_selector`) fits the homography and sends it to `projection_calibration_server_node` (which also holds the
+`surface_selector`) fits the homography and sends it to `projection_calibration_server_node` (its own package in the
+calibration repo, which also holds the
 clicked projection corners), which stores
 `config/calibration/extrinsics/projection_mapping_<camera>.yaml` (`brio` or `kinect`), next to the camera poses
 (`camera_pose_<camera>.yaml`) and the projection corners. One file per camera, because
