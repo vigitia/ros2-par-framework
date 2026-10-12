@@ -471,7 +471,7 @@ class CameraPage(QWizardPage):
         self.image = QLabel('No preview')
         self.image.setAlignment(Qt.AlignCenter)
         # Ignored: the label takes the space the layout gives it, and the frame is scaled to
-        # fit, instead of the frame's size deciding the label's (which cropped it)
+        # fit, so a large frame can never grow the label beyond the window and get cropped
         self.image.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
         self.image.setMinimumSize(320, 180)
         self.timer = QTimer(self)

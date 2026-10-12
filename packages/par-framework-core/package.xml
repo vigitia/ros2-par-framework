@@ -1,6 +1,6 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
-<!-- Co-authored by Claude Code: the calibration packages are no longer declared -->
+<!-- Co-authored by Claude Code: the dependencies, without the optional calibration packages -->
 <package format="3">
   <name>par_framework_core</name>
   <version>0.1.0</version>
