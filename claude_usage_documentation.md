@@ -1774,3 +1774,126 @@ container's build volumes need `./scripts/build_workspace.sh par_framework_core`
   `par_framework_core/package.xml` (tried first): rejected, it makes every driver mandatory. Each key is checked
   against the form of a rosdep key, because it is written into XML. A package that needs patching goes into
   `nodes.list` again; a checkout in `src/` overrides the installed one.
+
+## 2026-10-12: projection mask, part 1: repo entry and `par_geometry` helpers
+
+- **What changed:** `config/nodes.list` lists the new repo `ros2-par-framework-projection-mask` (checkout
+  `src/projection_mask`). `par_geometry` gained four functions: `pixel_rays` (undistorted ray of every stride-th
+  camera pixel), `depth_to_table` (depth image to table-frame points), `project_to_table` (central projection
+  from the projector's optical centre onto z = 0) and `intersect_rays` (least-squares point closest to a set of
+  rays, for finding that centre).
+- **Why:** the projection mask keeps projected light off hands and objects. It needs depth points above the
+  table mapped to projector pixels. The table-to-projector homography only covers z = 0; a point above the table
+  is lit by the pixel whose ray from the projector centre runs through it, so the point is first projected from
+  that centre onto the table and then through the homography. The math lives in `par_geometry`, the one place
+  for coordinate conversions, so the mask node and the calibrator share it.
+- **Alternatives:** the mask in this repo as a core package: rejected, it is an optional capability (it needs a
+  depth camera, a calibration and an app that applies it), so it gets its own repo like the calibration. Ignoring
+  the projector centre and projecting straight down with a wider margin: rejected as the main path, the offset
+  grows with height and projector tilt; it remains the fallback until the centre is calibrated. Splitting the
+  helpers into the mask package: rejected, the calibrator needs `intersect_rays` too.
+
+## 2026-10-12: projection mask, part 2: launch, parameters and the package rule
+
+- **What changed:** `par.launch.py` has a `projection_mask` switch (`par_launch` and `projection_mask:=true`); the
+  node starts only when `has_resource('packages', 'projection_mask')`, otherwise the launch logs which repo to add.
+  `projection_calibration.launch.py` has `projector_center:=true`: it gives `fiducials_detector` `use_depth` and the
+  calibrator its board mode, and refuses cameras without depth. `par_setup.yaml` has a `projection_mask_node`
+  section, `max_center_ray_distance_m` for the calibrator and `projection_mask: false`; the wizard shows the switch.
+  `CLAUDE.md` replaces the "framework glue" definition with three ordered questions (useful outside the framework →
+  own repo; shared library or setup/inspection tooling → this repo; otherwise a framework capability → own repo,
+  started only when installed), documents the projector centre and the two projector masks (`/projector/mask`,
+  and `/projector/content_mask` as a convention for apps).
+- **Why:** the old definition put everything framework-specific here, which contradicted the calibration living in
+  its own repo, and would have put the mask here too. The ordered questions decide both the same way and keep
+  `rviz_bridge` (optional, but tooling) here. The `has_resource` check follows the calibration server's pattern, so a
+  setup without the mask repo still starts. The content mask is only a convention: nothing publishes or reads it yet,
+  and the app knows exactly where it draws.
+- **Alternatives:** adding the mask to `DETECTORS`: rejected, it would get the camera overrides and no install
+  check. A table "framework-specific × essential" for the rule: rejected, `rviz_bridge` fits no cell without an
+  exception. Reading the projector display to get the content mask: rejected, the desktop runs Wayland, where
+  reading the screen needs the screen-cast portal with user consent, does not work from the container, and adds
+  delay. Checking the detector switches for installed packages too: left as it is (outside this task).
+
+## 2026-10-13: RViz camera frustum reaches through the table
+
+**What changed:** `Far clip` of the CameraInfo display in `par_framework_brio.rviz`, `par_framework_webcam.rviz`
+and `par_framework_kinect.rviz` is now 2 m instead of the placeholder camera height (1 m / 0.97 m).
+
+**Why:** The CameraInfo display draws the frustum up to a plane perpendicular to the optical axis at `Far clip`.
+That value only touches the table when the camera looks straight down from exactly the placeholder height. A
+calibrated pose (`camera_pose_<camera>.yaml`) is tilted and at a different height, so part of the frustum ended
+above the table and you couldn't see where the camera's view meets the table.
+
+**Decisions:**
+- *A fixed length longer than any expected camera height* instead of computing it from the pose: the RViz
+  display has no option to clip at a plane, and writing the `.rviz` file at launch from the pose would add code
+  for a purely visual cue. The frustum now crosses the table, and its intersection with the grid shows the
+  camera's footprint.
+
+## 2026-10-13: RViz camera frustum drawn as opaque edges only
+
+**What changed:** The CameraInfo display in the three `.rviz` files sets `Show polygons: false` and `Alpha: 1`; the
+edges keep RViz's default grey. The lines still disappear when the frustum is viewed from behind; the cause is
+inside RViz's line rendering and not yet found, and no CameraInfo property controls it.
+
+**Why:** By default the display draws grey edges at `Alpha` 0.5 plus a semi-transparent far rectangle that writes
+no depth. Ogre sorts transparent objects by distance instead of depth-testing them against each other, so from
+some viewing angles the rectangle and the grid were drawn over the lines, which then disappeared. With the
+frustum now longer than the camera height, the far rectangle lies below the table and shows nothing useful.
+
+**Decisions:**
+- *Only changing the edge colour* was rejected: `Alpha` applies to edges and polygons alike, so the lines would
+  stay half-transparent and still be sorted wrongly.
+
+## 2026-10-13: `gesture_detector` started by `par.launch.py`
+
+- **What changed:** `gesture_detector` is a detector switch like the others: in `DETECTORS` of `par.launch.py` (so it
+  also gets the launch argument `gesture_detector:=true|false`), in the `par_launch` section of `par_setup.yaml`
+  (default `true`, "Needs hand_landmarks") and as a checkbox label in the setup wizard's `NODES`.
+- **Why:** your request. Until now it had to be started by hand with `ros2 run`, while every other detector came up
+  with the framework.
+- **Alternatives:** no camera override, unlike `hand_landmarks`: the node reads only `/hand_landmarks` and
+  `/camera/camera_info`, no frames, the same as `page_locator` with `/fiducials`. Starting it automatically
+  whenever `hand_landmarks` runs: rejected, a switch of its own keeps the one-switch-per-node rule and lets a setup
+  run hand tracking without gestures. Declaring it as `<exec_depend>` of `par_framework_core`: left out, like
+  `page_locator`, which is not declared there either.
+
+## 2026-10-13: `projection_mask_node` stride 4 by default
+
+- **What changed:** `stride` under `projection_mask_node` in `par_setup.yaml` is 4 (was 2), with a note why.
+- **Why:** part of making the mask fast enough for a 4K projector (the other part is in the mask repo: drawing at a
+  quarter of the resolution). The Kinect's registered depth is interpolated up from a coarser sensor, so every
+  fourth pixel still samples it finely enough.
+- **Alternatives:** keeping 2 and only drawing coarser: measured too slow on its own.
+
+## 2026-10-13: Kinect at 30 fps with `WFOV_2X2BINNED`
+
+- **What changed:** `k4a_ros_device_node` in `par_setup.yaml` runs at `fps: 30` with `depth_mode: WFOV_2X2BINNED`
+  (was 15 fps, `WFOV_UNBINNED`); the comment lists the three depth modes with their field of view and frame rate.
+- **Why:** a faster camera shortens the delay of the projection mask, the part of it the mask node cannot shorten.
+  `WFOV_UNBINNED` only runs up to 15 fps. The narrow `NFOV_UNBINNED` measures finest at 30 fps, but checked
+  against this setup's camera pose and projection mapping, the corners of the projection area lie at or beyond the
+  edge of its field of view, so hands there would get no depth. The binned wide mode covers the whole area; its
+  depth is coarser but less noisy, which suits a mask that is grown by a margin anyway.
+- **Alternatives:** `NFOV_UNBINNED`: rejected for the coverage above; it is the better choice where the projection
+  area lies well inside its view. Staying at 15 fps: rejected, the mask's delay is dominated by the camera.
+
+## 2026-10-13: `projection_mask_node` stride 6
+
+- **What changed:** `stride` under `projection_mask_node` in `par_setup.yaml` is 6 (was 4), with the reason in the
+  comment.
+- **Why:** at 30 fps the mask has to be ready in about 33 ms. With `WFOV_2X2BINNED` one depth pixel covers about five
+  colour pixels, so every sixth colour pixel still samples about every depth pixel.
+- **Alternatives:** 4: measured too slow for 30 masks per second together with the rest of the node.
+
+## 2026-10-13: projection mask debug preview: config and wizard
+
+- **What changed:** `projection_mask_node` in `par_setup.yaml` has `debug: false` and `display_id` (the projector's,
+  as for the calibration nodes). The setup wizard lists `projection_mask_node` in `DISPLAY_NODES`, so choosing the
+  projector also sets the preview's display.
+- **Why:** the mask node can show its mask on the projector for testing (the node itself is in the mask repo). The
+  wizard already writes the projector display into every node that opens a window there; one more entry keeps the
+  preview on the same display without a second place to set it.
+- **Alternatives:** a launch argument for `debug`: rejected for now, the node's parameters come from the params file
+  like every other node's, and a switch per node parameter would grow `par.launch.py` for a testing aid.
