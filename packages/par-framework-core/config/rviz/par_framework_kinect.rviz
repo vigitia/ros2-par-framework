@@ -23,9 +23,13 @@ Visualization Manager:
     - Class: rviz_default_plugins/CameraInfo
       Enabled: true
       Name: Kinect frustum
-      # Length of the frustum in metres, i.e. how far from the camera it is drawn: the Kinect's
-      # height above the table (/kinect_tf_publisher in par_setup.yaml), so it ends on the table
-      Far clip: 0.97
+      # Length of the frustum in metres along the optical axis. Longer than any expected camera height, so
+      # it passes through the table even when the camera is tilted; RViz cannot clip it at the table plane
+      Far clip: 2
+      # Edges only, opaque: Alpha applies to edges and polygons alike, and half-transparent shapes are sorted
+      # by distance instead of depth-tested, otherwise the far rectangle and the grid hide the lines from some angles
+      Show polygons: false
+      Alpha: 1
       Topic:
         Depth: 1
         Durability Policy: Volatile

@@ -38,6 +38,7 @@ fiducials_detector        git@github.com:vigitia/ros2-par-framework-fiducials.gi
 hand_landmarks            git@github.com:vigitia/ros2-par-framework-hand-landmarks.git      main
 gesture_detector          git@github.com:vigitia/ros2-par-framework-gestures.git            main
 page_locator              git@github.com:vigitia/ros2-par-framework-page-locator.git        main
+projection_mask           git@github.com:vigitia/ros2-par-framework-projection-mask.git     main
 
 
 # Applications:

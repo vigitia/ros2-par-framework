@@ -36,9 +36,11 @@ PAGE_PROFILE, PAGE_PROJECTOR, PAGE_CAMERA, PAGE_CALIBRATION, PAGE_NODES, PAGE_ST
 # par_launch switches and their labels
 NODES = {'object_detector': 'Object detector', 'fiducials_detector': 'Fiducials detector',
          'hand_landmarks': 'Hand landmarks', 'page_locator': 'Page locator (needs fiducials)',
+         'gesture_detector': 'Gesture detector (needs hand landmarks)',
+         'projection_mask': 'Projection mask (needs depth camera and calibration)',
          'rviz': 'RViz (with rviz_bridge)'}
 # Nodes that open a window on the projector
-DISPLAY_NODES = ('surface_selector_node', 'projection_calibrator_node')
+DISPLAY_NODES = ('surface_selector_node', 'projection_calibrator_node', 'projection_mask_node')
 # A new profile has these instead of a display and a camera, so the wizard asks for both anew
 NO_DISPLAY = -1
 NO_CAMERA = ''

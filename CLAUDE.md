@@ -7,14 +7,23 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## What this repository is
 
 Core repository of a projected augmented reality (PAR) framework on ROS 2 — a camera and a projector aimed at
-the same surface. It contains **no node source, except framework glue**: packages that have no purpose existing
-without the framework, because they are built on its messages, topic names and frame conventions (currently
-`rviz_bridge`, which turns framework outputs into RViz markers, the `par_geometry` library and the setup wizard).
-Every other node — anything useful on its own, like a camera driver or a detector — lives in its own private repo under
-`github.com/vigitia` or comes from another public GitHub repo; this repo declares which ones make up the framework, provides the container they run in,
-and provides the launch files and per-setup parameters that compose them.
+the same surface. It declares which repos make up a setup (`config/nodes.list`), provides the container they run in,
+and the launch files and per-setup parameters that compose them. Its own source is limited to what every setup builds.
 
-**Calibration is optional, and lives in its own repo.** The framework runs without any calibration, in camera pixels:
+**Where a package belongs.** Ask in this order; the first yes decides:
+
+1. **Useful outside the framework?** (a camera driver, a detector) → its own repo under `github.com/vigitia`, or a
+   public third-party repo.
+2. **A shared library other repos build on, or tooling to set up and inspect the framework?** (`par_geometry`,
+   `par_setup_wizard`, `rviz_bridge`) → this repo, under `packages/`.
+3. **Otherwise it is a framework capability** (calibration, projection mask) → its own repo under
+   `github.com/vigitia`, even though it only makes sense inside the framework. A setup gets it through its line in
+   `config/nodes.list`. Nothing in this repo declares it as a dependency, and `par.launch.py` starts it only when it
+   is installed (`has_resource('packages', …)`), otherwise it logs which repo to add.
+
+Capability repos today: `ros2-par-framework-calibration` (below) and `ros2-par-framework-projection-mask`.
+
+**Calibration is a framework capability** (rule 3). The framework runs without any calibration, in camera pixels:
 an application that, say, detects gestures and changes what is projected needs none. Everything that produces or
 serves a calibration — camera pose, projection corners, projection mapping, and the node that loads and publishes
 them latched — belongs in `ros2-par-framework-calibration`; adding that repo to a setup is what makes it fully
@@ -29,7 +38,7 @@ the repo.
 
 This repo's own ROS packages live under `packages/`, which the build scripts and the container take as a whole, so a
 new package there needs no path changes. `packages/par-framework-core/` (package `par_framework_core`) holds the
-launch files and `config/par_setup.yaml` only, no nodes. Glue nodes get their own package directory next to it.
+launch files and `config/par_setup.yaml` only, no nodes. New core packages (rule 2) get their own package directory next to it.
 
 ## Commands
 
@@ -167,8 +176,24 @@ calibrated with.
 
 Because both steps use the same plane, projection accuracy does not depend on the camera pose being exact; the
 metric scale in RViz does. Points above the table (hands) land offset by parallax: the homography only covers
-the plane. The clicked `/projection_corners` are a manual fallback and are named in camera terms, not
+the plane. A second run, `projection_calibration.launch.py camera:=kinect projector_center:=true`, adds the
+projector's optical centre to the mapping (`projector_center`, valid when `projector_center_valid`): a board moved
+through the projection, located in 3D by the depth camera, gives one projector ray per marker corner, and the rays
+meet at the centre. With it, `par_geometry.project_to_table` moves a point above the table along its projector ray
+onto the table, and the homography then gives the pixel that lights it. Re-running the homography clears the
+centre (if the projector moved, the old one is wrong). The clicked `/projection_corners` are a manual fallback and are named in camera terms, not
 projector terms.
+
+### Projector masks
+
+Two images in projector pixels (`sensor_msgs/Image`, mono8, the projector's resolution, BEST_EFFORT depth 1, like
+frames). Apps that project content apply or publish them; the framework has no central projector window.
+- `/projector/mask`, from `projection_mask` (capability repo): 255 where the light would hit a hand or an object
+  higher than `min_height` above the table. An app applies it with `frame[mask > 0] = 0`. Needs a depth camera and
+  the mapping; without the projector centre it assumes light straight down.
+- `/projector/content_mask`, a convention only, published by apps: 255 where the app draws content, e.g.
+  `frame.max(axis=2) > threshold`. Nothing consumes it yet; reading the screen instead was rejected (Wayland only
+  allows it through the portal with user consent, not from the container, and with extra delay).
 
 ## Container constraints
 

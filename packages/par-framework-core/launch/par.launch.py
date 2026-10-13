@@ -29,8 +29,9 @@ from par_framework_core.launch_helpers import (CAMERA_IMAGE, camera_nodes, chose
 
 PACKAGE_NAME = 'par_framework_core'
 # The node switches of par_launch, each also a launch argument that overrides it for one run
-DETECTORS = ('object_detector', 'fiducials_detector', 'hand_landmarks', 'page_locator')
-SWITCHES = DETECTORS + ('rviz',)
+DETECTORS = ('object_detector', 'fiducials_detector', 'hand_landmarks', 'page_locator',
+             'gesture_detector')
+SWITCHES = DETECTORS + ('projection_mask', 'rviz')
 # Per camera: parameter overrides for each detector, and the RViz configuration. Every camera
 # publishes on the same /camera/... topics (launch_helpers.DRIVER_REMAPPINGS); the overrides cover
 # what the cameras offer differently.
@@ -74,7 +75,8 @@ def launch_setup(context):
             parameters=[params_file] + ([overrides] if overrides else []),
         )
 
-    # page_locator only reads /fiducials, so it needs fiducials_detector but no camera overrides
+    # page_locator only reads /fiducials and gesture_detector only /hand_landmarks, so they need
+    # fiducials_detector and hand_landmarks but no camera overrides
     for detector in DETECTORS:
         if enabled(detector):
             overrides = CAMERA_OVERRIDES.get(camera, {}).get(detector)
@@ -88,6 +90,15 @@ def launch_setup(context):
         actions.append(LogInfo(msg='[par.launch]: projection_calibration_server is not '
                                    'installed (ros2-par-framework-calibration): running '
                                    'without a projection calibration'))
+
+    # The mask is optional too, and its own repo: start it only when that is installed
+    if enabled('projection_mask'):
+        if has_resource('packages', 'projection_mask'):
+            actions.append(framework_node('projection_mask'))
+        else:
+            actions.append(LogInfo(msg='[par.launch]: projection_mask is not installed: add '
+                                       'ros2-par-framework-projection-mask to config/nodes.list '
+                                       'and run ./setup.sh'))
 
     if enabled('rviz'):
         actions.append(framework_node('rviz_bridge'))
