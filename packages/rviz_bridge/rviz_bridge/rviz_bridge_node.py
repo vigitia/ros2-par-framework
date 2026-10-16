@@ -51,6 +51,8 @@ AREA_FILL_COLOR = ColorRGBA(r=0.2, g=0.5, b=1.0, a=0.25)
 # The calibrated projector outline, between the clicked area and the object outlines
 PROJECTOR_HEIGHT = 0.0015
 PROJECTOR_COLOR = ColorRGBA(r=1.0, g=0.2, b=0.8, a=1.0)
+# Diameter of the sphere at the projector's optical centre, from which the light cone starts
+PROJECTOR_CENTER_SIZE = 0.03
 # Hands are drawn where their landmarks' camera rays hit the table, like a shadow straight below
 # the camera, just above the object outlines
 HAND_HEIGHT = 0.003
@@ -147,8 +149,9 @@ class RvizBridgeNode(Node):
         self.projection_mapping = msg
         self.publish_projector_outline()
 
+    # Co-authored by Claude Code: the projector's optical centre and its light cone
     def publish_projector_outline(self):
-        """Draw where the calibrated projector image lies on the table."""
+        """Draw where the calibrated projector image lies on the table, and the projector."""
         mapping = self.projection_mapping
         if mapping is None:
             return
@@ -157,13 +160,26 @@ class RvizBridgeNode(Node):
         corners = projector_to_table(homography_from_msg(mapping),
                                      [(0, 0), (width, 0), (width, height), (0, height)])
         points = [Point(x=x, y=y, z=PROJECTOR_HEIGHT) for x, y in corners]
-        outline = Marker(header=Header(stamp=self.get_clock().now().to_msg(),
-                                       frame_id=mapping.header.frame_id),
-                         ns='projector_outline', id=0, type=Marker.LINE_STRIP,
+        header = Header(stamp=self.get_clock().now().to_msg(), frame_id=mapping.header.frame_id)
+        outline = Marker(header=header, ns='projector_outline', id=0, type=Marker.LINE_STRIP,
                          color=PROJECTOR_COLOR, points=points + points[:1])
         outline.scale.x = LINE_WIDTH
-        outline.pose.orientation.w = 1.0
-        self.mapping_marker_publisher.publish(MarkerArray(markers=[outline]))
+        center = Marker(header=header, ns='projector_center', id=0, type=Marker.SPHERE,
+                        color=PROJECTOR_COLOR)
+        center.scale.x = center.scale.y = center.scale.z = PROJECTOR_CENTER_SIZE
+        # One line from the optical centre to each image corner: the edges of the light cone
+        cone = Marker(header=header, ns='projector_cone', id=0, type=Marker.LINE_LIST,
+                      color=PROJECTOR_COLOR)
+        cone.scale.x = LINE_WIDTH
+        if mapping.projector_center_valid:
+            center.pose.position = mapping.projector_center
+            cone.points = [p for corner in points for p in (mapping.projector_center, corner)]
+        else:
+            # Without a calibrated centre, one shown for an earlier mapping must go
+            center.action = cone.action = Marker.DELETE
+        for marker in (outline, center, cone):
+            marker.pose.orientation.w = 1.0
+        self.mapping_marker_publisher.publish(MarkerArray(markers=[outline, center, cone]))
 
     def on_objects(self, msg):
         projection = self.__projection(msg.header.frame_id, 'objects')
