@@ -31,7 +31,7 @@ PACKAGE_NAME = 'par_framework_core'
 # The node switches of par_launch, each also a launch argument that overrides it for one run
 DETECTORS = ('object_detector', 'fiducials_detector', 'hand_landmarks', 'page_locator',
              'gesture_detector')
-SWITCHES = DETECTORS + ('projection_mask', 'rviz')
+SWITCHES = DETECTORS + ('projection_mask', 'demo_app', 'rviz')
 # Per camera: parameter overrides for each detector, and the RViz configuration. Every camera
 # publishes on the same /camera/... topics (launch_helpers.DRIVER_REMAPPINGS); the overrides cover
 # what the cameras offer differently.
@@ -98,6 +98,15 @@ def launch_setup(context):
         else:
             actions.append(LogInfo(msg='[par.launch]: projection_mask is not installed: add '
                                        'ros2-par-framework-projection-mask to config/nodes.list '
+                                       'and run ./setup.sh'))
+
+    # The demo application is its own repo as well
+    if enabled('demo_app'):
+        if has_resource('packages', 'demo_app'):
+            actions.append(framework_node('demo_app'))
+        else:
+            actions.append(LogInfo(msg='[par.launch]: demo_app is not installed: add '
+                                       'ros2-par-framework-demo-application to config/nodes.list '
                                        'and run ./setup.sh'))
 
     if enabled('rviz'):

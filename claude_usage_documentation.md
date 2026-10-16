@@ -1897,3 +1897,32 @@ frustum now longer than the camera height, the far rectangle lies below the tabl
   preview on the same display without a second place to set it.
 - **Alternatives:** a launch argument for `debug`: rejected for now, the node's parameters come from the params file
   like every other node's, and a switch per node parameter would grow `par.launch.py` for a testing aid.
+
+## 2026-10-13: `rviz_bridge` shows the projector's optical centre and light cone
+
+- **What changed:** `publish_projector_outline` also publishes, on `/projection_mapping/markers`, a sphere at the
+  mapping's `projector_center` (namespace `projector_center`) and a `LINE_LIST` from it to the four corners of the
+  projector image on the table (`projector_cone`), in the outline's colour. Without a valid centre both are sent as
+  `DELETE`, so a centre from an earlier mapping disappears.
+- **Why:** the projector-centre calibration had no visual check. Seeing the projector above the table with its light
+  cone in RViz makes a wrong calibration obvious and shows where the projection mask expects the light to come from.
+  It reuses the outline's corners and topic, so the RViz configs need no change (their marker displays show every
+  namespace).
+- **Alternatives:** a `projector` TF frame: it would also need the projector's orientation, which the centre alone
+  does not give. A separate topic and RViz display: rejected, the centre belongs to the same mapping as the outline
+  and goes stale with it. `LINE_STRIP` for the cone: rejected, it would join the corners to each other instead of
+  drawing four separate edges from the centre.
+
+## 2026-10-14: `demo_app` as an optional application in `nodes.list` and `par.launch.py`
+
+- **What changed:** `config/nodes.list` lists `demo_app` (`ros2-par-framework-demo-application`) under
+  Applications. `par.launch.py` has a `demo_app` switch (launch argument and `par_launch.demo_app`, default `false`
+  in `par_setup.yaml`) that starts `demo_app_node` when the package is installed, and otherwise logs which repo to
+  add.
+- **Why:** the demo application subscribes to `/pages`, `/objects` and `/gestures` as the starting point for an app
+  on the framework. Like every node outside this repo, it reaches a setup through its line in `nodes.list`, and the
+  launch file must not fail on a setup that leaves it out.
+- **Alternatives:** starting it unconditionally whenever it is installed: rejected, a setup that has the repo for
+  development would always run it. A separate launch file for apps: rejected, `par.launch.py` is the one entry point
+  and already handles optional nodes the same way (`projection_mask`). Adding it to the setup wizard's node list was
+  left out for now: the wizard keeps an existing `par_launch.demo_app`, it just cannot change it.

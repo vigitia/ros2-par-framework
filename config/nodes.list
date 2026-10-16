@@ -42,3 +42,5 @@ projection_mask           git@github.com:vigitia/ros2-par-framework-projection-m
 
 
 # Applications:
+
+demo_app                  git@github.com:vigitia/ros2-par-framework-demo-application.git    main

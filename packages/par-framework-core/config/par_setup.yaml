@@ -1,4 +1,4 @@
-# Co-authored by Claude Code (notes on the camera pose placeholders, the projection mask).
+# Co-authored by Claude Code (notes on the camera pose placeholders, the projection mask, the demo app).
 # Parameters of one physical PAR setup: which camera, which projector, at what
 # resolution. This is the file to edit when moving the framework to a new table
 # or a new machine -- node source should not need per-setup constants.
@@ -117,7 +117,7 @@ projection_mask_node:
     # true: also show the mask fullscreen on the projector, white where the light may go, black where it would
     # hit something (Esc or q closes it). It takes the projector and slows the mask a little, so only for
     # testing. There is no launch argument for it: switch it here.
-    debug: true
+    debug: false
     # Display the projector is connected to, as counted by pygame (0 = primary); the setup wizard sets it.
     display_id: 2
 
@@ -212,3 +212,6 @@ par_launch:
     # Keeps projected light off hands and objects (/projector/mask); needs the Kinect, the calibration and
     # ros2-par-framework-projection-mask in config/nodes.list
     projection_mask: false
+    # Demo application subscribing to pages, objects and gestures; needs ros2-par-framework-demo-application in
+    # config/nodes.list
+    demo_app: false
