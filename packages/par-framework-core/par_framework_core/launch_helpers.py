@@ -45,6 +45,23 @@ def kinect_driver_node(context):
     )
 
 
+def realsense_driver_node(context):
+    """Start an Intel RealSense (e.g. D435) with params_file, as /camera/realsense."""
+    return Node(
+        package='realsense2_camera',
+        executable='realsense2_camera_node',
+        name='realsense',
+        namespace='/camera',
+        output='screen',
+        emulate_tty=True,
+        # camera_name prefixes the driver's TF frames (realsense_link, ...), which the mount
+        # transform below attaches to, so it is set here and not in params_file
+        parameters=[LaunchConfiguration('params_file').perform(context),
+                    {'camera_name': 'realsense'}],
+        remappings=DRIVER_REMAPPINGS['realsense'],
+    )
+
+
 def webcam_nodes():
     """Start a generic UVC webcam with v4l2_camera, and its body -> optical frame transform."""
     # In INTRINSICS like the Brio's; cameracalibrator's COMMIT writes it there
@@ -73,7 +90,7 @@ def webcam_nodes():
 
 
 def camera_nodes(context, camera):
-    """Start the camera's driver and its mount transform world -> camera: brio, kinect, webcam."""
+    """Start the camera's driver and its mount transform: brio, kinect, realsense, webcam."""
     if camera == 'brio':
         # The Brio node itself publishes brio_link -> brio_optical_frame
         return [*logitech_brio_node(context),
@@ -82,11 +99,16 @@ def camera_nodes(context, camera):
         # The driver itself publishes camera_base -> depth_camera_link -> rgb_camera_link
         return [kinect_driver_node(context),
                 *mount_tf_publisher(context, 'kinect_tf_publisher', 'camera_base')]
+    if camera == 'realsense':
+        # The driver itself publishes realsense_link -> realsense_color_frame ->
+        # realsense_color_optical_frame
+        return [realsense_driver_node(context),
+                *mount_tf_publisher(context, 'realsense_tf_publisher', 'realsense_link')]
     if camera == 'webcam':
         return [*webcam_nodes(),
                 *mount_tf_publisher(context, 'webcam_tf_publisher', 'webcam_link')]
-    raise ValueError(f'[launch_helpers]: unknown camera "{camera}", expected brio, kinect or '
-                     'webcam')
+    raise ValueError(f'[launch_helpers]: unknown camera "{camera}", expected brio, kinect, '
+                     'realsense or webcam')
 
 
 def read_launch_section(context):
@@ -102,7 +124,8 @@ def chosen_camera(context):
     # Without this, an empty or misspelt camera would end as a KeyError deep in a launch file
     if camera not in DRIVER_REMAPPINGS:
         raise RuntimeError(f'[launch_helpers]: unknown camera {camera!r}: pass camera:=brio, '
-                           'kinect or webcam, or set par_launch.camera in the params_file')
+                           'kinect, realsense or webcam, or set par_launch.camera in the '
+                           'params_file')
     return camera
 
 
@@ -161,6 +184,11 @@ DRIVER_REMAPPINGS = {
     # The Kinect driver publishes without a namespace
     'kinect': [('/rgb/image_raw', CAMERA_IMAGE), ('/rgb/camera_info', CAMERA_INFO),
                ('/depth_to_rgb/image_raw', CAMERA_DEPTH)],
+    # realsense2_camera as /camera/realsense (realsense_driver_node). aligned_depth_to_color is its
+    # depth on the colour image's pixel grid, published with align_depth.enable in params_file
+    'realsense': [('/camera/realsense/color/image_raw', CAMERA_IMAGE),
+                  ('/camera/realsense/color/camera_info', CAMERA_INFO),
+                  ('/camera/realsense/aligned_depth_to_color/image_raw', CAMERA_DEPTH)],
     # v4l2_camera in /camera/webcam (webcam_nodes)
     'webcam': _namespaced('/camera/webcam', ['image_raw', 'camera_info', 'set_camera_info']),
 }

@@ -2,17 +2,17 @@
 """
 Bring up the PAR framework as the parameter file's par_launch section describes it.
 
-The framework's one entry point for every camera. par_launch names the camera (brio, kinect or
-webcam) and switches each node on or off; the setup wizard (par_setup_wizard) writes it. Without
-the wizard:
+The framework's one entry point for every camera. par_launch names the camera (brio, kinect,
+realsense or webcam) and switches each node on or off; the setup wizard (par_setup_wizard) writes
+it. Without the wizard:
 
     ros2 launch par_framework_core par.launch.py params_file:=/path/to/profiles/<profile>.yaml
 
 Each of them can be overridden for one run, e.g. camera:=kinect rviz:=true hand_landmarks:=false;
-an argument left empty keeps the profile's value. With the Kinect the detectors also use its
-depth. camera_only:=true starts just the camera and its mount transform, e.g. for a preview or a
-calibration. Camera calibrations are config/calibration/intrinsics/camera_info_<camera>.yaml,
-shared by all profiles.
+an argument left empty keeps the profile's value. With a depth camera (kinect, realsense) the
+detectors also use its depth. camera_only:=true starts just the camera and its mount transform,
+e.g. for a preview or a calibration. Camera calibrations are
+config/calibration/intrinsics/camera_info_<camera>.yaml, shared by all profiles.
 """
 
 import os
@@ -35,17 +35,20 @@ SWITCHES = DETECTORS + ('projection_mask', 'demo_app', 'rviz')
 # Per camera: parameter overrides for each detector, and the RViz configuration. Every camera
 # publishes on the same /camera/... topics (launch_helpers.DRIVER_REMAPPINGS); the overrides cover
 # what the cameras offer differently.
+DEPTH_CAMERA_OVERRIDES = {
+    # Raw frames: the depth cameras' drivers publish no JPEGs
+    'object_detector': {'topic_name_frame': CAMERA_IMAGE, 'use_depth': True},
+    'fiducials_detector': {'use_depth': True},
+    'hand_landmarks': {'use_depth': True},
+}
 CAMERA_OVERRIDES = {
-    'kinect': {
-        # Raw frames: the driver publishes no JPEGs
-        'object_detector': {'topic_name_frame': CAMERA_IMAGE, 'use_depth': True},
-        'fiducials_detector': {'use_depth': True},
-        'hand_landmarks': {'use_depth': True},
-    },
+    'kinect': DEPTH_CAMERA_OVERRIDES,
+    'realsense': DEPTH_CAMERA_OVERRIDES,
     # Raw frames: v4l2_camera publishes JPEGs only with compressed_image_transport installed
     'webcam': {'object_detector': {'topic_name_frame': CAMERA_IMAGE}},
 }
 RVIZ_CONFIGS = {'brio': 'par_framework_brio.rviz', 'kinect': 'par_framework_kinect.rviz',
+                'realsense': 'par_framework_realsense.rviz',
                 'webcam': 'par_framework_webcam.rviz'}
 
 
@@ -133,7 +136,8 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'camera',
             default_value='',
-            description='brio, kinect or webcam. Empty uses par_launch.camera from params_file.'),
+            description='brio, kinect, realsense or webcam. Empty uses par_launch.camera from '
+                        'params_file.'),
         DeclareLaunchArgument(
             'camera_only',
             default_value='false',

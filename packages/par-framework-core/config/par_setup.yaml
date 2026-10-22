@@ -1,4 +1,5 @@
-# Co-authored by Claude Code (notes on the camera pose placeholders, the projection mask, the demo app).
+# Co-authored by Claude Code (notes on the camera pose placeholders, the projection mask, the demo app, the
+# RealSense driver settings).
 # Parameters of one physical PAR setup: which camera, which projector, at what
 # resolution. This is the file to edit when moving the framework to a new table
 # or a new machine -- node source should not need per-setup constants.
@@ -43,6 +44,27 @@
     # calibration/intrinsics/camera_info_webcam.yaml below this file, set by the launch files.
     camera_frame_id: webcam_optical_frame
 
+# Intel RealSense, e.g. the D435 (camera: realsense), through realsense2_camera; the launch files start it as
+# /camera/realsense. It publishes its factory calibration, so it needs no camera_info_<camera>.yaml.
+# More options: ros2 param list /camera/realsense
+/camera/realsense:
+  ros__parameters:
+    # The streams explicitly: newer drivers start only the streams the device marks as default, and the node
+    # without rs_launch.py also streams the two infrared images, which nothing in the framework uses.
+    enable_color: true
+    enable_depth: true
+    enable_infra1: false
+    enable_infra2: false
+    rgb_camera:
+      # <width>x<height>x<fps>, one the camera offers (rs-enumerate-devices). The aligned depth image has the
+      # same size.
+      color_profile: 1280x720x30
+      # Like the Brio's encoding; the driver's default is RGB8.
+      color_format: BGR8
+    # Depth on the colour image's pixel grid, which the framework uses (/camera/depth_registered/image_raw).
+    align_depth:
+      enable: true
+
 surface_selector_node:
   ros__parameters:
     # The framework's camera image; every camera's driver is remapped onto it (launch_helpers)
@@ -52,7 +74,7 @@ surface_selector_node:
 
 object_detector_node:
   ros__parameters:
-    # Only with use_depth (Kinect launch): objects lower than this above the table around them (metres) are not
+    # Only with use_depth (depth cameras: kinect, realsense): objects lower than this above the table around them (metres) are not
     # published, e.g. pictures of objects projected onto the table. 0 = off; about 0.015 is above the Kinect's noise.
     min_object_height: 0.015
 
@@ -152,6 +174,18 @@ projection_mask_node:
     rotation.z: 0.0
     rotation.w: 0.7071068
 
+# Pose of the RealSense body frame (realsense_link, x forward, z up). PLACEHOLDER -- DO NOT EDIT, see
+# /brio_tf_publisher. The real pose is calibration/extrinsics/camera_pose_realsense.yaml below this file.
+/realsense_tf_publisher:
+  ros__parameters:
+    translation.x: 0.0
+    translation.y: 0.0
+    translation.z: 0.93
+    rotation.x: 0.0
+    rotation.y: 0.7071068
+    rotation.z: 0.0
+    rotation.w: 0.7071068
+
 # Azure Kinect driver (the *_kinect launch files). The node sets this name in code.
 k4a_ros_device_node:
   ros__parameters:
@@ -198,7 +232,7 @@ k4a_ros_device_node:
 # and an empty list has no type a node could read.
 par_launch:
   ros__parameters:
-    # brio, kinect or webcam
+    # brio, kinect, realsense or webcam
     camera: kinect
     object_detector: true
     fiducials_detector: true
@@ -209,7 +243,7 @@ par_launch:
     gesture_detector: true
     # RViz with rviz_bridge
     rviz: true
-    # Keeps projected light off hands and objects (/projector/mask); needs the Kinect, the calibration and
+    # Keeps projected light off hands and objects (/projector/mask); needs a depth camera, the calibration and
     # ros2-par-framework-projection-mask in config/nodes.list
     projection_mask: false
     # Demo application subscribing to pages, objects and gestures; needs ros2-par-framework-demo-application in
