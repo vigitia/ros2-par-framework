@@ -3,16 +3,15 @@
 Bring up the PAR framework as the parameter file's par_launch section describes it.
 
 The framework's one entry point for every camera. par_launch names the camera (brio, kinect,
-realsense or webcam) and switches each node on or off; the setup wizard (par_setup_wizard) writes
-it. Without the wizard:
+realsense or webcam) and switches each node on or off. With another parameter file:
 
-    ros2 launch par_framework_core par.launch.py params_file:=/path/to/profiles/<profile>.yaml
+    ros2 launch par_framework_core par.launch.py params_file:=/path/to/<file>.yaml
 
 Each of them can be overridden for one run, e.g. camera:=kinect rviz:=true hand_landmarks:=false;
-an argument left empty keeps the profile's value. With a depth camera (kinect, realsense) the
-detectors also use its depth. camera_only:=true starts just the camera and its mount transform,
+an argument left empty keeps the parameter file's value. With a depth camera (kinect, realsense)
+the detectors also use its depth. camera_only:=true starts just the camera and its mount transform,
 e.g. for a preview or a calibration. Camera calibrations are
-config/calibration/intrinsics/camera_info_<camera>.yaml, shared by all profiles.
+config/calibration/intrinsics/camera_info_<camera>.yaml, shared by all parameter files.
 """
 
 import os

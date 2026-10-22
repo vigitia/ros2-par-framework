@@ -2,8 +2,7 @@
 # Written by Claude Code
 #
 # Calibrates a camera's intrinsics with cameracalibrator (camera_calibration) and the board from
-# scripts/checkerboard.png (8x6 inner corners; print it and measure one square). The setup wizard runs this
-# for you; by hand:
+# scripts/checkerboard.png (8x6 inner corners; print it and measure one square):
 #   scripts/run_cameracalibrator.sh <square size in m> [more cameracalibrator options]
 #   scripts/run_cameracalibrator.sh 0.031
 # It works on the framework's camera topics /camera/image_raw and /camera/set_camera_info, which the launch
