@@ -81,7 +81,7 @@ utils/                      helper code, e.g. for creating a calibration chessbo
 | Package | Repository | Role |
 | --- | --- | --- |
 | `par_framework_core` | this repo | launch files and per-setup parameters |
-| `custom_interfaces` | `ros2-par-framework-interfaces` | shared message, service and action definitions |
+| `par_framework_interfaces` | `ros2-par-framework-interfaces` | shared message, service and action definitions |
 | `logitech_brio` | `ros2-logitech-brio` | publishes camera frames on `/camera/brio/image_raw` (+ `/compressed`) and `CameraInfo` on `/camera/brio/camera_info`; the launch files remap them onto the framework's `/camera/...` topics |
 | `surface_selector` | `ros2-par-framework-calibration` | subscribes to `/camera/image_raw`, lets you mark the projection area; `projection_calibrator` calibrates the table-to-projector mapping automatically from projected ArUco markers seen on `/fiducials` |
 | `object_detector` | `ros2-par-framework-object-detection` | detects objects in `/camera/image_raw/compressed` (raw image for cameras without JPEGs), publishes them in image pixels on `/objects` |
@@ -137,9 +137,9 @@ projector is on differ per machine and sometimes even after a restart, so they l
 
 ### Custom messages, services and actions
 
-They all live in one package, `custom_interfaces`, in its own repository.
+They all live in one package, `par_framework_interfaces`, in its own repository.
 
-Nodes declare `<depend>custom_interfaces</depend>` and import `from custom_interfaces.msg import Object`.
+Nodes declare `<depend>par_framework_interfaces</depend>` and import `from par_framework_interfaces.msg import Object`.
 When adding a definition, register it in `rosidl_generate_interfaces()` in `CMakeLists.txt`, and declare any
 newly referenced external package (`std_msgs`, `geometry_msgs`, …) in **both** the CMake `DEPENDENCIES` list
 **and** `package.xml` — `rosdep` installs dependencies from `package.xml` only.

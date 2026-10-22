@@ -13,7 +13,8 @@
   <exec_depend>sensor_msgs</exec_depend>
   <exec_depend>visualization_msgs</exec_depend>
   <exec_depend>tf2_ros_py</exec_depend>
-  <exec_depend>custom_interfaces</exec_depend>
+  <!-- Co-authored by Claude Code -->
+  <exec_depend>par_framework_interfaces</exec_depend>
   <exec_depend>python3-numpy</exec_depend>
   <exec_depend>par_geometry</exec_depend>
   <test_depend>ament_flake8</test_depend>

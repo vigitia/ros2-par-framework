@@ -75,7 +75,7 @@ one node silently overwriting another's.
 
 **Adding a node** = one line in `config/nodes.list`, then `./scripts/local_build.sh`. Nothing else — the
 dependency steps are generic. A node repo needs a colcon-buildable package with a `package.xml` that declares
-all its dependencies — `ament_python` or `ament_cmake` both work (`custom_interfaces` and
+all its dependencies — `ament_python` or `ament_cmake` both work (`par_framework_interfaces` and
 `azure_kinect_ros_driver` are CMake). Our own nodes are `ament_python` by convention (see below); third-party
 repos keep whatever they use, but one written for an older distro may not build on this one without a fork.
 PyPI deps go in an optional `requirements.txt` at the repo root. Every repo currently puts its package at the root; staging also
@@ -91,11 +91,11 @@ driver, or a Brio-only build breaks.
 
 ### Custom interfaces
 
-All `.msg`, `.srv` and `.action` definitions live in one package, `custom_interfaces`, from
+All `.msg`, `.srv` and `.action` definitions live in one package, `par_framework_interfaces`, from
 `ros2-par-framework-interfaces`. It is `ament_cmake` because `rosidl_generate_interfaces()` is a CMake macro —
 interfaces **cannot** be generated from an `ament_python` package, so they can never be folded into a node.
-The name is carried over from the older VIGITIA framework, where `from custom_interfaces.msg import ...`
-appears throughout; keeping it lets those nodes port over unchanged.
+Nodes ported from the older VIGITIA framework import it under its old name, `custom_interfaces`; change those
+imports and `<depend>` entries to `par_framework_interfaces`.
 
 Adding an interface means three edits, and the third is the one that gets forgotten:
 1. the `.msg`/`.srv`/`.action` file;
@@ -105,7 +105,7 @@ Adding an interface means three edits, and the third is the one that gets forgot
    CMake builds by luck — it works while the installed `ros-desktop` happens to ship it and breaks on a slimmer
    install.
 
-Consumers declare `<depend>custom_interfaces</depend>` and import `from custom_interfaces.msg import Object`.
+Consumers declare `<depend>par_framework_interfaces</depend>` and import `from par_framework_interfaces.msg import Object`.
 Changing an existing definition or pulling in a new *external* message package needs `./scripts/local_build.sh`
 (rosdep installs the new dependency, colcon rebuilds dependents in order).
 
@@ -130,7 +130,7 @@ from a depth camera, `/camera/depth_registered/image_raw` (depth on the colour i
 their own names (`/camera/brio/...`, the Kinect's `/rgb/...` and `/depth_to_rgb/...`, `/camera/webcam/...`); where a
 launch file starts a driver, it remaps it onto the neutral names with `launch_helpers.DRIVER_REMAPPINGS`, so that table
 is the only place that knows a driver's topics. A new camera = a driver start in `launch_helpers` plus its entry
-there, and no consumer changes. `surface_selector` consumes frames to mark the projection area. `page_locator` turns `/fiducials` into `/pages` (`custom_interfaces/PageList`, every frame, corners
+there, and no consumer changes. `surface_selector` consumes frames to mark the projection area. `page_locator` turns `/fiducials` into `/pages` (`par_framework_interfaces/PageList`, every frame, corners
 in camera pixels): sheets with markers `4n .. 4n+3` in their corners, located by one homography to the printed layout,
 so the `marker_*` layout in `par_setup.yaml` must match the paper (default: the VIGITIA document pages, ids 96-99;
 `make_page_template` prints matching pages). Camera intrinsics are
@@ -156,7 +156,7 @@ of `world`, whose pose relative to the camera is `/brio_tf_publisher` in `par_se
 - camera pixels → table: `par_geometry.pixels_to_table` (undistorts with `camera_info`, intersects the rays with
   the plane via TF);
 - table → projector pixels: the homography on the latched `/projection_mapping`
-  (`custom_interfaces/ProjectionMapping`), applied with `par_geometry.table_to_projector` /
+  (`par_framework_interfaces/ProjectionMapping`), applied with `par_geometry.table_to_projector` /
   `projector_to_table`.
 
 Consumers convert locally with `par_geometry`, the one place for this math. They do not call a service per point,

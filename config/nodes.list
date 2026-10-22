@@ -15,7 +15,7 @@
 
 # Framework Core (usually always needed):
 
-custom_interfaces         git@github.com:vigitia/ros2-par-framework-interfaces.git          main
+par_framework_interfaces      git@github.com:vigitia/ros2-par-framework-interfaces.git          main
 
 
 # Calibration (everything related to intrinsic and extrinsic calibration, cameras and projectors):

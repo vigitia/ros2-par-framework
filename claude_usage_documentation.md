@@ -2053,3 +2053,19 @@ then, the docs should not point to a tool that no longer matches the rest of the
 - *Check restored instead of removing the dead line,* as decided in the conversation.
 - *`np.kron` kept* instead of two nested `np.repeat` calls: it is shorter, and with the comment just as clear.
 - *Checked:* a copy of the script, run outside `utils/`, produces a board that is pixel-identical to the tracked `checkerboard.png`.
+
+## 2026-10-22: `custom_interfaces` renamed to `par_framework_interfaces`
+
+**What changed:** The interfaces package (repo `ros2-par-framework-interfaces`) is now called `par_framework_interfaces`, in all repos at once:
+- interfaces repo: `<name>` in `package.xml`, `project()` in `CMakeLists.txt`, README.
+- every consumer: `<depend>`/`<exec_depend>` in `package.xml` and every `from ... .msg/.srv import` (`rviz_bridge` here; `demo_app`, `fiducials_detector`, `gesture_detector`, `hand_landmarks`, `object_detector`, `page_locator`, `projection_mask`, `surface_selector`, `projection_calibration_server`).
+- here: the checkout directory in `config/nodes.list` (and `src/` renamed to match), README, CLAUDE.md.
+- Where the new name sorts differently (`c` → `p`), the import moved to its alphabetical place, so flake8's import-order check stays as it was.
+
+**Why:** The old name described where the package came from, not what it holds, and the cost of renaming grows with every node that imports it. The VIGITIA compatibility that justified it only saved editing imports when porting a node; the READMEs now say to change `custom_interfaces` to the new name when porting.
+
+**Decisions:**
+- *One rename across all repos* instead of a compatibility package under the old name: nothing outside these repos depends on it, and a second package would have to be kept in sync.
+- *Repo name unchanged:* `ros2-par-framework-interfaces` already matches the new package name.
+- *Older log entries keep the old name,* because they describe what was true at the time.
+- *Checked:* full build, every changed node module imports with the old build output deleted, and the lint suites of the changed packages show no new errors.

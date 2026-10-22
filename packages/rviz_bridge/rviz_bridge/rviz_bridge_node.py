@@ -1,10 +1,10 @@
 # Written by Claude Code
 """Republish framework outputs as RViz markers: objects, hands, fiducials, pages, projection."""
 
-from custom_interfaces.msg import (FiducialsList, HandLandmarksList, ObjectList, PageList,
-                                   ProjectionCorners, ProjectionMapping)
 from geometry_msgs.msg import Point
 import numpy as np
+from par_framework_interfaces.msg import (FiducialsList, HandLandmarksList, ObjectList, PageList,
+                                          ProjectionCorners, ProjectionMapping)
 from par_geometry import homography_from_msg, pixels_to_table, projector_to_table, rotation_matrix
 import rclpy
 from rclpy.executors import ExternalShutdownException

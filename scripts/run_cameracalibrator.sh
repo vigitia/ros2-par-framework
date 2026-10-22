@@ -1,24 +1,24 @@
 #!/usr/bin/env bash
 # Written by Claude Code
 #
-# Calibrates a camera's intrinsics with cameracalibrator (package camera_calibration) and the board from
+# Calibrates a camera's intrinsics with cameracalibrator (with the ROS2 package camera_calibration) and the board from
 # utils/checkerboard.png (8x6 inner corners; print it and measure one square):
 #   scripts/run_cameracalibrator.sh <square size in m> [more cameracalibrator options]
 #   scripts/run_cameracalibrator.sh 0.031
-#
+
+# Some cameras such as the Azure Kinect do not need this script. Their driver already publishes its factory calibration.
+
 # It works on the framework's camera topics /camera/image_raw and /camera/set_camera_info, which the launch
-# files remap every camera driver onto (launch_helpers.DRIVER_REMAPPINGS), so the same call fits the Brio and
-# the webcam. CAMERA_NAMESPACE points it at a camera node outside the framework, e.g.
+# files remap every camera driver onto (launch_helpers.DRIVER_REMAPPINGS).
+# CAMERA_NAMESPACE points it at a camera node outside the framework, e.g.
 #   CAMERA_NAMESPACE=/my_camera scripts/run_cameracalibrator.sh 0.031
 #
 # COMMIT stores the result through set_camera_info at the node's camera_info_url, which the framework's launch
-# files set to config/calibration/intrinsics/camera_info_<camera>.yaml. The Kinect needs none: its driver
-# publishes its factory calibration.
-#
-# Needs ROS sourced and the camera node running and publishing reliably (the Brio with
-# qos_reliability:=reliable; v4l2_camera does already): the calibrator only copies the publisher's QoS if it
-# discovers the topic at startup, and otherwise subscribes reliably.
-# Moved here from the logitech_brio repository (calibration/), whose history has the earlier versions.
+# files set to config/calibration/intrinsics/camera_info_<camera>.yaml.
+
+# Needs ROS sourced and the camera node running and publishing with qos_reliability:=reliable.
+# The calibrator only copies the publisher's QoS if it discovers the topic at startup, and otherwise subscribes reliably.
+
 
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 
