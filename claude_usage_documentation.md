@@ -1984,3 +1984,30 @@ misleading.
   justify a separate file plus the same lookup in two scripts, and it can still be overridden from the shell.
 - *Delete `launch.sh` instead of turning it into a host script.* On the host, `ros2 launch
   par_framework_core <name>.launch.py` and the wizard already cover it.
+
+## 2026-10-22: Setup wizard moved out of `rework` onto `feature/setup-wizard`
+
+**What changed:** `rework` no longer contains the setup wizard:
+- Deleted: `packages/par_setup_wizard/` and `scripts/wizard.sh`.
+- README.md and CLAUDE.md describe the start with `ros2 launch` and the `par_launch` section instead of the
+  wizard. The wizard section, its Layout line and its packages table row are gone.
+- The comments in `par_setup.yaml`, the launch files, `launch_helpers.py` and `run_cameracalibrator.sh` no
+  longer name the wizard. "Profile" became "parameter file", because `params_file:=` takes any file.
+- `.gitignore` no longer ignores `config/profiles/`. That folder was the wizard's convention for named
+  profiles.
+- The Brio and webcam pose comment in `par_setup.yaml` now shows how to write
+  `calibration/extrinsics/camera_pose_<camera>.yaml` by hand: the seven flat keys, with the rotation for a
+  height and tilt (`rotation.y = sin(a)`, `rotation.w = cos(a)`, `a = (90 - tilt) / 2`).
+
+**Why:** The wizard is out of date and will be brought back up to date later, like the Docker setup. Until
+then, the docs should not point to a tool that no longer matches the rest of the framework.
+
+**Decisions:**
+- *The same git pattern as for Docker:* a removal commit, then a branch with its revert. This way
+  `feature/setup-wizard` merges back like any feature branch.
+- *Hand-written pose file instead of a small helper script.* Only the wizard turned height and tilt into a
+  quaternion for the Brio and the webcam. A replacement script would be new code for a stopgap. The formula
+  in the comment keeps the same result possible, and the placeholder (straight down) stays the fallback. The
+  Kinect keeps `camera_pose_calibration_kinect.launch.py`.
+- *Keep `params_file:=` and drop `config/profiles/`.* The launch files support any parameter file without the
+  wizard; only the folder and its name belonged to the wizard.
