@@ -1949,3 +1949,38 @@ frustum now longer than the camera height, the far rectangle lies below the tabl
   the driver's `RGB8`: rejected, red and blue would swap in consumers that do not convert. Reusing the Kinect's RViz
   config: rejected, its display names and point cloud topic are the Kinect's. Adding the camera to the setup wizard
   was left for a separate step: the wizard handles cameras in several places (settings, pose calibration).
+
+## 2026-10-22: Docker setup moved out of `rework` onto `feature/docker`
+
+**What changed:** `rework` no longer contains the Docker setup:
+- Deleted:
+  - `docker/` and `docker-compose.yaml`
+  - `.env.example`
+  - `setup.sh` and `scripts/preflight.sh`
+  - `scripts/shell.sh`, `scripts/build_workspace.sh` and `scripts/launch.sh`
+- `scripts/common.sh` lost its container helpers (`compose`, `docker_exec`, `in_container`, …). In return it
+  sets `ROS_DISTRO` (default `lyrical`, an already set value wins), which `local_build.sh` and `wizard.sh`
+  used to read from `.env`.
+- `scripts/sync_nodes.sh` only clones now. The staging of the manifests into `docker/deps/` and the
+  `--clone-only` flag that skipped it are gone.
+- The launch hints, `.gitignore`, README and CLAUDE.md describe the host build (`local_build.sh`, the
+  wizard, `ros2 launch`) as the only workflow.
+
+The rule that nothing in `par_framework_core` may declare the Kinect driver moved from "Container
+constraints" in CLAUDE.md to its architecture section, because it also holds without Docker.
+
+**Why:** The Docker parts are out of date and not being worked on right now. They will be brought back up to
+date once the other features are done. Until then, a second, untested path in the scripts and the docs is
+misleading.
+
+**Decisions:**
+- *Removal commit on `rework`, then `feature/docker` branched from it, with a revert of that commit.* The
+  alternative was to branch `feature/docker` before the removal. Git would then treat the deletion as the only
+  change since the common ancestor, and a later merge would not bring the files back. With the revert,
+  `feature/docker` is `rework` plus one "add Docker" commit, and it merges back like any feature branch.
+- *Delete `setup.sh` and `preflight.sh` instead of keeping a host-only preflight.* `local_build.sh` is
+  already the host bootstrap. The git, SSH and DISPLAY checks come back with `feature/docker`.
+- *`ROS_DISTRO` as a default in `common.sh` instead of a trimmed `.env.example`.* A single variable did not
+  justify a separate file plus the same lookup in two scripts, and it can still be overridden from the shell.
+- *Delete `launch.sh` instead of turning it into a host script.* On the host, `ros2 launch
+  par_framework_core <name>.launch.py` and the wizard already cover it.
