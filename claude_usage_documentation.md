@@ -2069,3 +2069,35 @@ then, the docs should not point to a tool that no longer matches the rest of the
 - *Repo name unchanged:* `ros2-par-framework-interfaces` already matches the new package name.
 - *Older log entries keep the old name,* because they describe what was true at the time.
 - *Checked:* full build, every changed node module imports with the old build output deleted, and the lint suites of the changed packages show no new errors.
+
+## 2026-10-22: `num_hands` for `hand_landmarks_node` in `par_setup.yaml`
+
+**What changed:** `par_setup.yaml` has a `hand_landmarks_node` block with `num_hands: 2`, the maximum number of hands the node detects per frame (a new parameter of the node, see its repo's log).
+
+**Why:** how many hands are expected depends on the setup (one user, or several people at one table), and `par_setup.yaml` is where a setup's values are visible and edited. `par.launch.py` already passes the file to every framework node, so no launch file changes.
+
+**Decisions:**
+- *Listed with its default value,* like the `page_locator_node` values, instead of left to the node's code default: a setup can see that the knob exists without reading the node.
+- *Bare key `hand_landmarks_node`:* the node runs without a namespace (`framework_node` in `par.launch.py`).
+
+## 2026-10-22: camera frame topic chosen by remapping, compressed frames by `use_compressed`
+
+**What changed:** `par.launch.py` no longer sets `topic_name_frame`: the frame consumers (`hand_landmarks`, `fiducials_detector`, `object_detector`) subscribe to the constant `/camera/image_raw` and lost the parameter. `object_detector` has a new bool parameter `use_compressed` (default false) that subscribes to `/camera/image_raw/compressed` as `CompressedImage`; `CAMERA_OVERRIDES` sets it for the Brio, whose driver passes the camera's JPEGs through. The depth cameras' and the webcam's overrides that switched `object_detector` back to raw are gone, and with them the `CAMERA_IMAGE` import.
+
+**Why:** remapping is ROS 2's own way to point a node at another topic and works for every topic; the frame topic was the only input chosen by parameter, set by nothing but the switch between raw and compressed. Raw is the one colour topic every camera provides, so it is the default in every node; the compressed variant only exists where a driver publishes it, which the launch file knows per camera.
+
+**Alternatives:**
+- *Compressed as the default for all nodes:* rejected, only the Brio publishes JPEGs; every other camera would need an override per node.
+- *Dropping compressed support in `object_detector`:* rejected, with the Brio the driver then decodes every frame for it.
+- *Keeping `topic_name_frame` and inferring the type from a `/compressed` suffix:* rejected, a topic-name parameter duplicates remapping, and a name pointing at the wrong type subscribes silently and receives nothing.
+- *image_transport's transport selection:* not used, it needs Python bindings that would be a new dependency.
+
+**Open:** `surface_selector` (calibration repo) still has `topic_name_frame`, and `par_setup.yaml` still sets it.
+
+## 2026-10-22: `surface_selector` without `topic_name_frame`; CLAUDE.md on topic names
+
+**What changed:** `par_setup.yaml` no longer sets `topic_name_frame` for `surface_selector_node`, whose parameter is gone (calibration repo), and the comment in `calibration.launch.py` says which topic the node subscribes to. CLAUDE.md's section on the neutral camera interface names `object_detector`'s `use_compressed` as the one consumer of the compressed frames, and states the convention: nodes take the `/camera/...` names as constants, another topic is chosen by remapping.
+
+**Why:** completes the previous entry for the last node with the parameter, and records the convention where the next change to a node will look for it.
+
+**Alternatives:** leaving the convention to the code alone: rejected, a new node would likely copy the old parameter from an older node.

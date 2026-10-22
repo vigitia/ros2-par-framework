@@ -1,5 +1,5 @@
 # Co-authored by Claude Code (notes on the camera pose placeholders, the projection mask, the demo app, the
-# RealSense driver settings).
+# RealSense driver settings, the hand landmarks).
 # Parameters of one physical PAR setup: which camera, which projector, at what
 # resolution. This is the file to edit when moving the framework to a new table
 # or a new machine -- node source should not need per-setup constants.
@@ -66,8 +66,6 @@
 
 surface_selector_node:
   ros__parameters:
-    # The framework's camera image; every camera's driver is remapped onto it (launch_helpers)
-    topic_name_frame: /camera/image_raw
     # Display the projector is connected to, as counted by pygame (0 = primary).
     display_id: 2
 
@@ -76,6 +74,12 @@ object_detector_node:
     # Only with use_depth (depth cameras: kinect, realsense): objects lower than this above the table around them (metres) are not
     # published, e.g. pictures of objects projected onto the table. 0 = off; about 0.015 is above the Kinect's noise.
     min_object_height: 0.015
+
+hand_landmarks_node:
+  ros__parameters:
+    # Maximum number of hands detected per frame (1 to 10), e.g. 2 for one person, more for several people at
+    # the table. Every extra hand slows detection down.
+    num_hands: 2
 
 # Pages of paper with an ArUco marker in each corner (page n: markers 4n .. 4n+3), from /fiducials.
 # Print them with: ros2 run page_locator make_page_template <page ids> --marker-size-mm <marker_size_mm>

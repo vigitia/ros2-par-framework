@@ -125,12 +125,15 @@ ROS graph, and reusable outside the node.
 ### Current pipeline
 
 **The camera interface is neutral.** Whichever camera runs, the framework nodes subscribe to `/camera/image_raw`
-(plus the Brio's own JPEGs on `/camera/image_raw/compressed`), `/camera/camera_info`, `/camera/set_camera_info` and,
+(`object_detector` with `use_compressed` instead takes the JPEGs a driver passes through on
+`/camera/image_raw/compressed`; `par.launch.py` sets it for the Brio, the only driver that publishes them),
+`/camera/camera_info`, `/camera/set_camera_info` and,
 from a depth camera, `/camera/depth_registered/image_raw` (depth on the colour image's pixel grid). The drivers keep
 their own names (`/camera/brio/...`, the Kinect's `/rgb/...` and `/depth_to_rgb/...`, `/camera/webcam/...`); where a
 launch file starts a driver, it remaps it onto the neutral names with `launch_helpers.DRIVER_REMAPPINGS`, so that table
 is the only place that knows a driver's topics. A new camera = a driver start in `launch_helpers` plus its entry
-there, and no consumer changes. `surface_selector` consumes frames to mark the projection area. `page_locator` turns `/fiducials` into `/pages` (`par_framework_interfaces/PageList`, every frame, corners
+there, and no consumer changes. Nodes take these names as constants, not as parameters: another topic is chosen by
+remapping, ROS 2's own mechanism. `surface_selector` consumes frames to mark the projection area. `page_locator` turns `/fiducials` into `/pages` (`par_framework_interfaces/PageList`, every frame, corners
 in camera pixels): sheets with markers `4n .. 4n+3` in their corners, located by one homography to the printed layout,
 so the `marker_*` layout in `par_setup.yaml` must match the paper (default: the VIGITIA document pages, ids 96-99;
 `make_page_template` prints matching pages). Camera intrinsics are
