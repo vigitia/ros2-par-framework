@@ -1,19 +1,15 @@
 #!/usr/bin/env bash
 # Written by Claude Code
 #
-# Start the setup wizard on the host (no Docker): projector, camera, calibration, nodes, start.
+# Start the setup wizard on the host: projector, camera, calibration, nodes, start.
 # Sources ROS, the venv and the workspace in bash, so it also works from fish.
 #   ./scripts/wizard.sh
 
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 cd "$REPO_ROOT"
 
-# .env only exists once setup.sh has run; .env.example carries the same default.
-env_file=.env
-[[ -f "$env_file" ]] || env_file=.env.example
-distro="$(sed -n 's/^ROS_DISTRO=//p' "$env_file")"
-ros_setup="/opt/ros/${distro}/setup.bash"
-[[ -f "$ros_setup" ]] || die "ROS 2 '${distro}' not found at ${ros_setup} -- install ros-${distro}-desktop"
+ros_setup="/opt/ros/${ROS_DISTRO}/setup.bash"
+[[ -f "$ros_setup" ]] || die "ROS 2 '${ROS_DISTRO}' not found at ${ros_setup} -- install ros-${ROS_DISTRO}-desktop"
 [[ -f .venv/bin/activate && -f install/setup.bash ]] || die "workspace not built -- run: ./scripts/local_build.sh"
 
 # ROS's setup scripts read unset variables, which set -u would abort on.

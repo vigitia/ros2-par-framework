@@ -6,7 +6,7 @@
 #
 # <directory>  name of the checkout under src/ (use the ROS package name for consistency)
 # <git-url>    cloned by scripts/sync_nodes.sh over SSH -- needs a GitHub key
-#              in your ssh-agent (setup.sh checks this for you)
+#              in your ssh-agent
 # [branch]     optional; "-" or omitted means the remote's default branch
 #
 # Every node listed here will be cloned and installed automatically on setup, including

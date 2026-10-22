@@ -1,23 +1,19 @@
 #!/usr/bin/env bash
 # Written by Claude Code
 #
-# This script will clone every node from config/nodes.list and build the workspace on the host,
-# without Docker. It allows testing nodes locally without Docker.
-# in README.md. Needs ROS2 installed on the host, in the distro set in .env. Safe to re-run.
+# Clones every node from config/nodes.list and builds the workspace on the host, as described in
+# README.md. Needs ROS 2 installed on the host, in the distro of ROS_DISTRO (scripts/common.sh). Safe to
+# re-run.
 #   ./scripts/local_build.sh                 # everything
 #   ./scripts/local_build.sh logitech_brio   # rebuild one package
 
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 cd "$REPO_ROOT"
 
-"${REPO_ROOT}/scripts/sync_nodes.sh" --clone-only
+"${REPO_ROOT}/scripts/sync_nodes.sh"
 
-# .env only exists once setup.sh has run; .env.example carries the same default.
-env_file=.env
-[[ -f "$env_file" ]] || env_file=.env.example
-distro="$(sed -n 's/^ROS_DISTRO=//p' "$env_file")"
-ros_setup="/opt/ros/${distro}/setup.bash"
-[[ -f "$ros_setup" ]] || die "ROS 2 '${distro}' not found at ${ros_setup} -- install ros-${distro}-desktop, or use ./setup.sh for Docker"
+ros_setup="/opt/ros/${ROS_DISTRO}/setup.bash"
+[[ -f "$ros_setup" ]] || die "ROS 2 '${ROS_DISTRO}' not found at ${ros_setup} -- install ros-${ROS_DISTRO}-desktop"
 
 # ROS's setup scripts read unset variables, which set -u would abort on.
 set +u; source "$ros_setup"; set -u
@@ -40,7 +36,7 @@ if [[ ! -d .venv ]]; then
     python3 -m venv --system-site-packages .venv
     touch .venv/COLCON_IGNORE
 fi
-# One pip install for all nodes, like the image, so conflicting pins fail here too.
+# One pip install for all nodes, so conflicting pins fail instead of one node silently overwriting another's.
 shopt -s nullglob
 pip_args=()
 for req in src/*/requirements.txt packages/*/requirements.txt; do pip_args+=(-r "$req"); done

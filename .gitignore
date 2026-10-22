@@ -1,13 +1,8 @@
-# Co-authored by Claude Code (named profiles folder).
+# Co-authored by Claude Code (named profiles folder, host-only build).
 # Node repositories are automatically cloned to the src/ folder and should not be commited to the core framework
 /src/
 
-# Dependency manifests staged for the image build (generated).
-/docker/deps/
-
-# Machine-local configuration. config/profiles/ holds the setup wizard's named profiles; par_setup.yaml, the
-# default profile, stays tracked.
-/.env
+# The setup wizard's named profiles; par_setup.yaml, the default profile, stays tracked.
 /packages/par-framework-core/config/profiles/
 
 # Calibration of this physical setup, written by nodes: the projection corners (from surface_selector) and the
@@ -16,12 +11,12 @@
 # (cameracalibrator) in calibration/intrinsics/.
 /packages/par-framework-core/config/calibration/
 
-# colcon output. These folders will be created when the nodes in src/ are built locally, outside the Docker container
+# colcon output, created when the workspace is built
 /build/
 /install/
 /log/
 
-# Python venv for testing nodes locally outside Docker.
+# Python venv for the PyPI dependencies of the nodes (scripts/local_build.sh).
 /.venv/
 
 # Models used for e.g. the object detector node
