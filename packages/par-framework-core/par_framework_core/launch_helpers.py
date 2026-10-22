@@ -17,7 +17,7 @@ import yaml
 
 def logitech_brio_node(context):
     """Start the Brio with params_file and its calibration from INTRINSICS."""
-    # cameracalibrator's COMMIT writes it there
+    # The same path on the host and in the container; cameracalibrator's COMMIT writes it there
     camera_info_url = f'file://{config_file(f"{INTRINSICS}/camera_info_brio.yaml")}'
     return [Node(
         package='logitech_brio',
@@ -204,7 +204,8 @@ def config_file(file_name):
     """Return the path of file_name below the folder of the real par_setup.yaml."""
     # The default par_setup.yaml, not params_file: the calibrations are shared by every profile,
     # also those in config/profiles/. realpath follows the --symlink-install links back to the
-    # source folder, so files written there survive rebuilds
+    # source folder, so files written there survive rebuilds, on the host and in the container
+    # alike
     installed = os.path.join(get_package_share_directory('par_framework_core'), 'config',
                              'par_setup.yaml')
     path = os.path.join(os.path.dirname(os.path.realpath(installed)), file_name)

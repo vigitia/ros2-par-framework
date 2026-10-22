@@ -22,11 +22,6 @@ die()  { printf '\n%serror:%s %s\n' "$C_RED" "$C_RESET" "$*" >&2; exit 1; }
 
 have() { command -v "$1" >/dev/null 2>&1; }
 
-# Co-authored by Claude Code
-# ROS 2 distribution the scripts source from /opt/ros. An already set value wins, e.g. from a
-# sourced ROS or `ROS_DISTRO=jazzy ./scripts/local_build.sh`.
-ROS_DISTRO="${ROS_DISTRO:-lyrical}"
-
 # Read config/nodes.list and emit "dir<TAB>url<TAB>branch" for each entry,
 # with comments and blank lines stripped and a missing branch normalised to "-".
 read_nodes_list() {
@@ -78,4 +73,40 @@ write_ros_packages_manifest() {
         for key in $keys; do echo "  <exec_depend>${key}</exec_depend>"; done
         echo '</package>'
     } > "$1/par_ros_packages/package.xml"
+}
+
+# Name of the compose service everything runs in.
+SERVICE=ros2
+
+compose() { docker compose --project-directory "$REPO_ROOT" "$@"; }
+
+container_name() {
+    # shellcheck disable=SC1091
+    [[ -f "${REPO_ROOT}/.env" ]] && source "${REPO_ROOT}/.env"
+    echo "${CONTAINER_NAME:-par_framework}"
+}
+
+require_container_running() {
+    local name; name="$(container_name)"
+    if [[ -z "$(docker ps --quiet --filter "name=^${name}$")" ]]; then
+        die "container '${name}' is not running -- start it with: docker compose up -d"
+    fi
+}
+
+# `docker exec -t` requires a real terminal and refuses outright without one, so
+# hardcoding -it breaks every non-interactive caller: a background run, CI, or
+# simply `./setup.sh > log`. Allocate a TTY only when there actually is one.
+docker_exec() {
+    require_container_running
+    local flags=()
+    if [[ -t 0 && -t 1 ]]; then
+        flags=(-i -t)
+    fi
+    docker exec "${flags[@]}" "$(container_name)" "$@"
+}
+
+# Run a command inside the container. The entrypoint sources the ROS underlay
+# and the workspace overlay, so commands see the same environment a shell does.
+in_container() {
+    docker_exec /usr/local/bin/entrypoint.sh bash -c "$*"
 }

@@ -7,8 +7,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## What this repository is
 
 Core repository of a projected augmented reality (PAR) framework on ROS 2 — a camera and a projector aimed at
-the same surface. It declares which repos make up a setup (`config/nodes.list`)
-and provides the launch files and per-setup parameters that compose them. Its own source is limited to what every setup builds.
+the same surface. It declares which repos make up a setup (`config/nodes.list`), provides the container they run in,
+and the launch files and per-setup parameters that compose them. Its own source is limited to what every setup builds.
 
 **Where a package belongs.** Ask in this order; the first yes decides:
 
@@ -36,30 +36,31 @@ down (`surface_selector`, `camera_pose_calibrator`, `projection_calibration_serv
 none of them, `par.launch.py` starts the server only when it is installed, and the calibration launch files here need
 the repo.
 
-This repo's own ROS packages live under `packages/`, which `local_build.sh` takes as a whole, so a
+This repo's own ROS packages live under `packages/`, which the build scripts and the container take as a whole, so a
 new package there needs no path changes. `packages/par-framework-core/` (package `par_framework_core`) holds the
 launch files and `config/par_setup.yaml` only, no nodes. New core packages (rule 2) get their own package directory next to it.
 
 ## Commands
 
-Everything runs on the host. ROS's setup scripts only source in bash, so the scripts and manual commands run there.
-
 ```bash
-./scripts/local_build.sh [pkg]      # clone nodes, rosdep, .venv, colcon build --symlink-install; safe to re-run
-./scripts/wizard.sh                 # setup wizard (profile, projector, camera, calibration, nodes, start)
+./setup.sh                          # full bootstrap; safe to re-run, also pulls node updates
+./setup.sh --skip-clone --no-cache  # rebuild image without touching src/
 
-# by hand, in each new bash terminal:
-source /opt/ros/lyrical/setup.bash && source .venv/bin/activate && source install/setup.bash
-export FASTDDS_BUILTIN_TRANSPORTS=LARGE_DATA
-ros2 launch par_framework_core par.launch.py camera:=kinect rviz:=true   # one entry point; args override par_launch per run
-ros2 launch par_framework_core calibration.launch.py display_id:=1
+./scripts/shell.sh                  # shell in the container (ROS + workspace sourced)
+./scripts/build_workspace.sh [pkg]  # colcon build --symlink-install, optionally one package
+./scripts/launch.sh [name] [args]   # ros2 launch par_framework_core <name>.launch.py, default: par
+./scripts/launch.sh par camera:=kinect rviz:=true   # one entry point; args override par_launch per run
+./scripts/launch.sh calibration display_id:=1
+
+./scripts/local_build.sh [pkg]      # host-only: clone nodes, rosdep, .venv, colcon build -- no Docker; preferred for locally testing the nodes 
+./scripts/wizard.sh                 # host-only: setup wizard (profile, projector, camera, calibration, nodes, start)
 ```
 
 Tests are the standard `ament` lint suite each package carries (`test_flake8`, `test_pep257`,
 `test_copyright`) — linting *is* the test suite here:
 
 ```bash
-# sourced as above
+./scripts/shell.sh
 colcon test --packages-select logitech_brio
 colcon test-result --all --verbose        # colcon test's own exit status hides failures; read results here
 colcon test --packages-select logitech_brio --pytest-args -k flake8
@@ -67,14 +68,18 @@ colcon test --packages-select logitech_brio --pytest-args -k flake8
 
 ## Architecture
 
-**Source in `src/`, dependencies from the manifests.** `scripts/sync_nodes.sh` clones each entry of
-`config/nodes.list` into `src/`; each node stays its own git repo. `scripts/local_build.sh` resolves the
-`package.xml` of every package with `rosdep` and all `requirements.txt` with one `pip` call into `.venv`
-(`--system-site-packages`, so apt's rclpy stays importable), then builds with `.venv/bin/python -m colcon`.
-All `requirements.txt` go into a single `pip install` on purpose: conflicting pins fail the install instead of
-one node silently overwriting another's.
+**Source on the host, dependencies in the image.** `scripts/sync_nodes.sh` clones each entry of
+`config/nodes.list` into `src/`, bind-mounted at `/ros2_ws/src`; each node stays its own git repo. The image
+copies only the `package.xml` / `requirements.txt` of every package (staged into `docker/deps/`) and resolves
+them with `rosdep` plus one `pip` call. Consequences worth preserving:
 
-**Adding a node** = one line in `config/nodes.list`, then `./scripts/local_build.sh`. Nothing else — the
+- Editing node code needs `./scripts/build_workspace.sh`, **not** an image rebuild.
+- Changing a *declared dependency* does need a rebuild (`./setup.sh` handles both).
+- All `requirements.txt` go into a single `pip install` on purpose: conflicting pins fail the build instead of
+  one node silently overwriting another's.
+- `build/`, `install/`, `log/` are named volumes, so no root-owned artefacts appear in the working tree.
+
+**Adding a node** = one line in `config/nodes.list`, then `./setup.sh`. Nothing else — the Dockerfile and the
 dependency steps are generic. A node repo needs a colcon-buildable package with a `package.xml` that declares
 all its dependencies — `ament_python` or `ament_cmake` both work (`custom_interfaces` and
 `azure_kinect_ros_driver` are CMake). Our own nodes are `ament_python` by convention (see below); third-party
@@ -85,10 +90,9 @@ directory name.
 
 **Released packages** used unchanged (`v4l2_camera` for the webcam, `realsense2_camera`) are not cloned: they are
 rosdep keys in `config/ros_packages.list`. `scripts/common.sh` (`write_ros_packages_manifest`) turns the list into a
-generated `package.xml` that `local_build.sh`'s rosdep call reads from a temporary directory. So camera drivers
-stay optional: `par_framework_core` declares none of them. The Azure Kinect SDK (`K4A`) has no rosdep rule and is
-installed by hand, so rosdep runs with `--skip-keys K4A`, and nothing in `par_framework_core` may declare the Kinect
-driver, or a Brio-only build breaks.
+generated `package.xml` that the existing rosdep calls read: `sync_nodes.sh` stages it into `docker/deps/`,
+`local_build.sh` adds it from a temporary directory. So camera drivers stay optional: `par_framework_core` declares
+none of them.
 
 ### Custom interfaces
 
@@ -102,13 +106,12 @@ Adding an interface means three edits, and the third is the one that gets forgot
 1. the `.msg`/`.srv`/`.action` file;
 2. its path in the `rosidl_generate_interfaces()` list in `CMakeLists.txt`;
 3. any newly referenced external package in **both** `DEPENDENCIES` in `CMakeLists.txt` **and** as `<depend>`
-   in `package.xml`. rosdep resolves dependencies from `package.xml` alone, so a package declared only in
-   CMake builds by luck — it works while the installed `ros-desktop` happens to ship it and breaks on a slimmer
-   install.
+   in `package.xml`. The image resolves dependencies from `package.xml` alone, so a package declared only in
+   CMake builds by luck — it works while the `ros-desktop` base happens to ship it and breaks on a slimmer base.
 
 Consumers declare `<depend>custom_interfaces</depend>` and import `from custom_interfaces.msg import Object`.
-Changing an existing definition or pulling in a new *external* message package needs `./scripts/local_build.sh`
-(rosdep installs the new dependency, colcon rebuilds dependents in order).
+Changing an existing definition needs only `./scripts/build_workspace.sh` (colcon rebuilds dependents in
+order); pulling in a new *external* message package changes a declared dependency and so needs `./setup.sh`.
 
 **Per-setup values are parameters.** Camera index, resolution, projector display live in
 `packages/par-framework-core/config/par_setup.yaml`, keyed by node name, and are handed to nodes by the launch files. Hardware
@@ -135,7 +138,7 @@ there, and no consumer changes. `surface_selector` consumes frames to mark the p
 in camera pixels): sheets with markers `4n .. 4n+3` in their corners, located by one homography to the printed layout,
 so the `marker_*` layout in `par_setup.yaml` must match the paper (default: the VIGITIA document pages, ids 96-99;
 `make_page_template` prints matching pages). Camera intrinsics are
-`config/calibration/intrinsics/camera_info_<camera>.yaml` (gitignored, one per camera type): `launch_helpers`
+`config/calibration/intrinsics/camera_info_<camera>.yaml` (gitignored, one per camera type, the same path on the host and in the container): `launch_helpers`
 sets each camera's `camera_info_url` there, and `scripts/run_cameracalibrator.sh` writes it through the camera's
 `set_camera_info`. The Kinect driver publishes its factory calibration instead.
 
@@ -190,11 +193,25 @@ frames). Apps that project content apply or publish them; the framework has no c
   the mapping; without the projector centre it assumes light straight down.
 - `/projector/content_mask`, a convention only, published by apps: 255 where the app draws content, e.g.
   `frame.max(axis=2) > threshold`. Nothing consumes it yet; reading the screen instead was rejected (Wayland only
-  allows it through the portal with user consent, not from a container, and with extra delay).
+  allows it through the portal with user consent, not from the container, and with extra delay).
+
+## Container constraints
+
+Load-bearing settings in `docker-compose.yaml`, not conveniences: `network_mode: host` (DDS discovery uses UDP
+multicast, which does not traverse the bridge network), `privileged: true` + `/dev:/dev` (USB cameras plugged
+in after start), X11 socket + `$XAUTHORITY` mounts (RViz and the fullscreen projector window; the container
+runs as root, so the host needs `xhost +local:root` — `setup.sh` does this).
+
+The image has no Azure Kinect SDK (`K4A` has no rosdep rule, and there are no packages for current Ubuntu), so
+`rosdep` runs with `--skip-keys K4A` and `build_workspace.sh` skips `azure_kinect_ros_driver`: the Kinect runs on the
+host (`local_build.sh`), and nothing in `par_framework_core` may declare the driver, or a Brio-only build breaks.
+
+`.env` is machine-local and gitignored; `setup.sh` generates it from `.env.example` and fills in `DISPLAY` /
+`XAUTHORITY`. `ROS_DISTRO` there drives both the base image tag and the compose image tag.
 
 ## Conventions in this repo
 
-Shell scripts source `scripts/common.sh` for `step`/`ok`/`warn`/`die` logging and `ROS_DISTRO`; they run
+Shell scripts source `scripts/common.sh` for `step`/`ok`/`warn`/`die` logging and `in_container`; they run
 under `set -euo pipefail`, so pipelines whose left side legitimately exits non-zero need explicit handling.
-Every failure message should name the command that fixes it — `local_build.sh` is meant to be runnable by
-someone sitting at a fresh computer.
+Every failure message should name the command that fixes it — `setup.sh` is meant to be runnable by someone
+sitting at a fresh computer.

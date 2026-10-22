@@ -101,7 +101,7 @@ def launch_setup(context):
         else:
             actions.append(LogInfo(msg='[par.launch]: projection_mask is not installed: add '
                                        'ros2-par-framework-projection-mask to config/nodes.list '
-                                       'and run ./scripts/local_build.sh'))
+                                       'and run ./setup.sh'))
 
     # The demo application is its own repo as well
     if enabled('demo_app'):
@@ -110,7 +110,7 @@ def launch_setup(context):
         else:
             actions.append(LogInfo(msg='[par.launch]: demo_app is not installed: add '
                                        'ros2-par-framework-demo-application to config/nodes.list '
-                                       'and run ./scripts/local_build.sh'))
+                                       'and run ./setup.sh'))
 
     if enabled('rviz'):
         actions.append(framework_node('rviz_bridge'))
