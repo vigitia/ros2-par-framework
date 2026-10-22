@@ -15,7 +15,7 @@ and provides the launch files and per-setup parameters that compose them. Its ow
 1. **Useful outside the framework?** (a camera driver, a detector) → its own repo under `github.com/vigitia`, or a
    public third-party repo.
 2. **A shared library other repos build on, or tooling to set up and inspect the framework?** (`par_geometry`,
-   `rviz_bridge`) → this repo, under `packages/`.
+   `par_setup_wizard`, `rviz_bridge`) → this repo, under `packages/`.
 3. **Otherwise it is a framework capability** (calibration, projection mask) → its own repo under
    `github.com/vigitia`, even though it only makes sense inside the framework. A setup gets it through its line in
    `config/nodes.list`. Nothing in this repo declares it as a dependency, and `par.launch.py` starts it only when it
@@ -46,6 +46,7 @@ Everything runs on the host. ROS's setup scripts only source in bash, so the scr
 
 ```bash
 ./scripts/local_build.sh [pkg]      # clone nodes, rosdep, .venv, colcon build --symlink-install; safe to re-run
+./scripts/wizard.sh                 # setup wizard (profile, projector, camera, calibration, nodes, start)
 
 # by hand, in each new bash terminal:
 source /opt/ros/lyrical/setup.bash && source .venv/bin/activate && source install/setup.bash

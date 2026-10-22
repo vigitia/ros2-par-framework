@@ -20,21 +20,11 @@ and a graphical session.
 git clone git@github.com:vigitia/ros2-par-framework.git
 cd ros2-par-framework
 ./scripts/local_build.sh           # clone every node, install dependencies, build
+./scripts/wizard.sh                # set up projector, camera, calibration and nodes, then start
 ```
 
 `local_build.sh` is safe to re-run — that is also how you pull node updates; `./scripts/local_build.sh <pkg>`
-rebuilds one package. Then, in **bash**:
-
-```bash
-source /opt/ros/lyrical/setup.bash && source .venv/bin/activate && source install/setup.bash
-export FASTDDS_BUILTIN_TRANSPORTS=LARGE_DATA
-ros2 launch par_framework_core calibration.launch.py   # mark the projection surface (once per setup)
-ros2 launch par_framework_core par.launch.py           # run the framework
-```
-
-Which camera and nodes `par.launch.py` starts is the `par_launch` section of
-`packages/par-framework-core/config/par_setup.yaml`. Arguments override it for one run
-(`camera:=kinect rviz:=true`), and `params_file:=<file>` uses another parameter file.
+rebuilds one package.
 
 ## Building by hand
 
@@ -90,6 +80,37 @@ A few notes:
   it. The driver clone in `src/azure_kinect_ros_driver` carries local, uncommitted patches for this ROS distro (see
   `claude_usage_documentation.md`); deleting the clone loses them.
 
+## Setup wizard
+
+After `./scripts/local_build.sh`, the wizard walks through a setup in a desktop window (written with the help of
+Claude Code):
+
+```bash
+./scripts/wizard.sh
+```
+
+1. **Profile:** a profile is one parameter file, `par_setup.yaml` (default) or `profiles/<name>.yaml` below it
+   (gitignored). *Start selected profile* (or a double-click) starts it right away; *Next* sets it up. *New profile*
+   starts from the defaults in `par_setup.yaml` with nothing chosen yet (display, camera, nodes), so the wizard
+   asks everything anew. *Delete profile* removes one (not the default; the calibrations stay, all profiles share
+   them). *Rebuild workspace* runs `local_build.sh`.
+2. **Projector:** the display the projector is on, as pygame counts them (`display_id`), each with its connector,
+   model, resolution, refresh rate, position and whether it is the primary one. *Identify* shows each display's
+   number on it, *Show test pattern* a grid on the chosen one.
+3. **Camera:** Brio or Azure Kinect (one at a time), with a live preview; for the Kinect also its settings
+   (resolution, depth mode, fps, colour controls, point cloud).
+4. **Calibration:** first *automatic* or *manual*, then the steps for that choice, each with its status and *Run*:
+   - automatic: the Kinect pose measured from the clear table (the Brio's pose is entered by hand), then the
+     projector mapping from projected markers;
+   - manual: the camera's distance to the table and its angle, then clicking the four corners;
+   - with the Brio, its checkerboard intrinsics come first.
+5. **Nodes:** which detectors and whether RViz run.
+6. **Start:** runs `par.launch.py` with the profile; closing the wizard stops everything.
+
+Every page stores its choices in the profile when you press *Next*, comments kept. The camera and the nodes go
+into the `par_launch` section that `par.launch.py` reads, so a profile also starts without the wizard:
+`ros2 launch par_framework_core par.launch.py params_file:=<profile>`.
+
 ## Layout
 
 ```
@@ -97,7 +118,7 @@ config/nodes.list           which node repositories make up the framework
 config/ros_packages.list    released ROS packages installed instead of cloned (e.g. camera drivers)
 packages/                   this repo's own ROS packages, built together with src/
   par-framework-core/       launch files + parameters (package par_framework_core)
-    launch/                 par.launch.py (the framework: camera and nodes from the parameter file's par_launch
+    launch/                 par.launch.py (the framework: camera and nodes from the profile's par_launch
                             section, each overridable per run, e.g. camera:=kinect rviz:=true),
                             calibration.launch.py, projection_calibration.launch.py,
                             camera_pose_calibration_kinect.launch.py
@@ -105,7 +126,8 @@ packages/                   this repo's own ROS packages, built together with sr
     par_framework_core/     launch_helpers.py: node start functions shared by the launch files
   par_geometry/             library: camera pixels -> table (m) -> projector pixels
   rviz_bridge/              node: framework outputs RViz cannot show (e.g. /objects) as markers
-scripts/                    local_build.sh (clone + dependencies + build), sync_nodes.sh,
+  par_setup_wizard/         desktop setup wizard (PySide6), started with scripts/wizard.sh
+scripts/                    local_build.sh (clone + dependencies + build), wizard.sh, sync_nodes.sh,
                             run_cameracalibrator.sh
 src/                        node repositories, cloned by local_build.sh (not tracked here)
 ```
@@ -157,6 +179,7 @@ newly referenced external package (`std_msgs`, `geometry_msgs`, …) in **both**
 | `par_geometry` | this repo | library: `pixels_to_table`, `table_to_projector`, `projector_to_table` — the coordinate conversions every node shares |
 | `camera_pose_calibrator` | `ros2-par-framework-calibration` | fits the table plane in the depth camera's registered depth image and writes the camera pose to `config/calibration/extrinsics/camera_pose_<camera>.yaml` |
 | `projection_calibration_server` | `ros2-par-framework-calibration` | optional (`par.launch.py` starts it only when installed); stores the homography from `projection_calibrator` in `config/calibration/extrinsics/projection_mapping_<camera>.yaml` and the corners from `surface_selector` in `projection_corners_<camera>.yaml` next to it (one of each per camera), publishes them latched on `/projection_mapping` and `/projection_corners` |
+| `par_setup_wizard` | this repo | desktop wizard: projector display, camera, calibration, nodes and start, stored in named profiles of `par_setup.yaml` |
 | `rviz_bridge` | this repo | projects `/objects`, `/hand_landmarks`, `/fiducials`, `/projection_corners` and `/projection_mapping` onto the table as `/objects/markers`, `/hand_landmarks/markers`, `/fiducials/markers`, `/projection_corners/markers` and `/projection_mapping/markers` for RViz |
 
 Camera frames are published **best-effort, keep-last-1** — a late frame is worthless because a newer one

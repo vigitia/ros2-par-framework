@@ -12,7 +12,7 @@ added with the help of Claude Code), camera:=realsense an Intel RealSense such a
 (added with the help of Claude Code), and the launch ends once the corners are
 stored or the selection is cancelled with Esc (added with the help of Claude Code).
 Camera calibrations are config/calibration/intrinsics/camera_info_<camera>.yaml, shared by all
-parameter files (changed with the
+profiles (changed with the
 help of Claude Code).
 """
 

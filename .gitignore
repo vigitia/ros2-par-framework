@@ -1,6 +1,9 @@
-# Co-authored by Claude Code (host-only build).
+# Co-authored by Claude Code (named profiles folder, host-only build).
 # Node repositories are automatically cloned to the src/ folder and should not be commited to the core framework
 /src/
+
+# The setup wizard's named profiles; par_setup.yaml, the default profile, stays tracked.
+/packages/par-framework-core/config/profiles/
 
 # Calibration of this physical setup, written by nodes: the projection corners (from surface_selector) and the
 # table-to-projector mapping (from projection_calibrator), both by projection_calibration_server_node, the
