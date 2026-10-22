@@ -42,7 +42,7 @@ def camera_and_surface_selector(context):
         name='surface_selector_node',
         output='screen',
         emulate_tty=True,
-        # Its topic_name_frame is /camera/image_raw, which every camera publishes
+        # It subscribes to /camera/image_raw, which every camera publishes
         parameters=[LaunchConfiguration('params_file')],
         # Corners stored (projection_calibration_server_node writes them before it answers) or
         # selection cancelled: the camera and the corners owner are not needed any longer

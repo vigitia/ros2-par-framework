@@ -22,7 +22,7 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, LogInfo, OpaqueFunction
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
-from par_framework_core.launch_helpers import (CAMERA_IMAGE, camera_nodes, chosen_camera,
+from par_framework_core.launch_helpers import (camera_nodes, chosen_camera,
                                                projection_calibration_server_node,
                                                read_launch_section)
 
@@ -35,16 +35,16 @@ SWITCHES = DETECTORS + ('projection_mask', 'demo_app', 'rviz')
 # publishes on the same /camera/... topics (launch_helpers.DRIVER_REMAPPINGS); the overrides cover
 # what the cameras offer differently.
 DEPTH_CAMERA_OVERRIDES = {
-    # Raw frames: the depth cameras' drivers publish no JPEGs
-    'object_detector': {'topic_name_frame': CAMERA_IMAGE, 'use_depth': True},
+    'object_detector': {'use_depth': True},
     'fiducials_detector': {'use_depth': True},
     'hand_landmarks': {'use_depth': True},
 }
 CAMERA_OVERRIDES = {
+    # The Brio's driver passes the camera's own JPEGs through on /camera/image_raw/compressed:
+    # object_detector decodes them itself, so the driver only decodes for raw subscribers
+    'brio': {'object_detector': {'use_compressed': True}},
     'kinect': DEPTH_CAMERA_OVERRIDES,
     'realsense': DEPTH_CAMERA_OVERRIDES,
-    # Raw frames: v4l2_camera publishes JPEGs only with compressed_image_transport installed
-    'webcam': {'object_detector': {'topic_name_frame': CAMERA_IMAGE}},
 }
 RVIZ_CONFIGS = {'brio': 'par_framework_brio.rviz', 'kinect': 'par_framework_kinect.rviz',
                 'realsense': 'par_framework_realsense.rviz',
