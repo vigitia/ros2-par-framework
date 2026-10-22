@@ -8,7 +8,8 @@ The selected corners are stored by projection_calibration_server_node in
 config/calibration/extrinsics/projection_corners_<camera>.yaml (added with the help of Claude
 Code).
 camera:=kinect uses the Azure Kinect instead of the Brio, camera:=webcam a generic webcam (both
-added with the help of Claude Code), and the launch ends once the corners are
+added with the help of Claude Code), camera:=realsense an Intel RealSense such as the D435
+(added with the help of Claude Code), and the launch ends once the corners are
 stored or the selection is cancelled with Esc (added with the help of Claude Code).
 Camera calibrations are config/calibration/intrinsics/camera_info_<camera>.yaml, shared by all
 profiles (changed with the
@@ -62,7 +63,8 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'camera',
             default_value='',
-            description='brio, kinect or webcam. Empty uses par_launch.camera from params_file.'),
+            description='brio, kinect, realsense or webcam. Empty uses par_launch.camera from '
+                        'params_file.'),
 
         OpaqueFunction(function=camera_and_surface_selector),
     ])

@@ -1926,3 +1926,26 @@ frustum now longer than the camera height, the far rectangle lies below the tabl
   development would always run it. A separate launch file for apps: rejected, `par.launch.py` is the one entry point
   and already handles optional nodes the same way (`projection_mask`). Adding it to the setup wizard's node list was
   left out for now: the wizard keeps an existing `par_launch.demo_app`, it just cannot change it.
+
+## 2026-10-16: Intel RealSense (D435) as `camera:=realsense`
+
+- **What changed:** `launch_helpers.py` starts `realsense2_camera_node` as `/camera/realsense` (`realsense_driver_node`,
+  with `camera_name: realsense` for its TF frames), adds a `realsense` branch to `camera_nodes` with the mount
+  transform `world -> realsense_link`, and a `DRIVER_REMAPPINGS['realsense']` entry that maps the colour image, its
+  `camera_info` and `aligned_depth_to_color` onto the neutral `/camera/...` topics. `par_setup.yaml` holds the driver
+  parameters (colour and depth enabled and both infrared streams disabled explicitly, because the node started
+  without `rs_launch.py` streams the infrared images too; colour `1280x720x30` in `BGR8`; `align_depth.enable`) and a
+  `/realsense_tf_publisher` placeholder. `par.launch.py` gives it the Kinect's detector overrides (shared as
+  `DEPTH_CAMERA_OVERRIDES`) and a new `par_framework_realsense.rviz`; `projection_calibration.launch.py` lists it in
+  `DEPTH_CAMERAS`, so the projector-centre run works with it. The `camera:=` descriptions name it.
+- **Why:** a second depth camera next to the Kinect, without the Kinect's host-only SDK. The released driver is
+  already installed through `config/ros_packages.list`, so the framework only needed the start and the remapping.
+  Aligned depth is the driver's depth on the colour pixel grid, which is what `/camera/depth_registered/image_raw`
+  means, and its `16UC1` millimetres are what the depth consumers already read (REP 118). `BGR8` keeps
+  `/camera/image_raw` the same as the Brio's for consumers that convert with passthrough (`surface_selector`).
+  `camera_name` is set in the launch code because the remapping table and the mount transform depend on it.
+- **Alternatives:** including the driver's `rs_launch.py`: rejected, it takes its settings as launch arguments
+  instead of from `params_file`, and the remappings would have to be passed through it. Leaving the colour format at
+  the driver's `RGB8`: rejected, red and blue would swap in consumers that do not convert. Reusing the Kinect's RViz
+  config: rejected, its display names and point cloud topic are the Kinect's. Adding the camera to the setup wizard
+  was left for a separate step: the wizard handles cameras in several places (settings, pose calibration).
