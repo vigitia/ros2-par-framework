@@ -1,25 +1,24 @@
-# Nodes that make up the current ROS2 PAR Framework.
-# Co-authored by Claude Code
+# ROS2 Nodes that make up the current ROS2 PAR Framework.
+# These nodes live in their own repository for better modularity and reusability.
 #
 # One node repository per line:
 # <directory>   <git-url>   [branch]
 #
 # <directory>  name of the checkout under src/ (use the ROS package name for consistency)
-# <git-url>    cloned by scripts/sync_nodes.sh over SSH -- needs a GitHub key
-#              in your ssh-agent
+# <git-url>    scripts/sync_nodes.sh will take the URL and do the work
 # [branch]     optional; "-" or omitted means the remote's default branch
 #
 # Every node listed here will be cloned and installed automatically on setup, including
 # its package.xml + requirements.txt dependencies. From then on, the node will be available for
 # you to use, but you still decide what you need depending on your launch configuration.
+# TODO: In the future a UI should help the user to select the nodes he/she needs.
 
-
-# Framework Core:
+# Framework Core (usually always needed):
 
 custom_interfaces         git@github.com:vigitia/ros2-par-framework-interfaces.git          main
 
 
-# Calibration:
+# Calibration (everything related to intrinsic and extrinsic calibration, cameras and projectors):
 
 framework-calibration     git@github.com:vigitia/ros2-par-framework-calibration.git         main
 
@@ -31,7 +30,7 @@ azure_kinect_ros_driver   git@github.com:nlouman/azure_kinect_ros_driver_extende
 # Released packages, e.g. the RealSense driver, are installed from ros_packages.list instead
 
 
-# Sensor Processing Nodes:
+# Sensor Processing Nodes (what is needed depends on the applications you want to use):
 
 object_detector           git@github.com:vigitia/ros2-par-framework-object-detection.git    main
 fiducials_detector        git@github.com:vigitia/ros2-par-framework-fiducials.git           main

@@ -1,11 +1,8 @@
-# Co-authored by Claude Code (host-only build).
-# Node repositories are automatically cloned to the src/ folder and should not be commited to the core framework
+
+# Node repositories are cloned to the src/ folder and should not be commited
 /src/
 
-# Calibration of this physical setup, written by nodes: the projection corners (from surface_selector) and the
-# table-to-projector mapping (from projection_calibrator), both by projection_calibration_server_node, the
-# measured camera pose (camera_pose_calibrator) in calibration/extrinsics/, and the camera intrinsics
-# (cameracalibrator) in calibration/intrinsics/.
+# Calibration files belonging to a local setup
 /packages/par-framework-core/config/calibration/
 
 # colcon output, created when the workspace is built
@@ -13,10 +10,10 @@
 /install/
 /log/
 
-# Python venv for the PyPI dependencies of the nodes (scripts/local_build.sh).
+# Python venv for the PyPI dependencies
 /.venv/
 
-# Models used for e.g. the object detector node
+# Models like YOLO, SAM, etc. Used for e.g. the object detector node
 /models/
 
 __pycache__/
@@ -24,3 +21,5 @@ __pycache__/
 .pytest_cache/
 
 .idea/
+
+utils/checkerboard.png

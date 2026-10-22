@@ -2011,3 +2011,45 @@ then, the docs should not point to a tool that no longer matches the rest of the
   Kinect keeps `camera_pose_calibration_kinect.launch.py`.
 - *Keep `params_file:=` and drop `config/profiles/`.* The launch files support any parameter file without the
   wizard; only the folder and its name belonged to the wizard.
+
+## 2026-10-22: Scripts in `scripts/` rewritten for readability
+
+**What changed:** All four scripts behave as before, except for the two cases at the end. The changes:
+- One statement per line, `if` instead of `cond && action`, and named variables instead of `$1`.
+- Comments at each bash idiom: `set -euo pipefail`, `BASH_SOURCE`, `IFS=$'\t' read`, `< <(...)`, `@{upstream}`, `nullglob`, `trap ... EXIT`.
+- `common.sh`:
+  - The colours are written straight into the message strings.
+  - `have` is now `command_exists`.
+  - `NO_BRANCH` names the `-` placeholder.
+  - The two list parsers are bash loops instead of awk programs.
+  - The `package.xml` is a heredoc instead of ten `echo` lines.
+- `sync_nodes.sh`: the loop calls `clone_repo`, `update_repo` and `has_commits` instead of nesting everything.
+- `local_build.sh`: the header lists the four steps, and the code is marked with them.
+- `run_cameracalibrator.sh`:
+  - It uses `common.sh` (`die`, `command_exists`, `ROS_DISTRO` in the hint).
+  - Its Python workarounds are a commented block instead of a one-line string.
+  - The board path in the header is corrected to `utils/checkerboard.png`.
+
+**Behaviour changes:**
+- *A failed `git fetch` (e.g. offline)* used to stop the whole sync through `set -e`. Now that repository is skipped with a warning, like the other cases where a checkout is left untouched. The explicit check was necessary anyway: `set -e` does not apply inside a function that is called as a condition (`update_repo || continue`), so the error would otherwise have gone unnoticed and been reported as a failed fast-forward.
+- *An existing but empty checkout* is now reported as "repository is empty" and counted as a failure. Before, `rev-parse --abbrev-ref HEAD` stopped the script with a git error. That is why `has_commits` runs before `update_repo`.
+
+**Decisions:**
+- *Bash loops instead of awk,* so the reader needs only one language. The new parsers were checked against the awk versions with the real lists and with test lists: comments, indentation, a missing branch, extra words, a last line without a line break, invalid lines. Output and exit codes matched; only the order of stdout and stderr differs, because awk buffers its output.
+- *For the calibrator, the Python code goes into a variable with a heredoc and runs with `python3 -c "$code"`, not `python3 - <<EOF`.* With `-`, the program would be read from stdin and `sys.argv[0]` would change, and the calibrator can only be tested with a camera. `read -d ''` was rejected because it returns 1 at the end of the text and would trigger `set -e`.
+- *Kept:* the `-` placeholder for a missing branch, because `read` with a tab as separator merges empty fields, and the output format of the helpers.
+
+## 2026-10-22: `utils/generate_checkerboard.py` made more readable
+
+**What changed:** The readability and unit-in-the-name rules applied to a manual revision that was already in progress (`SQUARE` → `SQUARE_SIZE_PX`, check and output removed):
+- `MARGIN` is now `MARGIN_PX`, and `COLS` and `ROWS` are on separate lines.
+- The black-and-white pattern is built in named steps (`row_index + col_index` odd → `WHITE`) instead of one chained expression.
+- `np.kron` and the border call are commented and use keyword arguments.
+- The detection check is back as an explicit `if not found: raise RuntimeError(...)`. It runs before the file is written.
+
+**Why:** After the manual revision, the `findChessboardCorners` result went unused while the docstring still promised the check. A board that OpenCV does not detect is useless to cameracalibrator, so it is better to fail before writing it.
+
+**Decisions:**
+- *Check restored instead of removing the dead line,* as decided in the conversation.
+- *`np.kron` kept* instead of two nested `np.repeat` calls: it is shorter, and with the comment just as clear.
+- *Checked:* a copy of the script, run outside `utils/`, produces a board that is pixel-identical to the tracked `checkerboard.png`.
