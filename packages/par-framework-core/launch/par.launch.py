@@ -41,8 +41,10 @@ DEPTH_CAMERA_OVERRIDES = {
 }
 CAMERA_OVERRIDES = {
     # The Brio's driver passes the camera's own JPEGs through on /camera/image_raw/compressed:
-    # object_detector decodes them itself, so the driver only decodes for raw subscribers
-    'brio': {'object_detector': {'use_compressed': True}},
+    # object_detector and fiducials_detector decode them themselves, so the driver only decodes
+    # for raw subscribers
+    'brio': {'object_detector': {'use_compressed': True},
+             'fiducials_detector': {'use_compressed': True}},
     'kinect': DEPTH_CAMERA_OVERRIDES,
     'realsense': DEPTH_CAMERA_OVERRIDES,
 }
