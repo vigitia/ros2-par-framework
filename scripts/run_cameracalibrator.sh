@@ -9,7 +9,7 @@
 # Some cameras such as the Azure Kinect do not need this script. Their driver already publishes its factory calibration.
 
 # It works on the framework's camera topics /camera/image_raw and /camera/set_camera_info, which the launch
-# files remap every camera driver onto (launch_helpers.DRIVER_REMAPPINGS).
+# files remap every camera driver onto (launch_helpers.CAMERA_DRIVER_REMAPPINGS).
 # CAMERA_NAMESPACE points it at a camera node outside the framework, e.g.
 #   CAMERA_NAMESPACE=/my_camera scripts/run_cameracalibrator.sh 0.031
 #
