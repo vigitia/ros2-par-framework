@@ -24,19 +24,18 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction, Shutdown
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
-from par_framework_core.launch_helpers import (camera_nodes, chosen_camera,
-                                               projection_calibration_server_node)
+from par_framework_core.launch_helpers import (create_camera_nodes,
+                                               create_projection_calibration_server_node,
+                                               get_chosen_camera)
 
 PACKAGE_NAME = 'par_framework_core'
 
 
 # Written by Claude Code
-def camera_and_surface_selector(context):
-    """Start the chosen camera, the surface selector on its image and the corners owner."""
-    camera = chosen_camera(context)
-    # The corners owner stores what surface_selector sends, in the camera's own file, and
-    # publishes it on /projection_corners
-    return camera_nodes(context, camera) + projection_calibration_server_node(camera) + [Node(
+def create_camera_and_surface_selector(context):
+    """Create the chosen camera, the surface selector on its image and the corners owner."""
+    camera = get_chosen_camera(context)
+    surface_selector_node = Node(
         package='surface_selector',
         executable='surface_selector',
         name='surface_selector_node',
@@ -47,18 +46,23 @@ def camera_and_surface_selector(context):
         # Corners stored (projection_calibration_server_node writes them before it answers) or
         # selection cancelled: the camera and the corners owner are not needed any longer
         on_exit=Shutdown(reason='projection corners selected'),
-    )]
+    )
+    # The corners owner stores what surface_selector sends, in the camera's own file, and
+    # publishes it on /projection_corners
+    return [*create_camera_nodes(context, camera),
+            *create_projection_calibration_server_node(camera),
+            surface_selector_node]
 
 
 # Co-authored by Claude Code
 def generate_launch_description():
-    default_params = os.path.join(
+    default_params_file_path = os.path.join(
         get_package_share_directory(PACKAGE_NAME), 'config', 'par_setup.yaml')
 
     return LaunchDescription([
         DeclareLaunchArgument(
             'params_file',
-            default_value=default_params,
+            default_value=default_params_file_path,
             description='Parameter file describing this physical PAR setup.'),
         DeclareLaunchArgument(
             'camera',
@@ -66,5 +70,5 @@ def generate_launch_description():
             description='brio, kinect, realsense or webcam. Empty uses par_launch.camera from '
                         'params_file.'),
 
-        OpaqueFunction(function=camera_and_surface_selector),
+        OpaqueFunction(function=create_camera_and_surface_selector),
     ])

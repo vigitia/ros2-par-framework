@@ -18,17 +18,22 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction, Shutdown
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
-from par_framework_core.launch_helpers import config_file, EXTRINSICS, kinect_driver_node
+from par_framework_core.launch_helpers import (create_kinect_driver_node, FOLDER_PATH_EXTRINSICS,
+                                               get_path_in_config_folder, POSE_ROTATION_KEYS)
 import yaml
 
 PACKAGE_NAME = 'par_framework_core'
 
 
 def launch_setup(context):
-    with open(LaunchConfiguration('params_file').perform(context)) as f:
-        placeholder = yaml.safe_load(f)['/kinect_tf_publisher']['ros__parameters']
+    params_file_path = LaunchConfiguration('params_file').perform(context)
+    with open(params_file_path) as params_file:
+        placeholder_pose = yaml.safe_load(params_file)['/kinect_tf_publisher']['ros__parameters']
+    placeholder_rotation = [float(placeholder_pose[key]) for key in POSE_ROTATION_KEYS]
+    camera_pose_relative_path = f'{FOLDER_PATH_EXTRINSICS}/camera_pose_kinect.yaml'
+    camera_pose_file_path = get_path_in_config_folder(camera_pose_relative_path)
     return [
-        kinect_driver_node(context),
+        create_kinect_driver_node(context),
         Node(
             package='camera_pose_calibrator',
             executable='camera_pose_calibrator',
@@ -36,10 +41,9 @@ def launch_setup(context):
             output='screen',
             emulate_tty=True,
             parameters=[{
-                'camera_pose_file': config_file(f'{EXTRINSICS}/camera_pose_kinect.yaml'),
+                'camera_pose_file': camera_pose_file_path,
                 'base_frame': 'camera_base',
-                'placeholder_rotation': [float(placeholder[f'rotation.{axis}'])
-                                         for axis in 'xyzw'],
+                'placeholder_rotation': placeholder_rotation,
             }],
             # The driver is remapped onto /camera/..., where the calibrator subscribes
             # Stored or failed: the camera is not needed any longer
@@ -49,13 +53,13 @@ def launch_setup(context):
 
 
 def generate_launch_description():
-    default_params = os.path.join(
+    default_params_file_path = os.path.join(
         get_package_share_directory(PACKAGE_NAME), 'config', 'par_setup.yaml')
 
     return LaunchDescription([
         DeclareLaunchArgument(
             'params_file',
-            default_value=default_params,
+            default_value=default_params_file_path,
             description='Parameter file describing this physical PAR setup.'),
         OpaqueFunction(function=launch_setup),
     ])

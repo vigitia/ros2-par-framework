@@ -29,8 +29,9 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction, Shutdown
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
-from par_framework_core.launch_helpers import (camera_nodes, chosen_camera,
-                                               projection_calibration_server_node)
+from par_framework_core.launch_helpers import (create_camera_nodes,
+                                               create_projection_calibration_server_node,
+                                               get_chosen_camera)
 
 PACKAGE_NAME = 'par_framework_core'
 # Cameras with depth registered to the colour image, which the projector centre step needs
@@ -38,51 +39,52 @@ DEPTH_CAMERAS = ('kinect', 'realsense')
 
 
 def launch_setup(context):
-    camera = chosen_camera(context)
-    params_file = LaunchConfiguration('params_file')
-    projector_center = LaunchConfiguration('projector_center').perform(context)
-    if projector_center not in ('true', 'false'):
+    camera = get_chosen_camera(context)
+    params_file_path = LaunchConfiguration('params_file')
+    projector_center_argument = LaunchConfiguration('projector_center').perform(context)
+    if projector_center_argument not in ('true', 'false'):
         raise RuntimeError(f'[projection_calibration.launch]: '
-                           f'projector_center:={projector_center}: use true or false')
-    projector_center = projector_center == 'true'
-    if projector_center and camera not in DEPTH_CAMERAS:
+                           f'projector_center:={projector_center_argument}: use true or false')
+    is_projector_center_run = projector_center_argument == 'true'
+    if is_projector_center_run and camera not in DEPTH_CAMERAS:
         raise RuntimeError(f'[projection_calibration.launch]: projector_center:=true needs a '
                            f'depth camera, but the camera is {camera}: run it with '
                            f'camera:=kinect or camera:=realsense')
+    fiducials_detector_node = Node(
+        package='fiducials_detector',
+        executable='fiducials_detector',
+        name='fiducials_detector_node',
+        output='screen',
+        emulate_tty=True,
+        # The projector centre needs the markers in 3D (corners_3d)
+        parameters=[params_file_path, {'use_depth': is_projector_center_run}],
+    )
+    projection_calibrator_node = Node(
+        package='surface_selector',
+        executable='projection_calibrator',
+        name='projection_calibrator_node',
+        output='screen',
+        emulate_tty=True,
+        parameters=[params_file_path, {'projector_center': is_projector_center_run}],
+        # Stored or failed: the camera and the projector are not needed any longer
+        on_exit=Shutdown(reason='projection calibration finished'),
+    )
     # The calibration converts camera pixels to the table plane, so the camera pose is needed.
-    # The camera publishes on /camera/..., where both nodes below subscribe
-    return camera_nodes(context, camera) + [
-        Node(
-            package='fiducials_detector',
-            executable='fiducials_detector',
-            name='fiducials_detector_node',
-            output='screen',
-            emulate_tty=True,
-            # The projector centre needs the markers in 3D (corners_3d)
-            parameters=[params_file, {'use_depth': projector_center}],
-        ),
-        *projection_calibration_server_node(camera),
-        Node(
-            package='surface_selector',
-            executable='projection_calibrator',
-            name='projection_calibrator_node',
-            output='screen',
-            emulate_tty=True,
-            parameters=[params_file, {'projector_center': projector_center}],
-            # Stored or failed: the camera and the projector are not needed any longer
-            on_exit=Shutdown(reason='projection calibration finished'),
-        ),
-    ]
+    # The camera publishes on /camera/..., where both nodes subscribe
+    return [*create_camera_nodes(context, camera),
+            fiducials_detector_node,
+            *create_projection_calibration_server_node(camera),
+            projection_calibrator_node]
 
 
 def generate_launch_description():
-    default_params = os.path.join(
+    default_params_file_path = os.path.join(
         get_package_share_directory(PACKAGE_NAME), 'config', 'par_setup.yaml')
 
     return LaunchDescription([
         DeclareLaunchArgument(
             'params_file',
-            default_value=default_params,
+            default_value=default_params_file_path,
             description='Parameter file describing this physical PAR setup.'),
         DeclareLaunchArgument(
             'camera',

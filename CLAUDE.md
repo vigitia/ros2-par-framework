@@ -2,47 +2,38 @@
 
 <!-- Co-authored by Claude Code -->
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guidance for Claude Code (claude.ai/code) in this repository.
 
 ## What this repository is
 
-Core repository of a projected augmented reality (PAR) framework on ROS 2 — a camera and a projector aimed at
-the same surface. It declares which repos make up a setup (`config/nodes.list`)
-and provides the launch files and per-setup parameters that compose them. Its own source is limited to what every setup builds.
+Core repo of a projected augmented reality (PAR) framework on ROS 2: a camera and a projector aimed at the same
+surface. It declares which repos make up a setup (`config/nodes.list`) and holds the launch files, the per-setup
+parameters and the source every setup builds.
 
-**Where a package belongs.** Ask in this order; the first yes decides:
+**Where a package belongs** (first yes decides):
 
-1. **Useful outside the framework?** (a camera driver, a detector) → its own repo under `github.com/vigitia`, or a
-   public third-party repo.
-2. **A shared library other repos build on, or tooling to set up and inspect the framework?** (`par_geometry`,
-   `rviz_bridge`) → this repo, under `packages/`.
-3. **Otherwise it is a framework capability** (calibration, projection mask) → its own repo under
-   `github.com/vigitia`, even though it only makes sense inside the framework. A setup gets it through its line in
-   `config/nodes.list`. Nothing in this repo declares it as a dependency, and `par.launch.py` starts it only when it
-   is installed (`has_resource('packages', …)`), otherwise it logs which repo to add.
+1. Useful outside the framework (camera driver, detector)? → own repo under `github.com/vigitia`, or a public
+   third-party repo.
+2. Shared library or setup/inspection tooling (`par_geometry`, `rviz_bridge`)? → this repo, its own directory under
+   `packages/` (`local_build.sh` takes `packages/` as a whole, no path changes needed).
+3. Otherwise a framework capability (calibration, projection mask) → own repo under `github.com/vigitia`, added to a
+   setup through `config/nodes.list`. Nothing here declares it as a dependency; `par.launch.py` starts it only when
+   installed (`has_resource('packages', …)`), otherwise it logs which repo to add.
 
-Capability repos today: `ros2-par-framework-calibration` (below) and `ros2-par-framework-projection-mask`.
+`packages/par-framework-core/` (package `par_framework_core`) holds launch files and `config/par_setup.yaml` only,
+no nodes.
 
-**Calibration is a framework capability** (rule 3). The framework runs without any calibration, in camera pixels:
-an application that, say, detects gestures and changes what is projected needs none. Everything that produces or
-serves a calibration — camera pose, projection corners, projection mapping, and the node that loads and publishes
-them latched — belongs in `ros2-par-framework-calibration`; adding that repo to a setup is what makes it fully
-calibrated. So a node that can work without calibration must: it publishes camera pixels always and adds table or
-projector coordinates only when the calibration is there (e.g. `gesture_detector`: `pixel` always, `position` with
-`position_valid`), instead of publishing nothing. Camera intrinsics are not part of this split: they belong to the
-camera and travel on ROS's standard `camera_info` channel, so `launch_helpers` setting each driver's
-`camera_info_url` and `scripts/run_cameracalibrator.sh` stay here. The calibration repo holds three packages one level
-down (`surface_selector`, `camera_pose_calibrator`, `projection_calibration_server`); `par_framework_core` declares
-none of them, `par.launch.py` starts the server only when it is installed, and the calibration launch files here need
-the repo.
-
-This repo's own ROS packages live under `packages/`, which `local_build.sh` takes as a whole, so a
-new package there needs no path changes. `packages/par-framework-core/` (package `par_framework_core`) holds the
-launch files and `config/par_setup.yaml` only, no nodes. New core packages (rule 2) get their own package directory next to it.
+**Calibration is optional.** The framework runs uncalibrated, in camera pixels. Camera pose, projection corners,
+projection mapping and the server that publishes them latched live in `ros2-par-framework-calibration` (packages
+`surface_selector`, `camera_pose_calibrator`, `projection_calibration_server`, one level down); the calibration launch
+files here need that repo. A node that can work without calibration must: publish camera pixels always, add table or
+projector coordinates only when calibrated (e.g. `gesture_detector`: `pixel` always, `position` with
+`position_valid`). Camera intrinsics are not part of this split, they belong to the camera (`camera_info`), so
+`launch_helpers` (`camera_info_url`) and `scripts/run_cameracalibrator.sh` stay here.
 
 ## Commands
 
-Everything runs on the host. ROS's setup scripts only source in bash, so the scripts and manual commands run there.
+Everything runs on the host, in bash (ROS's setup scripts only source there).
 
 ```bash
 ./scripts/local_build.sh [pkg]      # clone nodes, rosdep, .venv, colcon build --symlink-install; safe to re-run
@@ -54,11 +45,9 @@ ros2 launch par_framework_core par.launch.py camera:=kinect rviz:=true   # one e
 ros2 launch par_framework_core calibration.launch.py display_id:=1
 ```
 
-Tests are the standard `ament` lint suite each package carries (`test_flake8`, `test_pep257`,
-`test_copyright`) — linting *is* the test suite here:
+Tests are the `ament` lint suite each package carries (`test_flake8`, `test_pep257`, `test_copyright`):
 
 ```bash
-# sourced as above
 colcon test --packages-select logitech_brio
 colcon test-result --all --verbose        # colcon test's own exit status hides failures; read results here
 colcon test --packages-select logitech_brio --pytest-args -k flake8
@@ -66,137 +55,98 @@ colcon test --packages-select logitech_brio --pytest-args -k flake8
 
 ## Architecture
 
-**Source in `src/`, dependencies from the manifests.** `scripts/sync_nodes.sh` clones each entry of
-`config/nodes.list` into `src/`; each node stays its own git repo. `scripts/local_build.sh` resolves the
-`package.xml` of every package with `rosdep` and all `requirements.txt` with one `pip` call into `.venv`
-(`--system-site-packages`, so apt's rclpy stays importable), then builds with `.venv/bin/python -m colcon`.
-All `requirements.txt` go into a single `pip install` on purpose: conflicting pins fail the install instead of
-one node silently overwriting another's.
+**Build.** `scripts/sync_nodes.sh` clones each `config/nodes.list` entry into `src/` (each stays its own git repo).
+`local_build.sh` resolves every `package.xml` with rosdep, installs all `requirements.txt` in **one** `pip` call into
+`.venv` (`--system-site-packages`, so apt's rclpy stays importable) so conflicting pins fail instead of silently
+overwriting each other, then builds with `.venv/bin/python -m colcon`.
 
-**Adding a node** = one line in `config/nodes.list`, then `./scripts/local_build.sh`. Nothing else — the
-dependency steps are generic. A node repo needs a colcon-buildable package with a `package.xml` that declares
-all its dependencies — `ament_python` or `ament_cmake` both work (`par_framework_interfaces` and
-`azure_kinect_ros_driver` are CMake). Our own nodes are `ament_python` by convention (see below); third-party
-repos keep whatever they use, but one written for an older distro may not build on this one without a fork.
-PyPI deps go in an optional `requirements.txt` at the repo root. Every repo currently puts its package at the root; staging also
-tolerates a package one level down, or several per repo, keying each by the declared `<name>` rather than the
-directory name.
+**Adding a node** = one line in `config/nodes.list`, then `./scripts/local_build.sh`. The repo needs a
+colcon-buildable package whose `package.xml` declares all dependencies (`ament_python` or `ament_cmake`; our own are
+`ament_python`), PyPI deps in an optional root `requirements.txt`. Packages may sit at the root, one level down, or
+several per repo; each is keyed by its `<name>`. A third-party repo written for an older distro may need a fork.
 
-**Released packages** used unchanged (`v4l2_camera` for the webcam, `realsense2_camera`) are not cloned: they are
-rosdep keys in `config/ros_packages.list`. `scripts/common.sh` (`write_ros_packages_manifest`) turns the list into a
-generated `package.xml` that `local_build.sh`'s rosdep call reads from a temporary directory. So camera drivers
-stay optional: `par_framework_core` declares none of them. The Azure Kinect SDK (`K4A`) has no rosdep rule and is
-installed by hand, so rosdep runs with `--skip-keys K4A`, and nothing in `par_framework_core` may declare the Kinect
-driver, or a Brio-only build breaks.
+**Released packages** (`v4l2_camera`, `realsense2_camera`) are not cloned: they are rosdep keys in
+`config/ros_packages.list`, turned into a generated `package.xml` by `write_ros_packages_manifest` in
+`scripts/common.sh`. So camera drivers stay optional and `par_framework_core` declares none. The Kinect SDK (`K4A`) is
+installed by hand (rosdep runs with `--skip-keys K4A`); nothing in core may declare the Kinect driver, or a Brio-only
+build breaks.
 
-### Custom interfaces
+**Interfaces.** All `.msg`/`.srv`/`.action` live in `par_framework_interfaces` (repo `ros2-par-framework-interfaces`),
+which is `ament_cmake` because `rosidl_generate_interfaces()` is a CMake macro, so interfaces can never move into a
+Python node. Nodes ported from VIGITIA import it as `custom_interfaces`; rename those imports and `<depend>` entries.
+Adding an interface takes three edits: (1) the file, (2) its path in `rosidl_generate_interfaces()`, (3) any newly
+referenced external package in **both** `DEPENDENCIES` in `CMakeLists.txt` **and** `<depend>` in `package.xml`. The
+third gets forgotten: rosdep reads only `package.xml`, so a CMake-only dependency builds by luck. Changing a
+definition or adding an external dependency needs `./scripts/local_build.sh`.
 
-All `.msg`, `.srv` and `.action` definitions live in one package, `par_framework_interfaces`, from
-`ros2-par-framework-interfaces`. It is `ament_cmake` because `rosidl_generate_interfaces()` is a CMake macro —
-interfaces **cannot** be generated from an `ament_python` package, so they can never be folded into a node.
-Nodes ported from the older VIGITIA framework import it under its old name, `custom_interfaces`; change those
-imports and `<depend>` entries to `par_framework_interfaces`.
+**Per-setup values are parameters** in `packages/par-framework-core/config/par_setup.yaml`, keyed by node name, never
+hardware constants in node source. A namespaced node needs its full name (e.g. `/camera/brio/logitech_brio_node`); a
+bare name is silently ignored.
 
-Adding an interface means three edits, and the third is the one that gets forgotten:
-1. the `.msg`/`.srv`/`.action` file;
-2. its path in the `rosidl_generate_interfaces()` list in `CMakeLists.txt`;
-3. any newly referenced external package in **both** `DEPENDENCIES` in `CMakeLists.txt` **and** as `<depend>`
-   in `package.xml`. rosdep resolves dependencies from `package.xml` alone, so a package declared only in
-   CMake builds by luck — it works while the installed `ros-desktop` happens to ship it and breaks on a slimmer
-   install.
+**Node package convention:** `<pkg>/<pkg>_node.py` does only the ROS work (the `Node` subclass, topics, services,
+`declare_parameter` with `ParameterDescriptor`, message conversion, `main()` as `console_scripts` entry point). All
+other logic lives in other modules (`<pkg>/<pkg>.py` or more) that import nothing from `rclpy` or message packages and
+take plain Python/NumPy values, so it is testable with plain pytest and reusable outside the node.
 
-Consumers declare `<depend>par_framework_interfaces</depend>` and import `from par_framework_interfaces.msg import Object`.
-Changing an existing definition or pulling in a new *external* message package needs `./scripts/local_build.sh`
-(rosdep installs the new dependency, colcon rebuilds dependents in order).
+### Cameras
 
-**Per-setup values are parameters.** Camera index, resolution, projector display live in
-`packages/par-framework-core/config/par_setup.yaml`, keyed by node name, and are handed to nodes by the launch files. Hardware
-constants belong there, not in node source. A node in a namespace (the Brio sets `/camera/brio` in code) must
-be keyed by its full name, e.g. `/camera/brio/logitech_brio_node` — a bare name is silently ignored.
+Framework nodes subscribe to neutral names: `/camera/image_raw`, `/camera/camera_info`, `/camera/set_camera_info` and,
+from a depth camera, `/camera/depth_registered/image_raw` (depth on the colour image's pixel grid). `object_detector`
+with `use_compressed` takes `/camera/image_raw/compressed` instead (`par.launch.py` sets it for the Brio, the only
+driver publishing JPEGs). Drivers keep their own topics; launch files remap them with
+`launch_helpers.CAMERA_DRIVER_REMAPPINGS`, the only place that knows them. A new camera = a driver start in
+`launch_helpers` plus its entry there. Nodes hard-code the neutral names; another topic is chosen by remapping, not by
+parameter.
 
-**Node package convention** (follow it for every new node): `<pkg>/<pkg>_node.py` does only the ROS work,
-where possible — the `rclpy.node.Node` subclass with its topics, services, `declare_parameter` with
-`ParameterDescriptor`, message conversion, and the `main()` that `setup.py` exposes as a `console_scripts` entry
-point. All other logic (device access, algorithms, geometry, display) lives in other Python files of the package,
-`<pkg>/<pkg>.py` or more where it helps, which import nothing from `rclpy` or the message packages. The node calls
-into them with plain Python and NumPy values. That keeps the logic testable with plain pytest, without a running
-ROS graph, and reusable outside the node.
+Intrinsics: `config/calibration/intrinsics/camera_info_<camera>.yaml` (gitignored), set as `camera_info_url` by
+`launch_helpers`, written by `scripts/run_cameracalibrator.sh`. The Kinect publishes its factory calibration instead.
 
-### Current pipeline
+`page_locator` turns `/fiducials` into `/pages` (`PageList`, corners in camera pixels) for sheets with markers
+`4n .. 4n+3`; the `marker_*` layout in `par_setup.yaml` must match the paper (default: VIGITIA document pages, ids
+96–99; `make_page_template` prints them).
 
-**The camera interface is neutral.** Whichever camera runs, the framework nodes subscribe to `/camera/image_raw`
-(`object_detector` with `use_compressed` instead takes the JPEGs a driver passes through on
-`/camera/image_raw/compressed`; `par.launch.py` sets it for the Brio, the only driver that publishes them),
-`/camera/camera_info`, `/camera/set_camera_info` and,
-from a depth camera, `/camera/depth_registered/image_raw` (depth on the colour image's pixel grid). The drivers keep
-their own names (`/camera/brio/...`, the Kinect's `/rgb/...` and `/depth_to_rgb/...`, `/camera/webcam/...`); where a
-launch file starts a driver, it remaps it onto the neutral names with `launch_helpers.DRIVER_REMAPPINGS`, so that table
-is the only place that knows a driver's topics. A new camera = a driver start in `launch_helpers` plus its entry
-there, and no consumer changes. Nodes take these names as constants, not as parameters: another topic is chosen by
-remapping, ROS 2's own mechanism. `surface_selector` consumes frames to mark the projection area. `page_locator` turns `/fiducials` into `/pages` (`par_framework_interfaces/PageList`, every frame, corners
-in camera pixels): sheets with markers `4n .. 4n+3` in their corners, located by one homography to the printed layout,
-so the `marker_*` layout in `par_setup.yaml` must match the paper (default: the VIGITIA document pages, ids 96-99;
-`make_page_template` prints matching pages). Camera intrinsics are
-`config/calibration/intrinsics/camera_info_<camera>.yaml` (gitignored, one per camera type): `launch_helpers`
-sets each camera's `camera_info_url` there, and `scripts/run_cameracalibrator.sh` writes it through the camera's
-`set_camera_info`. The Kinect driver publishes its factory calibration instead.
-
-**QoS is a trap here.** Frames are published BEST_EFFORT / KEEP_LAST depth 1. A subscriber on the default
-reliable profile — including the shorthand of passing an int depth as `qos_profile` — is QoS-incompatible and
-receives nothing, silently and without error. New image subscribers must request
-`QoSReliabilityPolicy.BEST_EFFORT` explicitly. For third-party subscribers that can't be changed, the Brio's
-`qos_reliability: reliable` (and `encoding: rgb8` for nodes that expect RGB) in `par_setup.yaml` is the switch.
-
-The opposite trap for rarely changing state: `/projection_corners` and `/projection_mapping` are published latched
-(RELIABLE + TRANSIENT_LOCAL, depth 1, like `/tf_static`). A subscriber must request
-`QoSDurabilityPolicy.TRANSIENT_LOCAL`, otherwise it only receives the next change and a node started later sees
-nothing.
+**QoS traps:**
+- Frames are BEST_EFFORT / KEEP_LAST depth 1. A reliable subscriber (including passing an int depth as
+  `qos_profile`) silently receives nothing; request `QoSReliabilityPolicy.BEST_EFFORT`. For third-party subscribers
+  that can't be changed, set the Brio's `qos_reliability: reliable` (and `encoding: rgb8`) in `par_setup.yaml`.
+- `/projection_corners` and `/projection_mapping` are latched (RELIABLE + TRANSIENT_LOCAL, depth 1). Subscribers must
+  request `QoSDurabilityPolicy.TRANSIENT_LOCAL`, or a node started later sees nothing.
 
 ### Coordinates: camera pixels → table → projector pixels
 
-Detectors publish in pixels of the raw camera image. The common currency is the **table plane in metres**: z = 0
-of `world`, whose pose relative to the camera is `/brio_tf_publisher` in `par_setup.yaml`.
-- camera pixels → table: `par_geometry.pixels_to_table` (undistorts with `camera_info`, intersects the rays with
-  the plane via TF);
-- table → projector pixels: the homography on the latched `/projection_mapping`
-  (`par_framework_interfaces/ProjectionMapping`), applied with `par_geometry.table_to_projector` /
-  `projector_to_table`.
+Detectors publish raw camera pixels. The common currency is the **table plane in metres**, z = 0 of `world` (pose
+from `/brio_tf_publisher` in `par_setup.yaml`). Consumers convert locally with `par_geometry`, the one place for this
+math (no service per point, no images through services):
+- camera pixels → table: `pixels_to_table` (undistorts with `camera_info`, intersects the rays with the plane via TF);
+- table ↔ projector pixels: `table_to_projector` / `projector_to_table`, with the homography on the latched
+  `/projection_mapping` (`ProjectionMapping`).
 
-Consumers convert locally with `par_geometry`, the one place for this math. They do not call a service per point,
-and images never go through a service. The mapping comes from `projection_calibration.launch.py`: the projector
-shows ArUco markers (ids 50–58, `marker_ids` in `par_setup.yaml`; not 90–98, the VIGITIA document pages use 96–99) at known pixels, `fiducials_detector` finds them, and `projection_calibrator` (in
-`surface_selector`) fits the homography and sends it to `projection_calibration_server_node` (its own package in the
-calibration repo, which also holds the
-clicked projection corners), which stores
-`config/calibration/extrinsics/projection_mapping_<camera>.yaml` (`brio` or `kinect`), next to the camera poses
-(`camera_pose_<camera>.yaml`) and the projection corners. One file per camera, because
-while the camera poses are placeholders each camera has its own table plane, so a mapping only fits the camera it was
-calibrated with.
+The mapping comes from `projection_calibration.launch.py`: the projector shows ArUco ids 50–58 (`marker_ids`; must
+not clash with the document pages' 96–99), `fiducials_detector` finds them, `projection_calibrator` (in
+`surface_selector`) fits the homography, and `projection_calibration_server_node` stores it as
+`config/calibration/extrinsics/projection_mapping_<camera>.yaml`, next to `camera_pose_<camera>.yaml` and the
+projection corners. One file per camera, because while the poses are placeholders each camera has its own table plane.
 
-Because both steps use the same plane, projection accuracy does not depend on the camera pose being exact; the
-metric scale in RViz does. Points above the table (hands) land offset by parallax: the homography only covers
-the plane. A second run, `projection_calibration.launch.py camera:=kinect projector_center:=true`, adds the
-projector's optical centre to the mapping (`projector_center`, valid when `projector_center_valid`): a board moved
-through the projection, located in 3D by the depth camera, gives one projector ray per marker corner, and the rays
-meet at the centre. With it, `par_geometry.project_to_table` moves a point above the table along its projector ray
-onto the table, and the homography then gives the pixel that lights it. Re-running the homography clears the
-centre (if the projector moved, the old one is wrong). The clicked `/projection_corners` are a manual fallback and are named in camera terms, not
-projector terms.
+Both steps use the same plane, so projection accuracy does not depend on an exact camera pose (RViz's metric scale
+does). Points above the table (hands) land offset by parallax. A second run,
+`projection_calibration.launch.py camera:=kinect projector_center:=true`, adds the projector's optical centre
+(`projector_center`, valid when `projector_center_valid`) from marker rays located in 3D by the depth camera; with it,
+`par_geometry.project_to_table` moves a raised point along its projector ray onto the table. Re-running the homography
+clears the centre. The clicked `/projection_corners` are a manual fallback, named in camera terms.
 
 ### Projector masks
 
-Two images in projector pixels (`sensor_msgs/Image`, mono8, the projector's resolution, BEST_EFFORT depth 1, like
-frames). Apps that project content apply or publish them; the framework has no central projector window.
-- `/projector/mask`, from `projection_mask` (capability repo): 255 where the light would hit a hand or an object
-  higher than `min_height` above the table. An app applies it with `frame[mask > 0] = 0`. Needs a depth camera and
-  the mapping; without the projector centre it assumes light straight down.
-- `/projector/content_mask`, a convention only, published by apps: 255 where the app draws content, e.g.
-  `frame.max(axis=2) > threshold`. Nothing consumes it yet; reading the screen instead was rejected (Wayland only
-  allows it through the portal with user consent, not from a container, and with extra delay).
+mono8 images in projector pixels at the projector's resolution, BEST_EFFORT depth 1. There is no central projector
+window; apps apply or publish them.
+- `/projector/mask` (from the `projection_mask` capability): 255 where the light would hit something higher than
+  `min_height`; apply with `frame[mask > 0] = 0`. Needs a depth camera and the mapping; without the projector centre
+  it assumes light straight down.
+- `/projector/content_mask`: a convention, published by apps, 255 where they draw content. Nothing consumes it yet.
+  Reading the screen instead was rejected (Wayland allows it only through the portal with user consent, not from a
+  container, and with extra delay).
 
-## Conventions in this repo
+## Conventions
 
-Shell scripts source `scripts/common.sh` for `step`/`ok`/`warn`/`die` logging and `ROS_DISTRO`; they run
-under `set -euo pipefail`, so pipelines whose left side legitimately exits non-zero need explicit handling.
-Every failure message should name the command that fixes it — `local_build.sh` is meant to be runnable by
-someone sitting at a fresh computer.
+Shell scripts source `scripts/common.sh` (`step`/`ok`/`warn`/`die`, `ROS_DISTRO`) and run under `set -euo pipefail`,
+so pipelines whose left side may legitimately exit non-zero need explicit handling. Every failure message names the
+command that fixes it: `local_build.sh` must work for someone at a fresh computer.

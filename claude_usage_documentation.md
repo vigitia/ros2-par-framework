@@ -2082,7 +2082,7 @@ then, the docs should not point to a tool that no longer matches the rest of the
 
 ## 2026-10-22: camera frame topic chosen by remapping, compressed frames by `use_compressed`
 
-**What changed:** `par.launch.py` no longer sets `topic_name_frame`: the frame consumers (`hand_landmarks`, `fiducials_detector`, `object_detector`) subscribe to the constant `/camera/image_raw` and lost the parameter. `object_detector` has a new bool parameter `use_compressed` (default false) that subscribes to `/camera/image_raw/compressed` as `CompressedImage`; `CAMERA_OVERRIDES` sets it for the Brio, whose driver passes the camera's JPEGs through. The depth cameras' and the webcam's overrides that switched `object_detector` back to raw are gone, and with them the `CAMERA_IMAGE` import.
+**What changed:** `par.launch.py` no longer sets `topic_name_frame`: the frame consumers (`hand_landmarks`, `fiducials_detector`, `object_detector`) subscribe to the constant `/camera/image_raw` and lost the parameter. `object_detector` has a new bool parameter `use_compressed` (default false) that subscribes to `/camera/image_raw/compressed` as `CompressedImage`; `CAMERA_OVERRIDES` sets it for the Brio, whose driver passes the camera's JPEGs through. The depth cameras' and the webcam's overrides that switched `object_detector` back to raw are gone, and with them the `DEFAULT_TOPIC_NAME_CAMERA_IMAGE` import.
 
 **Why:** remapping is ROS 2's own way to point a node at another topic and works for every topic; the frame topic was the only input chosen by parameter, set by nothing but the switch between raw and compressed. Raw is the one colour topic every camera provides, so it is the default in every node; the compressed variant only exists where a driver publishes it, which the launch file knows per camera.
 
@@ -2101,3 +2101,110 @@ then, the docs should not point to a tool that no longer matches the rest of the
 **Why:** completes the previous entry for the last node with the parameter, and records the convention where the next change to a node will look for it.
 
 **Alternatives:** leaving the convention to the code alone: rejected, a new node would likely copy the old parameter from an older node.
+
+## 2026-10-23: reorder `launch_helpers.py`
+
+**What changed:** `packages/par-framework-core/par_framework_core/launch_helpers.py` is reordered, no line of code changed: imports, then all constants (`CAMERA_*`, `DRIVER_REMAPPINGS` with its helper `_namespaced`, `INTRINSICS`/`EXTRINSICS`), then the generic helpers (`config_file`, `read_launch_section`, `chosen_camera`), then the camera start functions with the dispatcher `camera_nodes` above the drivers it calls, then `mount_tf_publisher` and `projection_calibration_server_node`.
+
+**Why:** the constants were spread through the bottom half of the file, after the functions that use them, so a reader met `DRIVER_REMAPPINGS` and `EXTRINSICS` before learning what they hold. Top-down order (definitions, then general helpers, then the specific start functions) lets the file be read once from the top.
+
+**Alternatives:**
+- *Splitting the file (constants module, camera module):* rejected, one file of this size is easier to find things in than three, and nothing outside imports the parts separately.
+- *Also unifying return types (`kinect_driver_node` returns a `Node`, the other drivers a list):* left out, it changes the interface for `camera_pose_calibration_kinect.launch.py` and is not part of a reorder.
+
+## 2026-10-23: `launch_helpers.py` checks camera poses; camera list in errors from `DRIVER_REMAPPINGS`
+
+**What changed:** `mount_tf_publisher` checks the loaded camera pose with the new `invalid_pose_keys`: all of `CAMERA_POSE_KEYS` (`translation.xyz`, `rotation.xyzw`) must be finite numbers. Otherwise it raises an error that names the file, the bad keys and the fix (re-run the pose calibration or delete the measured file; for the placeholder, the section to set in the params file). A params file without the `/<name>_tf_publisher` section gets the same error. The error texts of `chosen_camera` and `camera_nodes` take their camera list from `CAMERA_NAMES`, built from `DRIVER_REMAPPINGS`; the final `raise` of `camera_nodes` now says what it actually catches, a camera in `DRIVER_REMAPPINGS` without a start function, since `chosen_camera` already rejects unknown cameras. The file header now says co-authored, as the file has hand edits.
+
+**Why:** the pose files are read in every launch with that camera and may be hand-edited or cut short. Before, an empty file or a missing key ended as a `TypeError`/`KeyError` traceback that named neither the file nor the fix. Finite numbers rather than a key check, because YAML `.nan` would pass a key check and reach `static_transform_publisher`; `bool` is excluded because Python counts it as `int`. The camera list was spelled out in each error text and went stale when a camera was added.
+
+**Alternatives:**
+- *Checking only that the keys exist:* rejected, `nan` or a string would still reach the transform.
+- *Replacing the `if` chain in `camera_nodes` by a lookup table:* rejected, with four cameras the chain is easier to read.
+- *Building the `camera` argument descriptions of the launch files from `DRIVER_REMAPPINGS` too:* left out, their docstrings list the cameras in prose anyway, so a new camera touches them regardless.
+
+## 2026-10-23: `DRIVER_REMAPPINGS` written out, without `_namespaced`
+
+**What changed:** the Brio and webcam entries of `DRIVER_REMAPPINGS` in `launch_helpers.py` list their `(driver topic, framework topic)` pairs explicitly instead of generating them with `_namespaced`, which is removed. All four entries use one pair per line; the framework names use the existing constants where there is one (`DEFAULT_TOPIC_NAME_CAMERA_IMAGE`, `…_INFO`, `…_DEPTH`, `CAMERA_SET_INFO`). The resulting table is unchanged.
+
+**Why:** the generated pairs hid what is remapped onto what; written out, each line shows both names, can be found by grepping for either topic, and an entry whose driver name differs from the pattern needs no special case.
+
+**Alternatives:** keeping the helper for the two namespaced drivers: rejected on request, and the table is short enough that writing it out costs only a few lines.
+
+## 2026-10-23: `DRIVER_REMAPPINGS` renamed to `CAMERA_DRIVER_REMAPPINGS`
+
+**What changed:** the remapping table in `launch_helpers.py` and every current reference to it (`par.launch.py`, `scripts/run_cameracalibrator.sh`, `CLAUDE.md`) use the name `CAMERA_DRIVER_REMAPPINGS`. Earlier entries in this file keep the old name, as they describe the code at their time.
+
+**Why:** "driver" alone is ambiguous (any device driver, or a person); the table maps camera drivers' names onto the framework's camera interface, and its keys are camera names. The qualified name stays clear where the name appears without its file around it: in a grep, a traceback, CLAUDE.md.
+
+**Alternatives:** `TOPIC_REMAPPINGS`: rejected, the table also remaps a service (`set_camera_info`), and it does not say whose names are remapped.
+
+## 2026-10-23: `INTRINSICS`/`EXTRINSICS` renamed to `FOLDER_PATH_CAMERA_INTRINSICS`/`FOLDER_PATH_EXTRINSICS`
+
+**What changed:** the two folder constants in `launch_helpers.py` and their uses there and in `camera_pose_calibration_kinect.launch.py`. Lines that grew past the length limit are split into named steps (`camera_info_path`, then `camera_info_url`; `camera` from the publisher name; `camera_pose_file` in the launch file) instead of being broken mid-expression.
+
+**Why:** bare `INTRINSICS` reads as the intrinsics themselves (camera matrix, distortion), not as a folder path. The `FOLDER_PATH_` prefix follows the codebase's kind-first naming (`TOPIC_NAME_…`, `SERVICE_NAME_…`). `CAMERA_` qualifies the intrinsics because a projector-camera setup has projector intrinsics too, and the folder holds only camera calibrations; the extrinsics folder holds camera poses as well as projection corners and mapping, so it stays unqualified. That the paths are relative to `config/` is stated once, in `config_file`, the only place that resolves them.
+
+**Alternatives:**
+- *Suffix style (`INTRINSICS_DIR`):* equally clear, rejected only for consistency with the kind-first names next to it.
+- *`RELATIVE_FOLDER_PATH_…`:* rejected, longer without adding clarity where the constants are used.
+
+## 2026-10-23: `config_file(file_name)` renamed to `get_path_in_config_folder(relative_path)`
+
+**What changed:** the function in `launch_helpers.py` and its calls there and in `camera_pose_calibration_kinect.launch.py`. Each call first puts the relative path in a named variable, then passes it.
+
+**Why:** `config_file()` did not say whether it returns a file's contents, its path or an open file, and every caller passes a path relative to `config/`, not a file name. `get_` states that the function returns a value, matching `get_package_share_directory`, which it wraps; "in" says the path points into the folder.
+
+**Alternatives:**
+- *`get_config_folder_path()`:* rejected, it reads as the path of the config folder itself.
+- *`calibration_file_path()`:* rejected, true of every call today but narrower than what the function does (any path below `config/`).
+
+## 2026-10-23: naming and readability rules applied to all Python files in `packages/`
+
+**What changed:** names and expressions in `launch_helpers.py`, the four launch files, `par_geometry.py` and `rviz_bridge_node.py`; behaviour is unchanged.
+- Functions start with a verb that says what they do: the launch helpers that build launch actions are `create_*` (`create_camera_nodes`, `create_logitech_brio_node`, `create_kinect_driver_node`, `create_realsense_driver_node`, `create_webcam_nodes`, `create_mount_tf_publisher`, `create_projection_calibration_server_node`, `create_camera_and_surface_selector`, `create_framework_node`), those returning a value `get_*` (`get_chosen_camera`, `get_invalid_pose_keys`, `rviz_bridge`'s `__get_camera_parameters`), a boolean `is_enabled`. `read_launch_section` and the `X_to_Y` conversions keep their names, as their verb is already more specific.
+- Constants and variables say what they hold and, where they have one, their unit: `rviz_bridge`'s sizes and heights end in `_M` (`PROJECTOR_HEIGHT` became `PROJECTOR_OUTLINE_HEIGHT_M`, as it is the outline's height, not the projector's), `par_geometry` takes `camera_matrix`, `distortion_coefficients`, `homography`, `translation_m`, `width_px` instead of `k`, `d`, `h`, `translation`, `width`; single letters and generic names (`obj`, `lm`, `q`, `t`, `e`, `s`, `a`, `source`, `fix`, `section`, `value`, `what`) are replaced. `CAMERA_SET_INFO` is `DEFAULT_SERVICE_NAME_CAMERA_SET_INFO`, matching `DEFAULT_TOPIC_NAME_*`.
+- Hard-to-read expressions are split into named steps: nested comprehensions (hand bones, light cone) and `a or b` fallbacks became loops and explicit `if`s, multi-step formulas got intermediate variables.
+
+**Why:** the naming and readability rules for this repository: names must be unambiguous on their own (they are read in greps, tracebacks and docs), functions say what they do or return, and units belong in the name.
+
+**How it was checked:** the previous versions were kept aside and compared with the new ones by result, not by reading: every `par_geometry` function returns bit-identical arrays for the same random inputs (including empty input, parallel rays, missing depth); every launch file generates identical actions with identical fields for all cameras, switches and calibration modes, and raises identical errors; `rviz_bridge` publishes identical markers for messages covering every branch. flake8 is clean apart from one existing long comment, and the `par_geometry` and `rviz_bridge` test suites pass.
+
+**Alternatives:**
+- *Renaming `par_geometry`'s public functions too (`rotation_matrix`, `pixel_rays`, ...):* left out, three other repositories import them; their parameters could be renamed safely because every caller passes them positionally.
+- *`get_` for the launch start functions:* rejected, they build new launch actions rather than return existing ones, so `create_` is the more specific verb.
+- *Keeping `launch_setup` as is:* yes, it is the conventional name of the function an `OpaqueFunction` runs in ROS 2 launch files.
+
+## 2026-10-23: `par_geometry`: `rotation_matrix` → `quaternion_to_rotation_matrix`, `pixel_rays` → `compute_pixel_rays`
+
+**What changed:** the two functions in `par_geometry` and every caller: `rviz_bridge` here, and `gesture_detector`, `projection_mask` and `surface_selector` (calibration repo) in their own repositories. `__init__.py` lists the names in alphabetical order again.
+
+**Why:** the naming rule that a function name says what it does or returns. `rotation_matrix()` read like a value, not a conversion; `quaternion_to_rotation_matrix` follows the `X_to_Y` pattern of the other conversions in the module. `pixel_rays` computes the rays (slowly, once per camera_info), so `compute_` is the specific verb.
+
+**Alternatives:**
+- *`get_rotation_matrix`:* rejected, the function converts its input rather than returning stored state, and the module's other conversions are named `X_to_Y`.
+- *Keeping the old names as aliases for a transition:* rejected, all callers are in repositories of this framework and are changed in the same step; an alias would keep the unclear name alive.
+
+## 2026-10-23: private methods with one underscore instead of two
+
+**What changed:** `rviz_bridge`'s `__get_camera_parameters` is `_get_camera_parameters`; the same rename was made for every `__method` in the framework's node repositories (`fiducials_detector`, `framework-calibration`, `gesture_detector`, `hand_landmarks`, `object_detector`), each logged there. `logitech_brio` still has its `__methods`: its checkout is on `main`, where changes wait for a branch.
+
+**Why:** one leading underscore is Python's convention for "private"; two trigger name mangling (`_ClassName__method`), which only helps when a subclass could clash with the name. None of these classes is subclassed, and nothing accessed the mangled names. Before renaming, each new name was checked against the names already in its file and against the members of `rclpy.node.Node`, because with one underscore a name collision with a base class would silently override it; there was none.
+
+**Alternatives:** keeping two underscores: rejected, the mangling protected nothing here and made the private methods harder to reach in a debugger or a test.
+
+## 2026-10-23: README section "Camera interface"
+
+**What changed:** the README ends with the conventions of the neutral camera interface: the `/camera/...` names with type, content and which cameras provide them; names as constants with remapping to choose; QoS; optional streams switched per camera in `par.launch.py`; detections in raw image pixels; where intrinsics and the camera pose come from; and the steps to add a camera.
+
+**Why:** these conventions were spread over the project's CLAUDE.md, code comments and `launch_helpers.py`; someone adding a camera or a node needs them in one place, in the document they read first.
+
+**Alternatives:** a separate document under `docs/`: rejected, the README already holds the other design conventions, and one more file is one more place to keep in sync.
+
+## 2026-10-23: README section "Coordinate systems"
+
+**What changed:** after "Camera interface", the README describes the four coordinate systems (camera pixels, camera optical frame, table frame `world`, projector pixels) with unit, origin, axes and what uses each; the rule that `world` is the table (z = 0 the tabletop, z up, origin below the camera); that messages stay in the frame they were measured in, with table coordinates only added next to pixels with a validity flag; that conversions happen locally with `par_geometry`; and why the shared table plane makes projection accuracy independent of an exact camera pose, with the parallax limit above the table.
+
+**Why:** the frame conventions were only in the project's CLAUDE.md, message comments and node constants; a node author needs to know which frame a value is in and where to convert it.
+
+**Alternatives:** listing the frames per message in the package table: rejected, the conventions are shared, so one section states them once.

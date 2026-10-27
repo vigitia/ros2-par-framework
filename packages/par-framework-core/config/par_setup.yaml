@@ -82,7 +82,7 @@ hand_landmarks_node:
     num_hands: 2
 
 # Pages of paper with an ArUco marker in each corner (page n: markers 4n .. 4n+3), from /fiducials.
-# Print them with: ros2 run page_locator make_page_template <page ids> --marker-size-mm <marker_size_mm>
+# Print them with: python src/page_locator/utils/make_page_template.py <page ids> --marker-size-mm <marker_size_mm>
 page_locator_node:
   ros__parameters:
     page_width_mm: 210.0

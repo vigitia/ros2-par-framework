@@ -12,7 +12,7 @@ import cv2
 import numpy as np
 
 
-def rotation_matrix(x, y, z, w):
+def quaternion_to_rotation_matrix(x, y, z, w):
     """Return the 3x3 rotation matrix of the unit quaternion (x, y, z, w)."""
     return np.array([
         [1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
@@ -21,33 +21,36 @@ def rotation_matrix(x, y, z, w):
     ])
 
 
-def pixels_to_table(pixels, k, d, rotation, translation):
+def pixels_to_table(pixels, camera_matrix, distortion_coefficients, rotation, translation_m):
     """
     Project pixels of the raw camera image onto the plane z = 0 of the table frame.
 
-    k and d are the camera matrix and distortion coefficients, rotation and translation the
-    pose of the optical frame in the table frame. Returns the hits as an Nx3 array in metres,
-    dropping pixels whose ray misses the table.
+    rotation and translation_m are the pose of the optical frame in the table frame. Returns the
+    hits as an Nx3 array in metres, dropping pixels whose ray misses the table.
     """
     points = np.asarray(pixels, np.float64).reshape(-1, 1, 2)
     # Distortion removed: each pixel becomes the direction (x, y, 1) of its ray in the optical
     # frame
-    normalized = cv2.undistortPoints(points, k, d).reshape(-1, 2)
-    rays = np.column_stack([normalized, np.ones(len(normalized))]) @ rotation.T
-    # Every ray starts at the camera: translation.z + s * ray.z = 0
+    normalized_points = cv2.undistortPoints(points, camera_matrix,
+                                            distortion_coefficients).reshape(-1, 2)
+    optical_rays = np.column_stack([normalized_points, np.ones(len(normalized_points))])
+    table_rays = optical_rays @ rotation.T
+    # Every ray starts at the camera: translation_m.z + ray_scale * ray.z = 0
     with np.errstate(divide='ignore'):
-        s = -translation[2] / rays[:, 2]
-    hits = translation + s[:, None] * rays
-    # s <= 0: the ray points away from the table; not finite: it runs parallel to it
-    return hits[np.isfinite(s) & (s > 0)]
+        ray_scales = -translation_m[2] / table_rays[:, 2]
+    table_hits_m = translation_m + ray_scales[:, None] * table_rays
+    # ray_scale <= 0: the ray points away from the table; not finite: it runs parallel to it
+    hits_table = np.isfinite(ray_scales) & (ray_scales > 0)
+    return table_hits_m[hits_table]
 
 
-def apply_homography(h, points):
-    """Map Nx2 points through the 3x3 homography h and return them as an Nx2 array."""
+def apply_homography(homography, points):
+    """Map Nx2 points through the 3x3 homography and return them as an Nx2 array."""
     points = np.asarray(points, np.float64).reshape(-1, 1, 2)
     if len(points) == 0:
         return np.empty((0, 2))
-    return cv2.perspectiveTransform(points, np.asarray(h, np.float64)).reshape(-1, 2)
+    homography = np.asarray(homography, np.float64)
+    return cv2.perspectiveTransform(points, homography).reshape(-1, 2)
 
 
 def homography_from_msg(msg):
@@ -55,59 +58,66 @@ def homography_from_msg(msg):
     return np.reshape(msg.homography, (3, 3))
 
 
-def table_to_projector(h, points):
-    """Map Nx2 table points (x, y in metres) to projector pixels with the homography h."""
-    return apply_homography(h, points)
+def table_to_projector(homography, points_m):
+    """Map Nx2 table points (x, y in metres) to projector pixels with the homography."""
+    return apply_homography(homography, points_m)
 
 
-def projector_to_table(h, points):
-    """Map Nx2 projector pixels to table points (x, y in metres), the inverse of h."""
-    return apply_homography(np.linalg.inv(h), points)
+def projector_to_table(homography, pixels):
+    """Map Nx2 projector pixels to table points (x, y in metres), the inverse of homography."""
+    return apply_homography(np.linalg.inv(homography), pixels)
 
 
-def pixel_rays(k, d, width, height, stride=1):
+def compute_pixel_rays(camera_matrix, distortion_coefficients, width_px, height_px, stride_px=1):
     """
-    Return the ray direction (x, y, 1) in the optical frame of every stride-th camera pixel.
+    Return the ray direction (x, y, 1) in the optical frame of every stride_px-th camera pixel.
 
-    The result has the shape (rows, columns, 3) of image[::stride, ::stride], so it lines up with
-    a depth image sampled the same way. Undistorting is slow, so compute it once per camera_info.
+    The result has the shape (rows, columns, 3) of image[::stride_px, ::stride_px], so it lines
+    up with a depth image sampled the same way. Undistorting is slow, so compute it once per
+    camera_info.
     """
-    u, v = np.meshgrid(np.arange(0, width, stride), np.arange(0, height, stride))
-    pixels = np.column_stack([u.ravel(), v.ravel()]).astype(np.float64).reshape(-1, 1, 2)
-    normalized = cv2.undistortPoints(pixels, k, d).reshape(u.shape + (2,))
-    return np.concatenate([normalized, np.ones(u.shape + (1,))], axis=2)
+    pixel_columns, pixel_rows = np.meshgrid(np.arange(0, width_px, stride_px),
+                                            np.arange(0, height_px, stride_px))
+    grid_shape = pixel_columns.shape
+    pixels = np.column_stack([pixel_columns.ravel(), pixel_rows.ravel()])
+    pixels = pixels.astype(np.float64).reshape(-1, 1, 2)
+    normalized_points = cv2.undistortPoints(pixels, camera_matrix, distortion_coefficients)
+    normalized_points = normalized_points.reshape(grid_shape + (2,))
+    return np.concatenate([normalized_points, np.ones(grid_shape + (1,))], axis=2)
 
 
-def depth_to_table(depth_m, rays, rotation, translation):
+def depth_to_table(depth_m, rays, rotation, translation_m):
     """
     Return the points of a depth image as an Nx3 array in the table frame, in metres.
 
-    depth_m is the depth along the optical axis, sampled like rays (see pixel_rays); rotation and
-    translation are the pose of the optical frame in the table frame. Pixels without depth (0 or
-    not finite) are dropped.
+    depth_m is the depth along the optical axis, sampled like rays (see compute_pixel_rays);
+    rotation and translation_m are the pose of the optical frame in the table frame. Pixels
+    without depth (0 or not finite) are dropped.
     """
-    valid = np.isfinite(depth_m) & (depth_m > 0)
-    points = rays[valid] * depth_m[valid][:, None]
-    return points @ rotation.T + translation
+    has_depth = np.isfinite(depth_m) & (depth_m > 0)
+    optical_points_m = rays[has_depth] * depth_m[has_depth][:, None]
+    return optical_points_m @ rotation.T + translation_m
 
 
-def project_to_table(points, center):
+def project_to_table(points_m, center_m):
     """
-    Project Nx3 table-frame points along rays from center onto z = 0 and return them as Nx2.
+    Project Nx3 table-frame points along rays from center_m onto z = 0 and return them as Nx2.
 
-    With center the projector's optical centre, a point above the table maps to the table point
-    lit by the same projector pixel, so table_to_projector then gives that pixel. Points at or
-    above the centre's height are lit by no pixel and are dropped. center None projects straight
-    down instead, which is only right directly below the projector.
+    With center_m the projector's optical centre, a point above the table maps to the table
+    point lit by the same projector pixel, so table_to_projector then gives that pixel. Points at
+    or above the centre's height are lit by no pixel and are dropped. center_m None projects
+    straight down instead, which is only right directly below the projector.
     """
-    points = np.asarray(points, np.float64).reshape(-1, 3)
-    if center is None:
-        return points[:, :2]
-    center = np.asarray(center, np.float64)
-    points = points[points[:, 2] < center[2]]
-    # Along the ray center + s * (point - center), z reaches 0 at s = c_z / (c_z - p_z)
-    s = center[2] / (center[2] - points[:, 2])
-    return (center + s[:, None] * (points - center))[:, :2]
+    points_m = np.asarray(points_m, np.float64).reshape(-1, 3)
+    if center_m is None:
+        return points_m[:, :2]
+    center_m = np.asarray(center_m, np.float64)
+    points_m = points_m[points_m[:, 2] < center_m[2]]
+    # Along the ray center + ray_scale * (point - center), z reaches 0 at
+    # ray_scale = c_z / (c_z - p_z)
+    ray_scales = center_m[2] / (center_m[2] - points_m[:, 2])
+    table_points_m = center_m + ray_scales[:, None] * (points_m - center_m)
+    return table_points_m[:, :2]
 
 
 def intersect_rays(origins, directions):
@@ -123,9 +133,12 @@ def intersect_rays(origins, directions):
     # (I - d d^T) removes the part along the ray: what is left is the offset perpendicular to it.
     # The sum of the squared perpendicular offsets is smallest where sum(P) c = sum(P o)
     perpendicular = np.eye(3) - directions[:, :, None] * directions[:, None, :]
-    a = perpendicular.sum(axis=0)
-    if len(origins) < 2 or np.linalg.matrix_rank(a) < 3:
+    perpendicular_sum = perpendicular.sum(axis=0)
+    if len(origins) < 2 or np.linalg.matrix_rank(perpendicular_sum) < 3:
         return None, np.inf
-    point = np.linalg.solve(a, (perpendicular @ origins[:, :, None]).sum(axis=0).ravel())
-    offsets = (perpendicular @ (point - origins)[:, :, None])[:, :, 0]
-    return point, float(np.sqrt(np.mean(np.sum(offsets ** 2, axis=1))))
+    projected_origins_sum = (perpendicular @ origins[:, :, None]).sum(axis=0).ravel()
+    closest_point = np.linalg.solve(perpendicular_sum, projected_origins_sum)
+    offsets = (perpendicular @ (closest_point - origins)[:, :, None])[:, :, 0]
+    squared_distances = np.sum(offsets ** 2, axis=1)
+    rms_distance = float(np.sqrt(np.mean(squared_distances)))
+    return closest_point, rms_distance

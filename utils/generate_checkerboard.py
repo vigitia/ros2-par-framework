@@ -1,5 +1,5 @@
 
-"""Generate checkerboard.png for camera calibration (camera_calibration cameracalibrator)."""
+"""Generate checkerboard.png for camera calibration"""
 
 from pathlib import Path
 
@@ -32,7 +32,7 @@ def main():
     img = np.kron(board, square_block)
 
     img = cv2.copyMakeBorder(img, top=MARGIN_PX, bottom=MARGIN_PX, left=MARGIN_PX, right=MARGIN_PX,
-                             borderType=cv2.BORDER_CONSTANT, value=WHITE)
+                             borderType=cv2.BORDER_CONSTANT, value=[WHITE])
 
     # cameracalibrator looks for the inner corners, so a board OpenCV cannot detect is useless
     inner_corners = (COLS - 1, ROWS - 1)
