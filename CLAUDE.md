@@ -81,7 +81,12 @@ definition or adding an external dependency needs `./scripts/local_build.sh`.
 
 **Per-setup values are parameters** in `packages/par-framework-core/config/par_setup.yaml`, keyed by node name, never
 hardware constants in node source. A namespaced node needs its full name (e.g. `/camera/brio/logitech_brio_node`); a
-bare name is silently ignored.
+bare name is silently ignored. Another physical setup is a **profile** (`profile:=<name>`): `config/profiles/<name>.yaml`
+(gitignored) holds only the keys that differ, nodes get `[params_file, profile]` (ROS merges, later wins), and what
+the launch files read themselves (`par_launch`, placeholder poses) goes through `launch_helpers.read_merged_parameters`.
+Extrinsics are per profile (`calibration/extrinsics/<profile>/`), intrinsics per camera unit (a Brio with `serial`:
+`camera_info_brio_<serial>.yaml`). Launch code takes parameter files from `get_params_file_paths`, never from
+`params_file` alone.
 
 **Node package convention:** `<pkg>/<pkg>_node.py` does only the ROS work (the `Node` subclass, topics, services,
 `declare_parameter` with `ParameterDescriptor`, message conversion, `main()` as `console_scripts` entry point). All

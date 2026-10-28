@@ -5,6 +5,9 @@
 # Calibration files belonging to a local setup
 /packages/par-framework-core/config/calibration/
 
+# Setup profiles (profile:=<name>) belonging to local setups, added with the help of Claude Code
+/packages/par-framework-core/config/profiles/
+
 # colcon output, created when the workspace is built
 /build/
 /install/

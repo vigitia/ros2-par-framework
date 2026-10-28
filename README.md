@@ -53,6 +53,28 @@ Which camera and nodes `par.launch.py` starts is the `par_launch` section of
 (`camera:=kinect rviz:=true`), and `params_file:=<file>` uses another parameter file.
 TODO: List available arguments here
 
+**Setup profiles.** For another physical setup (another table, projector or camera unit), add
+`profile:=<name>` to any launch file (`par.launch.py`, `calibration.launch.py`, `projection_calibration.launch.py`,
+`camera_pose_calibration_kinect.launch.py`). The profile is `packages/par-framework-core/config/profiles/<name>.yaml`
+(gitignored), and holds **only what differs** from `par_setup.yaml`, with the same node names and keys:
+
+```yaml
+par_launch:
+  ros__parameters:
+    camera: brio
+/camera/brio/logitech_brio_node:
+  ros__parameters:
+    serial: "<serial of this Brio>"
+/brio_tf_publisher:
+  ros__parameters:
+    translation.z: 1.10
+```
+
+A profile has its own camera pose, projection corners and projection mapping in
+`config/calibration/extrinsics/<name>/`, so run the calibrations once per profile. Without `profile:=`, everything
+uses `par_setup.yaml` and `config/calibration/extrinsics/` as before. Arguments on the command line still win over
+both files.
+
 
 In every new terminal, source `/opt/ros/<distro>/setup.bash`, `.venv/bin/activate` and
 `install/setup.bash`, in that order, and run `export FASTDDS_BUILTIN_TRANSPORTS=LARGE_DATA`. 
@@ -197,14 +219,16 @@ into table coordinates; it needs calibrated intrinsics and the camera pose.
 
 **Intrinsics travel on `camera_info`.** The Brio and the webcam load theirs from
 `config/calibration/intrinsics/camera_info_<camera>.yaml` (gitignored, one per camera type), which
-`scripts/run_cameracalibrator.sh` writes through `/camera/set_camera_info`. The Kinect and the RealSense publish
+`scripts/run_cameracalibrator.sh` writes through `/camera/set_camera_info`. A Brio whose `serial` is set has its own
+file, `camera_info_brio_<serial>.yaml`, since every lens differs; set it when several Brios are in use. Intrinsics
+are shared by all profiles. The Kinect and the RealSense publish
 their factory calibration instead.
 
 **The camera pose is a static transform.** `world` → the camera's body frame (`brio_link`, `camera_base`,
 `realsense_link`, `webcam_link`) is published by `/<camera>_tf_publisher`, started with the driver. It uses the
 measured `config/calibration/extrinsics/camera_pose_<camera>.yaml` while that file exists (written by
-`camera_pose_calibration_kinect.launch.py`), and otherwise the placeholder under `/<camera>_tf_publisher` in
-`par_setup.yaml`. The table is the plane z = 0 of `world`.
+`camera_pose_calibration_kinect.launch.py`; with a profile in `extrinsics/<profile>/`), and otherwise the placeholder
+under `/<camera>_tf_publisher` in `par_setup.yaml` or the profile. The table is the plane z = 0 of `world`.
 
 ### Adding a camera
 

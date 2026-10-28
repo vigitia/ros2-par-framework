@@ -1,16 +1,20 @@
-# Co-authored by Claude Code: written by Claude Code, since edited by hand
+# Co-authored by Claude Code: written by Claude Code, since edited by hand; Claude Code also added
+# the setup profiles (profile launch argument, merged parameter files, per-profile extrinsics,
+# per-unit Brio intrinsics)
 """
 Start functions shared by the launch files of par_framework_core.
 
 Those that take the launch context are used inside OpaqueFunction(function=...), because they
-need the resolved value of a launch argument (params_file, camera) to decide how the node is
-started.
+need the resolved value of a launch argument (params_file, profile, camera) to decide how the node
+is started.
 """
 
 import math
 import os
+import re
 
 from ament_index_python.packages import get_package_share_directory
+from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 import yaml
@@ -65,6 +69,13 @@ CAMERA_NAMES_TEXT = ', '.join(CAMERA_DRIVER_REMAPPINGS)
 # camera intrinsics, and where camera and projection sit relative to the table
 FOLDER_PATH_CAMERA_INTRINSICS = 'calibration/intrinsics'
 FOLDER_PATH_EXTRINSICS = 'calibration/extrinsics'
+# Setup profiles below config/ (gitignored): profiles/<name>.yaml holds only what differs from
+# params_file, and each profile keeps its extrinsics in FOLDER_PATH_EXTRINSICS/<name>
+FOLDER_PATH_PROFILES = 'profiles'
+# Profile names and camera serials become parts of file names: nothing that could leave the folder
+FILE_NAME_PART_PATTERN = re.compile(r'[A-Za-z0-9_-]+')
+# The Brio's section in the parameter files, which holds its serial
+BRIO_NODE_PARAMETERS_KEY = '/camera/brio/logitech_brio_node'
 # What a camera pose needs, in the measured camera_pose_<camera>.yaml and in the placeholder
 POSE_TRANSLATION_KEYS = [f'translation.{axis}' for axis in 'xyz']
 POSE_ROTATION_KEYS = [f'rotation.{axis}' for axis in 'xyzw']
@@ -87,17 +98,95 @@ def get_path_in_config_folder(relative_path):
     return absolute_path
 
 
-# Co-authored by Claude Code: variable names
+# Co-authored by Claude Code
+def create_profile_launch_argument():
+    """Create the profile launch argument, which every launch file of a setup declares."""
+    return DeclareLaunchArgument(
+        'profile',
+        default_value='',
+        description=f'Name of a setup profile: config/{FOLDER_PATH_PROFILES}/<profile>.yaml '
+                    f'overrides params_file, and the profile has its own camera pose and '
+                    f'projection calibration. Empty uses params_file alone.')
+
+
+# Co-authored by Claude Code
+def get_profile_name(context):
+    """Return the profile launch argument, or '' without a profile."""
+    profile_name = LaunchConfiguration('profile').perform(context)
+    if profile_name and not FILE_NAME_PART_PATTERN.fullmatch(profile_name):
+        raise RuntimeError(f'[launch_helpers]: profile:={profile_name}: use only letters, digits, '
+                           f'_ and -, the name of a file in config/{FOLDER_PATH_PROFILES}/ '
+                           f'without .yaml')
+    return profile_name
+
+
+# Co-authored by Claude Code
+def get_params_file_paths(context):
+    """Return the parameter files in the order ROS applies them: params_file, then the profile."""
+    params_file_paths = [LaunchConfiguration('params_file').perform(context)]
+    profile_name = get_profile_name(context)
+    if profile_name:
+        profile_path = get_path_in_config_folder(f'{FOLDER_PATH_PROFILES}/{profile_name}.yaml')
+        if not os.path.exists(profile_path):
+            raise RuntimeError(f'[launch_helpers]: profile {profile_name} has no file '
+                               f'{profile_path}: create it with only the sections and keys that '
+                               f'differ from par_setup.yaml, written the same way')
+        params_file_paths.append(profile_path)
+    return params_file_paths
+
+
+# Co-authored by Claude Code
+def read_merged_parameters(context):
+    """
+    Return the parameter files merged as ROS merges them for a node: the later file wins per key.
+
+    For what the launch files read themselves (par_launch, the placeholder camera poses); the
+    nodes get the files from get_params_file_paths and merge them alone.
+    """
+    merged_parameters = {}
+    for params_file_path in get_params_file_paths(context):
+        with open(params_file_path) as params_file:
+            file_parameters = yaml.safe_load(params_file) or {}
+        # A profile is written by hand: a stray list or value would otherwise fail in the merge
+        if not isinstance(file_parameters, dict):
+            raise RuntimeError(f'[launch_helpers]: {params_file_path} holds no node sections: '
+                               f'write it like par_setup.yaml, node name, ros__parameters, keys')
+        _merge_parameters(merged_parameters, file_parameters)
+    return merged_parameters
+
+
+# Co-authored by Claude Code
+def _merge_parameters(merged_parameters, overriding_parameters):
+    """Merge overriding_parameters into merged_parameters, nested sections key by key."""
+    # Simplification: keys must be spelt as in par_setup.yaml. ROS also matches a node written
+    # without its leading slash or a parameter written nested instead of dotted, this merge does
+    # not; upgrade: normalise both before merging
+    for key, overriding_value in overriding_parameters.items():
+        merged_value = merged_parameters.get(key)
+        if isinstance(merged_value, dict) and isinstance(overriding_value, dict):
+            _merge_parameters(merged_value, overriding_value)
+        else:
+            merged_parameters[key] = overriding_value
+
+
+# Co-authored by Claude Code
+def get_extrinsics_folder_path(context):
+    """Return the folder of the extrinsics below config/: the profile's own, or the shared one."""
+    profile_name = get_profile_name(context)
+    if profile_name:
+        return f'{FOLDER_PATH_EXTRINSICS}/{profile_name}'
+    return FOLDER_PATH_EXTRINSICS
+
+
+# Co-authored by Claude Code: reads the merged parameter files
 def read_launch_section(context):
-    """Return the par_launch section of the parameter file: the camera and which nodes run."""
-    params_file_path = LaunchConfiguration('params_file').perform(context)
-    with open(params_file_path) as params_file:
-        return yaml.safe_load(params_file)['par_launch']['ros__parameters']
+    """Return the par_launch section of the parameter files: the camera and which nodes run."""
+    return read_merged_parameters(context)['par_launch']['ros__parameters']
 
 
 # Co-authored by Claude Code: the camera list in the message comes from CAMERA_DRIVER_REMAPPINGS
 def get_chosen_camera(context):
-    """Return the camera launch argument, or else the camera of params_file's par_launch."""
+    """Return the camera launch argument, or else the camera of the parameter files' par_launch."""
     camera = LaunchConfiguration('camera').perform(context)
     if not camera:
         camera = read_launch_section(context)['camera']
@@ -133,11 +222,12 @@ def create_camera_nodes(context, camera):
                      f'it next to the others ({CAMERA_NAMES_TEXT})')
 
 
-# Co-authored by Claude Code: builds the calibration path in named steps
+# Co-authored by Claude Code: builds the calibration path in named steps, one file per Brio unit
 def create_logitech_brio_node(context):
-    """Create the Brio with params_file and its calibration from FOLDER_PATH_CAMERA_INTRINSICS."""
+    """Create the Brio with the parameter files and its unit's calibration."""
     # cameracalibrator's COMMIT writes it there
-    camera_info_relative_path = f'{FOLDER_PATH_CAMERA_INTRINSICS}/camera_info_brio.yaml'
+    camera_info_file_name = get_brio_camera_info_file_name(context)
+    camera_info_relative_path = f'{FOLDER_PATH_CAMERA_INTRINSICS}/{camera_info_file_name}'
     camera_info_path = get_path_in_config_folder(camera_info_relative_path)
     camera_info_url = f'file://{camera_info_path}'
     return [Node(
@@ -146,15 +236,32 @@ def create_logitech_brio_node(context):
         name='logitech_brio_node',
         output='screen',
         emulate_tty=True,
-        parameters=[LaunchConfiguration('params_file').perform(context),
+        parameters=[*get_params_file_paths(context),
                     {'camera_info_url': camera_info_url}],
         remappings=CAMERA_DRIVER_REMAPPINGS['brio'],
     )]
 
 
-# Co-authored by Claude Code: name
+# Co-authored by Claude Code
+def get_brio_camera_info_file_name(context):
+    """Return the Brio's intrinsics file name: per unit when its serial is set, else shared."""
+    # The intrinsics belong to the lens, so each unit has its own; without a serial the node picks
+    # any Brio, which is only unambiguous with one connected
+    brio_section = read_merged_parameters(context).get(BRIO_NODE_PARAMETERS_KEY) or {}
+    brio_parameters = brio_section.get('ros__parameters') or {}
+    serial = str(brio_parameters.get('serial', ''))
+    if not serial:
+        return 'camera_info_brio.yaml'
+    if not FILE_NAME_PART_PATTERN.fullmatch(serial):
+        raise RuntimeError(f'[launch_helpers]: Brio serial {serial!r} under '
+                           f'{BRIO_NODE_PARAMETERS_KEY} is no serial number: use only letters, '
+                           f'digits, _ and -')
+    return f'camera_info_brio_{serial}.yaml'
+
+
+# Co-authored by Claude Code: name, and the parameter files with the profile
 def create_kinect_driver_node(context):
-    """Create the Azure Kinect driver with params_file."""
+    """Create the Azure Kinect driver with the parameter files."""
     # No name override: the driver runs several rclcpp nodes in one process, and name= would
     # rename all of them
     return Node(
@@ -162,14 +269,14 @@ def create_kinect_driver_node(context):
         executable='node',
         output='screen',
         emulate_tty=True,
-        parameters=[LaunchConfiguration('params_file').perform(context)],
+        parameters=get_params_file_paths(context),
         remappings=CAMERA_DRIVER_REMAPPINGS['kinect'],
     )
 
 
-# Co-authored by Claude Code: name
+# Co-authored by Claude Code: name, and the parameter files with the profile
 def create_realsense_driver_node(context):
-    """Create an Intel RealSense (e.g. D435) with params_file, as /camera/realsense."""
+    """Create an Intel RealSense (e.g. D435) with the parameter files, as /camera/realsense."""
     return Node(
         package='realsense2_camera',
         executable='realsense2_camera_node',
@@ -179,16 +286,19 @@ def create_realsense_driver_node(context):
         emulate_tty=True,
         # camera_name prefixes the driver's TF frames (realsense_link, ...), which the mount
         # transform below attaches to, so it is set here and not in params_file
-        parameters=[LaunchConfiguration('params_file').perform(context),
+        parameters=[*get_params_file_paths(context),
                     {'camera_name': 'realsense'}],
         remappings=CAMERA_DRIVER_REMAPPINGS['realsense'],
     )
 
 
-# Co-authored by Claude Code: builds the calibration path in named steps, resolves params_file
+# Co-authored by Claude Code: builds the calibration path in named steps, resolves the parameter
+# files
 def create_webcam_nodes(context):
     """Create a generic UVC webcam with v4l2_camera, and its body -> optical frame transform."""
-    # In FOLDER_PATH_CAMERA_INTRINSICS like the Brio's; cameracalibrator's COMMIT writes it there
+    # In FOLDER_PATH_CAMERA_INTRINSICS like the Brio's; cameracalibrator's COMMIT writes it there.
+    # Simplification: one file for every webcam, since v4l2_camera exposes no serial. Upgrade: key
+    # it by the /dev/v4l/by-id/ name of video_device
     camera_info_relative_path = f'{FOLDER_PATH_CAMERA_INTRINSICS}/camera_info_webcam.yaml'
     camera_info_path = get_path_in_config_folder(camera_info_relative_path)
     camera_info_url = f'file://{camera_info_path}'
@@ -201,7 +311,7 @@ def create_webcam_nodes(context):
             namespace='/camera/webcam',
             output='screen',
             emulate_tty=True,
-            parameters=[LaunchConfiguration('params_file').perform(context),
+            parameters=[*get_params_file_paths(context),
                         {'camera_info_url': camera_info_url}],
             remappings=CAMERA_DRIVER_REMAPPINGS['webcam'],
         ),
@@ -216,33 +326,33 @@ def create_webcam_nodes(context):
     ]
 
 
-# Co-authored by Claude Code: checks the pose before it is used
+# Co-authored by Claude Code: checks the pose before it is used, reads the profile's files
 def create_mount_tf_publisher(context, publisher_name, child_frame_id):
     """
     Create the publisher of world -> child_frame_id: the measured camera pose, or the placeholder.
 
-    The placeholder is stored under /<publisher_name> in the parameter file. The measurement is
-    camera_pose_<camera>.yaml in FOLDER_PATH_EXTRINSICS, written by camera_pose_calibrator
-    (<camera> is <publisher_name> without _tf_publisher), and is used while that file exists.
+    The placeholder is stored under /<publisher_name> in the parameter files. The measurement is
+    camera_pose_<camera>.yaml in the profile's extrinsics folder, written by
+    camera_pose_calibrator (<camera> is <publisher_name> without _tf_publisher), and is used while
+    that file exists.
     """
     # static_transform_publisher takes its transform only as command-line flags: parameters from
     # a file are overridden by the flags' defaults, and without --frame-id it does not start. So
     # the pose is read from the file here, which is only possible once params_file is known.
     camera = publisher_name.removesuffix('_tf_publisher')
-    measured_pose_relative_path = f'{FOLDER_PATH_EXTRINSICS}/camera_pose_{camera}.yaml'
+    extrinsics_folder_path = get_extrinsics_folder_path(context)
+    measured_pose_relative_path = f'{extrinsics_folder_path}/camera_pose_{camera}.yaml'
     pose_source_path = get_path_in_config_folder(measured_pose_relative_path)
     if os.path.exists(pose_source_path):
         with open(pose_source_path) as measured_pose_file:
             pose = yaml.safe_load(measured_pose_file)
         fix_hint = (f're-run the camera pose calibration, or delete the file to use the '
-                    f'placeholder /{publisher_name} in the params_file')
+                    f'placeholder /{publisher_name} in the parameter files')
     else:
-        pose_source_path = LaunchConfiguration('params_file').perform(context)
-        with open(pose_source_path) as params_file:
-            all_parameters = yaml.safe_load(params_file) or {}
-        publisher_section = all_parameters.get(f'/{publisher_name}') or {}
+        pose_source_path = ' + '.join(get_params_file_paths(context))
+        publisher_section = read_merged_parameters(context).get(f'/{publisher_name}') or {}
         pose = publisher_section.get('ros__parameters')
-        fix_hint = f'set them under /{publisher_name} ros__parameters in the params_file'
+        fix_hint = f'set them under /{publisher_name} ros__parameters in the parameter files'
     # Both files can be edited by hand or cut short, and every launch with this camera reads
     # them: a gap is reported here with its file instead of ending as a bare KeyError
     invalid_keys = get_invalid_pose_keys(pose)
@@ -278,14 +388,16 @@ def get_invalid_pose_keys(pose):
     return invalid_keys
 
 
-# Co-authored by Claude Code: name, and the paths in named steps
-def create_projection_calibration_server_node(camera):
+# Co-authored by Claude Code: name, the paths in named steps, the profile's extrinsics folder
+def create_projection_calibration_server_node(context, camera):
     """Create the owner of the projection corners and mapping, with the camera's files."""
     # One file per camera each: the corners are pixels of one camera's image, so another camera's
     # would point elsewhere. And while the camera poses in par_setup.yaml are placeholders, each
-    # camera's table plane is its own, so a mapping only fits the camera it was calibrated with
-    corners_relative_path = f'{FOLDER_PATH_EXTRINSICS}/projection_corners_{camera}.yaml'
-    mapping_relative_path = f'{FOLDER_PATH_EXTRINSICS}/projection_mapping_{camera}.yaml'
+    # camera's table plane is its own, so a mapping only fits the camera it was calibrated with.
+    # Per profile as well: another setup has another table and projector
+    extrinsics_folder_path = get_extrinsics_folder_path(context)
+    corners_relative_path = f'{extrinsics_folder_path}/projection_corners_{camera}.yaml'
+    mapping_relative_path = f'{extrinsics_folder_path}/projection_mapping_{camera}.yaml'
     return [Node(
         package='projection_calibration_server',
         executable='projection_calibration_server',

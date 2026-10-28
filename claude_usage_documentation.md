@@ -2360,3 +2360,29 @@ builds like any node; the Rust compositor at its root has no `package.xml` and i
 
 **Alternatives:** the bridge as a package in this repository's `packages/` (rejected in the rendering manager's
 `MASTER_PLAN.md`: it belongs with the control protocol it speaks).
+
+## 2026-10-28: setup profiles (`profile:=<name>`)
+
+**What changed:** every launch file of a setup (`par.launch.py`, `calibration.launch.py`,
+`projection_calibration.launch.py`, `camera_pose_calibration_kinect.launch.py`) takes `profile:=<name>`. The profile
+is `config/profiles/<name>.yaml` (gitignored) and holds only what differs from `params_file`. In `launch_helpers`:
+`get_params_file_paths` returns `[params_file, profile]`, which every node gets (ROS applies the later file per key);
+`read_merged_parameters` merges both the same way for what the launch files read themselves (`par_launch`, the
+placeholder camera poses); `get_extrinsics_folder_path` puts a profile's camera pose, projection corners and mapping in
+`calibration/extrinsics/<name>/`; `get_brio_camera_info_file_name` gives a Brio with `serial` set its own intrinsics
+file, `camera_info_brio_<serial>.yaml`. `create_projection_calibration_server_node` takes the launch context now.
+Without `profile:=`, all files and paths are the same as before.
+
+**Why:** several physical setups (different tables, projectors, mounting heights, and several units of the same
+camera type) share one checkout. Extrinsics describe a setup, so each profile needs its own; intrinsics describe a
+lens, so they belong to the camera unit, not to the camera type and not to the profile.
+
+**Alternatives:**
+- *Full copies of `par_setup.yaml` as profiles* (as on the setup-wizard branch): no merge code, but copies drift, and
+  a parameter added later is silently missing from old profiles. Rejected in favour of override files.
+- *Intrinsics per profile:* a camera used in two setups would need its lens calibrated twice. Rejected.
+- *A wildcard node key (`/**`) in profiles:* hides which node a value is for. Not used.
+- *Replacing `params_file:=` with `profile:=`:* would drop arbitrary paths; both stay, the profile adds on top.
+- *Webcam intrinsics per unit:* `v4l2_camera` exposes no serial, so they stay per type (marked `Simplification:`).
+- The merge matches keys as written; ROS also accepts a node without leading slash or nested instead of dotted
+  parameters. Marked `Simplification:` rather than normalising both spellings now.

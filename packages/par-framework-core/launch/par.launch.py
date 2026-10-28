@@ -7,11 +7,16 @@ realsense or webcam) and switches each node on or off. With another parameter fi
 
     ros2 launch par_framework_core par.launch.py params_file:=/path/to/<file>.yaml
 
+profile:=<name> adds config/profiles/<name>.yaml on top of it: only what differs for another
+physical setup, which also gets its own camera pose and projection calibration in
+config/calibration/extrinsics/<name>/.
+
 Each of them can be overridden for one run, e.g. camera:=kinect rviz:=true hand_landmarks:=false;
 an argument left empty keeps the parameter file's value. With a depth camera (kinect, realsense)
 the detectors also use its depth. camera_only:=true starts just the camera and its mount transform,
 e.g. for a preview or a calibration. Camera calibrations are
-config/calibration/intrinsics/camera_info_<camera>.yaml, shared by all parameter files.
+config/calibration/intrinsics/camera_info_<camera>.yaml (a Brio with its serial set:
+camera_info_brio_<serial>.yaml), shared by all parameter files and profiles.
 """
 
 import os
@@ -23,8 +28,10 @@ from launch.actions import DeclareLaunchArgument, LogInfo, OpaqueFunction
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from par_framework_core.launch_helpers import (create_camera_nodes,
+                                               create_profile_launch_argument,
                                                create_projection_calibration_server_node,
-                                               get_chosen_camera, read_launch_section)
+                                               get_chosen_camera, get_params_file_paths,
+                                               read_launch_section)
 
 PACKAGE_NAME = 'par_framework_core'
 # The node switches of par_launch, each also a launch argument that overrides it for one run
@@ -56,7 +63,7 @@ RVIZ_CONFIG_FILE_NAMES = {'brio': 'par_framework_brio.rviz',
 
 
 def launch_setup(context):
-    params_file_path = LaunchConfiguration('params_file').perform(context)
+    params_file_paths = get_params_file_paths(context)
     launch_section = read_launch_section(context)
     camera = get_chosen_camera(context)
 
@@ -74,7 +81,7 @@ def launch_setup(context):
         return launch_actions
 
     def create_framework_node(package, parameter_overrides=None):
-        node_parameters = [params_file_path]
+        node_parameters = list(params_file_paths)
         if parameter_overrides:
             node_parameters.append(parameter_overrides)
         return Node(
@@ -97,7 +104,7 @@ def launch_setup(context):
     # Publish the stored projection corners and table-to-projector mapping. Calibration is
     # optional: without ros2-par-framework-calibration the framework runs in camera pixels.
     if has_resource('packages', 'projection_calibration_server'):
-        launch_actions += create_projection_calibration_server_node(camera)
+        launch_actions += create_projection_calibration_server_node(context, camera)
     else:
         launch_actions.append(LogInfo(msg='[par.launch]: projection_calibration_server is not '
                                           'installed (ros2-par-framework-calibration): running '
@@ -153,6 +160,7 @@ def generate_launch_description():
             default_value=default_params_file_path,
             description='Parameter file describing this physical PAR setup, with a par_launch '
                         'section.'),
+        create_profile_launch_argument(),
         DeclareLaunchArgument(
             'camera',
             default_value='',
