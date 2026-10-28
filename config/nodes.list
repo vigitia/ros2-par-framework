@@ -40,6 +40,11 @@ page_locator              git@github.com:vigitia/ros2-par-framework-page-locator
 projection_mask           git@github.com:vigitia/ros2-par-framework-projection-mask.git     main
 
 
+# Rendering (the rendering manager is a Wayland compositor, built with cargo; colcon builds its ROS bridge):
+
+rendering_manager         git@github.com:vigitia/ros2-par-framework-rendering-manager.git   main
+
+
 # Applications:
 
 demo_app                  git@github.com:vigitia/ros2-par-framework-demo-application.git    main
