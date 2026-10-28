@@ -3,9 +3,7 @@
 
 `ros2 run` commands for every node of the framework, without launch or parameter files. Use them to start a single
 node for testing, or to try a parameter value for one run. The normal way stays
-`ros2 launch par_framework_core par.launch.py`; these commands do what it does, node by node. Setup profiles
-(`profile:=<name>`) are a launch feature: for one by hand, change the values in the command to the profile's, and the
-calibration paths to `extrinsics/<name>/`.
+`ros2 launch par_framework_core par.launch.py`; these commands do what it does, node by node.
 
 Each command lists **all** parameters the node declares. The values are those of
 `packages/par-framework-core/config/par_setup.yaml` where it sets them, otherwise the node's default. Change a value
@@ -196,7 +194,6 @@ Node default that differs: `min_object_height` 0.0 (off).
 ros2 run fiducials_detector fiducials_detector --ros-args \
   -p marker_type:=aruco -p dictionary:=4X4_100 \
   -p corner_refinement:=none -p adaptive_thresh_constant:=7.0 \
-  -p adaptive_thresh_win_size_min_px:=3 -p adaptive_thresh_win_size_max_px:=23 \
   -p use_compressed:=true -p use_depth:=false \
   -p debug:=false
 ```
@@ -218,8 +215,8 @@ Needs fiducials_detector.
 ros2 run page_locator page_locator --ros-args \
   -p page_width_mm:=210.0 -p page_height_mm:=297.0 \
   -p marker_size_mm:=20.0 -p marker_margin_mm:=5.0 \
-  -p "marker_corners:=[top_left, top_right, bottom_right, bottom_left]" \
-  -p marker_quarter_turns:=0 -p max_pages:=25 -p hold_time_sec:=0.5 \
+  -p "marker_corners:=[bottom_left, top_left, top_right, bottom_right]" \
+  -p marker_quarter_turns:=3 -p max_pages:=25 -p hold_time_sec:=0.5 \
   -p smoothing_min_cutoff_hz:=0.5 -p smoothing_beta_per_px:=0.05 \
   -p use_compressed:=true -p debug:=false
 ```
