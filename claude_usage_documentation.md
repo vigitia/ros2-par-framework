@@ -2315,3 +2315,18 @@ resolves the path through the context.
 **Alternatives:** leaving `create_webcam_nodes` as it was, since `Node` resolves substitutions itself (rejected: two
 ways to do the same thing in one module); changing the other starts to pass the substitution instead (rejected: they
 need the resolved path anyway inside the OpaqueFunction, so resolving it is the common case).
+
+## 2026-10-28: quick-launch.md shows the Brio's values
+
+**What changed:** the detector commands in `quick-launch.md` use the Brio's `use_compressed: true` /
+`use_depth: false`, and the calibration server paths and the RViz configuration name the Brio. The text warns that a
+raw-frame subscriber on the Brio slows down every node.
+
+**Why:** the Brio driver decodes its JPEGs only while someone subscribes to raw frames, and does so in the path that
+publishes the compressed frames. A command copied with the depth camera's `use_compressed: false` while the Brio runs
+therefore lagged the whole pipeline. With a depth camera, a wrong `use_depth: false` only drops the 3D values, which
+is the milder mistake.
+
+**Alternatives:** both variants under each command (rejected for now: doubles the file; the table lists the
+differences); keeping the Kinect's values because `par_launch.camera` names it (rejected: the camera is often chosen
+per run with `camera:=`).
