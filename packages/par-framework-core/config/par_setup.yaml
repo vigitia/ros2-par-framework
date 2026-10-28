@@ -1,5 +1,5 @@
 # Co-authored by Claude Code (notes on the camera pose placeholders, the projection mask, the demo app, the
-# RealSense driver settings, the hand landmarks).
+# RealSense driver settings, the hand landmarks, the page_locator marker orientation).
 # Parameters of one physical PAR setup: which camera, which projector, at what
 # resolution. This is the file to edit when moving the framework to a new table
 # or a new machine -- node source should not need per-setup constants.
@@ -111,7 +111,8 @@ page_locator_node:
   ros__parameters:
     page_width_mm: 210.0
     page_height_mm: 297.0
-    # Printed layout, as on the VIGITIA document pages (measured on a printed sheet). Measure it on the paper:
+    # Printed layout, as on the VIGITIA document pages (measured on a printed sheet) but with upright markers, as
+    # make_page_template prints them. Measure it on the paper:
     # page corners far from the visible markers are only right if these are.
     # Side of a marker including its black border.
     marker_size_mm: 20.0
@@ -119,9 +120,10 @@ page_locator_node:
     marker_margin_mm: 5.0
     # Page corner of the markers with id % 4 = 0, 1, 2, 3.
     marker_corners: [bottom_left, top_left, top_right, bottom_right]
-    # Clockwise quarter turns of the printed markers, 0 = upright. The VIGITIA book pages (data/book_pages in
-    # the old framework): [bottom_right, bottom_left, top_left, top_right], 0 turns.
-    marker_quarter_turns: 3
+    # Clockwise quarter turns of the printed markers, 0 = upright. The printed VIGITIA document pages: 3. The
+    # VIGITIA book pages (data/book_pages in the old framework): [bottom_right, bottom_left, top_left, top_right],
+    # 0 turns.
+    marker_quarter_turns: 0
     # Marker ids from 4 * max_pages on are ignored. 25 allows all ids of DICT_4X4_100; the documents use page
     # 24 (ids 96-99). Keep the projected calibration markers (projection_calibrator_node) out of the page ids
     # in use.
@@ -174,6 +176,12 @@ projection_mask_node:
     # hit something (Esc or q closes it). It takes the projector and slows the mask a little, so only for
     # testing. There is no launch argument for it: switch it here.
     debug: false
+    # Display the projector is connected to, as counted by pygame (0 = primary).
+    display_id: 2
+
+# Demo application (ros2-par-framework-demo-application): lights every page on the table with the projector.
+demo_app_node:
+  ros__parameters:
     # Display the projector is connected to, as counted by pygame (0 = primary).
     display_id: 2
 

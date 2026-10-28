@@ -2330,3 +2330,33 @@ is the milder mistake.
 **Alternatives:** both variants under each command (rejected for now: doubles the file; the table lists the
 differences); keeping the Kinect's values because `par_launch.camera` names it (rejected: the camera is often chosen
 per run with `camera:=`).
+
+## 2026-10-28: `demo_app_node` gets its projector display
+
+**What changed:** `par_setup.yaml` has a `demo_app_node` section with `display_id`.
+
+**Why:** the demo app now lights the pages in a fullscreen window on the projector and needs to know which display
+that is. Per-setup values belong in `par_setup.yaml`, not in node defaults.
+
+**Alternatives:** a launch argument (rejected: the display does not change per run; `projection_mask` and
+`projection_calibrator` keep theirs in the same file).
+
+## 2026-10-28: `page_locator` expects upright markers
+
+**What changed:** `par_setup.yaml` sets `marker_quarter_turns: 0` for `page_locator_node`; the comment names 3 for the
+printed VIGITIA document pages.
+
+**Why:** follows `page_locator`'s new default (reasoning in its log): pages are published clockwise from the top
+left and sheets from `make_page_template` carry upright markers. Leaving 3 here would have overridden the new default.
+
+## 2026-10-28: rendering manager in `config/nodes.list`
+
+**What changed:** `config/nodes.list` lists `ros2-par-framework-rendering-manager` (branch `develop`) under a new
+"Rendering" section.
+
+**Why:** the repository now holds `rendering_manager_bridge`, an `ament_python` package one level down that colcon
+builds like any node; the Rust compositor at its root has no `package.xml` and is left to `cargo build`. Pinned to
+`develop` because the bridge exists only there so far; switch to `main` once it is merged.
+
+**Alternatives:** the bridge as a package in this repository's `packages/` (rejected in the rendering manager's
+`MASTER_PLAN.md`: it belongs with the control protocol it speaks).
