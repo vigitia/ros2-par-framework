@@ -2208,3 +2208,110 @@ then, the docs should not point to a tool that no longer matches the rest of the
 **Why:** the frame conventions were only in the project's CLAUDE.md, message comments and node constants; a node author needs to know which frame a value is in and where to convert it.
 
 **Alternatives:** listing the frames per message in the package table: rejected, the conventions are shared, so one section states them once.
+
+## 2026-10-27: fiducials_detector takes the Brio's JPEGs
+
+**What changed:** `par.launch.py` sets `use_compressed` for `fiducials_detector` with the Brio, as it already did for
+`object_detector`; README and CLAUDE.md name both nodes.
+
+**Why:** the Brio node decodes and publishes raw frames only while something subscribes to them. With the detector on
+the compressed topic, a page-tracking setup without other raw subscribers saves the full-colour decode in the camera
+node and the transfer of a full raw frame per image, and the detector decodes only the brightness it needs.
+
+**Alternatives:** decoding at reduced size (`IMREAD_REDUCED_GRAYSCALE_2`) would be faster still, but halves the
+pixels per marker, which at table distance are already few; detecting on regions around the last known markers is a
+larger change, left for the page-detection work.
+
+## 2026-10-27: README explains why frames are keep-last-1
+
+**What changed:** the design decision "Frames are best-effort, keep-last-1" in the README now explains that the
+queue depth decides which frame a slow node loses rather than whether it loses one, what a deeper queue changes
+(spikes absorbed at the cost of latency; no help when processing is slower than the frame interval on average), and
+why the framework prefers the newest frame: projected content must not trail what it belongs to.
+
+**Why:** the README only stated that a late frame is worthless, which left open whether a deeper queue would reduce
+dropped frames for a node that almost keeps up with the camera.
+
+**Alternatives:** a per-node queue depth parameter (rejected for now: without measured processing times there is
+nothing to tune it against).
+
+## 2026-10-27: fiducials_detector settings in `par_setup.yaml`
+
+**What changed:** a `fiducials_detector_node` section with `marker_type`, `dictionary`, `corner_refinement` and
+`adaptive_thresh_constant`, set to the values the node used as code defaults.
+
+**Why:** these are the settings to tune per setup (lighting, projector, required corner precision), and
+`par_setup.yaml` is the one place for per-setup values. `dictionary` is written out because the printed pages and the
+projected calibration markers depend on it.
+
+**Alternatives:** also listing `use_compressed` and `use_depth` (rejected: they follow from the camera, and
+`par.launch.py` sets them as overrides that would win over the file anyway).
+
+## 2026-10-27: `debug` for fiducials_detector in `par_setup.yaml`
+
+**What changed:** `fiducials_detector_node` lists the new `debug` parameter (off), which shows a preview window with
+the detected markers.
+
+**Why:** like `projection_mask`'s `debug`, it is switched in the one parameter file for a test run.
+
+## 2026-10-27: Brio exposure 4 ms with gain 64 in `par_setup.yaml`
+
+**What changed:** the Brio section sets the new `exposure_time_ms: 4.0` and `gain: 64`.
+
+**Why:** with the driver's default 10 ms, a page moved quickly by hand blurs until its markers are no longer
+detected; at 4 ms with gain 64 detection held up in a live test with this setup's light. The comment says to check for
+flicker after changing it, because exposures below 10 ms can pulse under mains-powered light.
+
+## 2026-10-27: page_locator's smoothing parameters for the 1€ filter
+
+**What changed:** `page_locator_node` in `par_setup.yaml` sets `smoothing_min_cutoff_hz` and `smoothing_beta_per_px`
+instead of `smoothing`.
+
+**Why:** page_locator replaced its fixed exponential smoothing with the 1€ filter, which smooths a still page
+strongly and a moving page hardly at all (details in the page_locator repository's documentation). A parameter
+the node no longer declares would be ignored without a warning.
+
+**Alternatives:** keeping `smoothing` as an alias (rejected: two ways to configure the same thing).
+
+## 2026-10-27: page_locator's debug preview in the launch and the setup file
+
+**What changed:** `par.launch.py` sets `use_compressed` for page_locator with the Brio, as for object_detector and
+fiducials_detector, and its comment no longer claims that page_locator reads no camera topic. `par_setup.yaml` has
+page_locator's `debug: false` with a description.
+
+**Why:** page_locator got a debug preview that shows the camera frames; with the Brio, whose driver publishes JPEGs,
+it must read the compressed topic like the detector, or the driver would decode every frame for it.
+
+**Alternatives:** leaving `use_compressed` to the user (rejected: the launch file is the one place that knows what
+each camera publishes).
+
+## 2026-10-28: quick-launch.md with a ros2 run command per node
+
+**What changed:** new `quick-launch.md` in the repository root: one `ros2 run` command per node (camera drivers,
+mount transforms, detectors, calibration server, projection mask, apps, calibration tools), each with every parameter
+the node declares and the remappings the launch files apply.
+
+**Why:** starting a single node for a test, or trying one parameter value, should not need a launch or parameter
+file. The values are those of `par_setup.yaml` where it sets them, so a command behaves like the node under
+`par.launch.py`; where the node's own default differs, the file says so. The RealSense and webcam drivers declare far
+more parameters than fit, so only the ones the framework sets are listed, with the command to see the rest.
+
+**Alternatives:** node defaults only (rejected: the commands would behave differently from the launched setup, e.g.
+the Brio's exposure); a script that generates the commands from the code (rejected: more code to maintain than the
+list itself; the file names `ros2 param list` for checking the current parameters instead).
+
+## 2026-10-28: calibration marker ids 0-8 in CLAUDE.md, webcam start resolves params_file
+
+**What changed:** `CLAUDE.md` names the projected calibration markers as ids 0-8, which is what
+`projection_calibrator_node` and `par_setup.yaml` use. `launch_helpers.create_webcam_nodes` takes the launch context
+and passes the resolved `params_file` path to `v4l2_camera`, like the other camera starts.
+
+**Why:** the ids are fixed at 0-8; the earlier move to 50-58 (entry above) no longer holds, and the guidance file must
+not describe another setup than the code. The ids 0-8 are page ids 0-2 in page_locator's numbering, so they still stay
+clear of the document pages (96-99). The webcam start was the only camera start that handed the unresolved
+`LaunchConfiguration` to `Node`. That works, but it differed from the others for no reason, and every other start
+resolves the path through the context.
+
+**Alternatives:** leaving `create_webcam_nodes` as it was, since `Node` resolves substitutions itself (rejected: two
+ways to do the same thing in one module); changing the other starts to pass the substitution instead (rejected: they
+need the resolved path anyway inside the OpaqueFunction, so resolving it is the common case).

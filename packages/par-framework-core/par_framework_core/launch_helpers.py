@@ -125,7 +125,7 @@ def create_camera_nodes(context, camera):
         return [create_realsense_driver_node(context),
                 *create_mount_tf_publisher(context, 'realsense_tf_publisher', 'realsense_link')]
     if camera == 'webcam':
-        return [*create_webcam_nodes(),
+        return [*create_webcam_nodes(context),
                 *create_mount_tf_publisher(context, 'webcam_tf_publisher', 'webcam_link')]
     # get_chosen_camera already rejects unknown cameras, so this is a camera in
     # CAMERA_DRIVER_REMAPPINGS without a start above
@@ -185,8 +185,8 @@ def create_realsense_driver_node(context):
     )
 
 
-# Co-authored by Claude Code: builds the calibration path in named steps
-def create_webcam_nodes():
+# Co-authored by Claude Code: builds the calibration path in named steps, resolves params_file
+def create_webcam_nodes(context):
     """Create a generic UVC webcam with v4l2_camera, and its body -> optical frame transform."""
     # In FOLDER_PATH_CAMERA_INTRINSICS like the Brio's; cameracalibrator's COMMIT writes it there
     camera_info_relative_path = f'{FOLDER_PATH_CAMERA_INTRINSICS}/camera_info_webcam.yaml'
@@ -201,7 +201,8 @@ def create_webcam_nodes():
             namespace='/camera/webcam',
             output='screen',
             emulate_tty=True,
-            parameters=[LaunchConfiguration('params_file'), {'camera_info_url': camera_info_url}],
+            parameters=[LaunchConfiguration('params_file').perform(context),
+                        {'camera_info_url': camera_info_url}],
             remappings=CAMERA_DRIVER_REMAPPINGS['webcam'],
         ),
         # What the Brio node publishes itself: z forward, y down (REP 103), roll -90, yaw -90 deg

@@ -22,6 +22,12 @@
     camera_resolution_x: 1920
     camera_resolution_y: 1080
     camera_fps: 60
+    # Exposure per frame in ms (node default 10.0) and gain (0-255, node default 0). A short exposure keeps fast
+    # moving pages sharp enough for the marker detection; the gain makes up for the lost brightness at the cost of
+    # noise. Below 10 ms, mains-powered lamps (and later the projector) may make the image pulse or show bands:
+    # check the image after changing it. Write the exposure with a decimal point, e.g. 4.0.
+    exposure_time_ms: 4.0
+    gain: 64
     # The calibration is calibration/intrinsics/camera_info_brio.yaml below this file: the launch files set
     # camera_info_url, cameracalibrator's COMMIT button writes it there. Missing file = uncalibrated CameraInfo.
     # Publish image_rect_color, needs that calibration.
@@ -95,6 +101,9 @@ fiducials_detector_node:
     # Subtracted in the adaptive thresholding (OpenCV default 7); tune it if markers are missed under the
     # projector light
     adaptive_thresh_constant: 7.0
+    # true: show the frames with the detected markers in a window (needs a display) and print the detection
+    # accuracy. Slows detection down a little, so only for testing.
+    debug: false
 
 # Pages of paper with an ArUco marker in each corner (page n: markers 4n .. 4n+3), from /fiducials.
 # Print them with: python src/page_locator/utils/make_page_template.py <page ids> --marker-size-mm <marker_size_mm>
@@ -119,8 +128,15 @@ page_locator_node:
     max_pages: 25
     # A page not seen for this long counts as removed.
     hold_time_sec: 0.5
-    # Share of a new position taken over per frame; 1.0 = no smoothing.
-    smoothing: 0.3
+    # 1€ filter on the page corners. Cutoff frequency while the page lies still; lower removes more jitter.
+    smoothing_min_cutoff_hz: 0.5
+    # Added cutoff frequency (Hz) per px/s of corner speed; higher lags less behind a moving page, but lets
+    # more noise through while only one marker is visible.
+    smoothing_beta_per_px: 0.05
+    # true: show the frames with the page markers and pages in a window (needs a display). Green: page fitted to
+    # two or more markers, yellow: moved by its only visible marker, magenta: not seen, held. Costs a frame decode
+    # per fiducials message, so only for testing. par.launch.py sets use_compressed for the camera.
+    debug: false
 
 # Automatic table-to-projector calibration (projection_calibration.launch.py).
 projection_calibrator_node:

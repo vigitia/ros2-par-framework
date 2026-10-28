@@ -171,8 +171,24 @@ driver's own names.
 subscriber that can't be changed, such as `cameracalibrator`, the Brio's `qos_reliability: reliable` in
 `par_setup.yaml` is the switch.
 
+The depth of 1 decides *which* frame a slow node loses, not *whether* it loses one. While a callback processes
+a frame, one slot holds the next; a frame arriving before the callback is done replaces the waiting one, so a
+node drops frames only while its processing takes longer than the camera's frame interval. A deeper queue
+does not make a node faster, it trades drops for latency:
+
+- If processing is faster than the frame interval on average and only single frames take longer, a queue of
+  2-3 absorbs those spikes, but the frames after a spike are processed late.
+- If processing is slower on average, a deeper queue fills up, every frame arrives late, and frames are still
+  dropped, only older ones.
+
+For projection, latency is the worse of the two: the projected content visibly trails the paper or hand it
+belongs to. So every sensor node aims to process each frame before the next one arrives, and that has to come
+from processing fast enough. Depth 1 makes a node that falls behind continue with the newest frame instead of
+catching up on old ones. Before changing the depth of a node, measure its processing time per frame against
+the frame interval.
+
 **Optional streams are switched per camera, not detected.** A node that can use the compressed or the depth
-stream has a parameter for it (`object_detector`: `use_compressed`, `use_depth`), and `par.launch.py` sets it
+stream has a parameter for it (`object_detector`, `fiducials_detector`: `use_compressed`, `use_depth`), and `par.launch.py` sets it
 for the cameras that provide the stream (`CAMERA_OVERRIDES`).
 
 **Detections are in raw image pixels.** Detectors publish positions in pixels of `/camera/image_raw`, distorted

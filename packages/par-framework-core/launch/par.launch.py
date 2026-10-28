@@ -41,10 +41,11 @@ DEPTH_CAMERA_OVERRIDES = {
 }
 CAMERA_OVERRIDES = {
     # The Brio's driver passes the camera's own JPEGs through on /camera/image_raw/compressed:
-    # object_detector and fiducials_detector decode them themselves, so the driver only decodes
-    # for raw subscribers
+    # object_detector, fiducials_detector and page_locator's debug preview decode them
+    # themselves, so the driver only decodes for raw subscribers
     'brio': {'object_detector': {'use_compressed': True},
-             'fiducials_detector': {'use_compressed': True}},
+             'fiducials_detector': {'use_compressed': True},
+             'page_locator': {'use_compressed': True}},
     'kinect': DEPTH_CAMERA_OVERRIDES,
     'realsense': DEPTH_CAMERA_OVERRIDES,
 }
@@ -85,8 +86,8 @@ def launch_setup(context):
             parameters=node_parameters,
         )
 
-    # page_locator only reads /fiducials and gesture_detector only /hand_landmarks, so they need
-    # fiducials_detector and hand_landmarks but no camera overrides
+    # page_locator reads /fiducials and gesture_detector /hand_landmarks, so they need
+    # fiducials_detector and hand_landmarks; page_locator reads frames only for its debug preview
     for detector in DETECTORS:
         if is_enabled(detector):
             camera_overrides = CAMERA_OVERRIDES.get(camera, {})

@@ -92,8 +92,8 @@ take plain Python/NumPy values, so it is testable with plain pytest and reusable
 
 Framework nodes subscribe to neutral names: `/camera/image_raw`, `/camera/camera_info`, `/camera/set_camera_info` and,
 from a depth camera, `/camera/depth_registered/image_raw` (depth on the colour image's pixel grid). `object_detector`
-with `use_compressed` takes `/camera/image_raw/compressed` instead (`par.launch.py` sets it for the Brio, the only
-driver publishing JPEGs). Drivers keep their own topics; launch files remap them with
+and `fiducials_detector` with `use_compressed` take `/camera/image_raw/compressed` instead (`par.launch.py` sets it
+for the Brio, the only driver publishing JPEGs). Drivers keep their own topics; launch files remap them with
 `launch_helpers.CAMERA_DRIVER_REMAPPINGS`, the only place that knows them. A new camera = a driver start in
 `launch_helpers` plus its entry there. Nodes hard-code the neutral names; another topic is chosen by remapping, not by
 parameter.
@@ -121,7 +121,7 @@ math (no service per point, no images through services):
 - table ↔ projector pixels: `table_to_projector` / `projector_to_table`, with the homography on the latched
   `/projection_mapping` (`ProjectionMapping`).
 
-The mapping comes from `projection_calibration.launch.py`: the projector shows ArUco ids 50–58 (`marker_ids`; must
+The mapping comes from `projection_calibration.launch.py`: the projector shows ArUco ids 0–8 (`marker_ids`; must
 not clash with the document pages' 96–99), `fiducials_detector` finds them, `projection_calibrator` (in
 `surface_selector`) fits the homography, and `projection_calibration_server_node` stores it as
 `config/calibration/extrinsics/projection_mapping_<camera>.yaml`, next to `camera_pose_<camera>.yaml` and the
