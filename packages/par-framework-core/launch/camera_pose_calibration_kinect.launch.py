@@ -3,7 +3,8 @@
 Measure the Azure Kinect's pose from the clear table and store it.
 
 camera_pose_calibrator fits the table plane in the Kinect's registered depth and writes
-config/calibration/extrinsics/camera_pose_kinect.yaml, which the Kinect launch files then use
+config/calibration/extrinsics/camera_pose_kinect.yaml (with profile:=<name>, in extrinsics/<name>/
+instead), which the Kinect launch files then use
 instead of the placeholder /kinect_tf_publisher (height and tilt are measured, the rotation about
 the vertical is kept from the placeholder). The launch ends when the calibrator is done. Keep the
 table clear:
@@ -16,21 +17,22 @@ import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction, Shutdown
-from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
-from par_framework_core.launch_helpers import (create_kinect_driver_node, FOLDER_PATH_EXTRINSICS,
-                                               get_path_in_config_folder, POSE_ROTATION_KEYS)
-import yaml
+from par_framework_core.launch_helpers import (create_kinect_driver_node,
+                                               create_profile_launch_argument,
+                                               get_extrinsics_folder_path,
+                                               get_path_in_config_folder, POSE_ROTATION_KEYS,
+                                               read_merged_parameters)
 
 PACKAGE_NAME = 'par_framework_core'
 
 
 def launch_setup(context):
-    params_file_path = LaunchConfiguration('params_file').perform(context)
-    with open(params_file_path) as params_file:
-        placeholder_pose = yaml.safe_load(params_file)['/kinect_tf_publisher']['ros__parameters']
+    merged_parameters = read_merged_parameters(context)
+    placeholder_pose = merged_parameters['/kinect_tf_publisher']['ros__parameters']
     placeholder_rotation = [float(placeholder_pose[key]) for key in POSE_ROTATION_KEYS]
-    camera_pose_relative_path = f'{FOLDER_PATH_EXTRINSICS}/camera_pose_kinect.yaml'
+    extrinsics_folder_path = get_extrinsics_folder_path(context)
+    camera_pose_relative_path = f'{extrinsics_folder_path}/camera_pose_kinect.yaml'
     camera_pose_file_path = get_path_in_config_folder(camera_pose_relative_path)
     return [
         create_kinect_driver_node(context),
@@ -61,5 +63,6 @@ def generate_launch_description():
             'params_file',
             default_value=default_params_file_path,
             description='Parameter file describing this physical PAR setup.'),
+        create_profile_launch_argument(),
         OpaqueFunction(function=launch_setup),
     ])

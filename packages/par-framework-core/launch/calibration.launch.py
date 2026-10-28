@@ -13,7 +13,8 @@ added with the help of Claude Code), camera:=realsense an Intel RealSense such a
 stored or the selection is cancelled with Esc (added with the help of Claude Code).
 Camera calibrations are config/calibration/intrinsics/camera_info_<camera>.yaml, shared by all
 parameter files (changed with the
-help of Claude Code).
+help of Claude Code). With profile:=<name>, the corners are that setup's own, in
+config/calibration/extrinsics/<name>/ (added with the help of Claude Code).
 """
 
 import os
@@ -22,11 +23,11 @@ from ament_index_python.packages import get_package_share_directory
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction, Shutdown
-from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from par_framework_core.launch_helpers import (create_camera_nodes,
+                                               create_profile_launch_argument,
                                                create_projection_calibration_server_node,
-                                               get_chosen_camera)
+                                               get_chosen_camera, get_params_file_paths)
 
 PACKAGE_NAME = 'par_framework_core'
 
@@ -42,7 +43,7 @@ def create_camera_and_surface_selector(context):
         output='screen',
         emulate_tty=True,
         # It subscribes to /camera/image_raw, which every camera publishes
-        parameters=[LaunchConfiguration('params_file')],
+        parameters=get_params_file_paths(context),
         # Corners stored (projection_calibration_server_node writes them before it answers) or
         # selection cancelled: the camera and the corners owner are not needed any longer
         on_exit=Shutdown(reason='projection corners selected'),
@@ -50,7 +51,7 @@ def create_camera_and_surface_selector(context):
     # The corners owner stores what surface_selector sends, in the camera's own file, and
     # publishes it on /projection_corners
     return [*create_camera_nodes(context, camera),
-            *create_projection_calibration_server_node(camera),
+            *create_projection_calibration_server_node(context, camera),
             surface_selector_node]
 
 
@@ -64,6 +65,7 @@ def generate_launch_description():
             'params_file',
             default_value=default_params_file_path,
             description='Parameter file describing this physical PAR setup.'),
+        create_profile_launch_argument(),
         DeclareLaunchArgument(
             'camera',
             default_value='',

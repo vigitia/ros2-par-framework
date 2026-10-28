@@ -12,6 +12,8 @@
 # files remap every camera driver onto (launch_helpers.CAMERA_DRIVER_REMAPPINGS).
 # CAMERA_NAMESPACE points it at a camera node outside the framework, e.g.
 #   CAMERA_NAMESPACE=/my_camera scripts/run_cameracalibrator.sh 0.031
+# BOARD_SIZE sets another board's inner corners (cameracalibrator would add a second --size, not replace it), e.g.
+#   BOARD_SIZE=10x6 scripts/run_cameracalibrator.sh 0.019
 #
 # COMMIT stores the result through set_camera_info at the node's camera_info_url, which the framework's launch
 # files set to config/calibration/intrinsics/camera_info_<camera>.yaml.
@@ -32,6 +34,7 @@ fi
 square_size_m="$1"
 shift    # the remaining arguments are passed on to cameracalibrator
 camera_namespace="${CAMERA_NAMESPACE:-/camera}"
+board_size="${BOARD_SIZE:-8x6}"
 
 # Must match the camera node's transport (the framework's terminals export LARGE_DATA), otherwise the two
 # don't see each other at all
@@ -62,7 +65,7 @@ EOF
 # exec replaces this shell with the calibrator, so its exit code is the script's.
 # --no-service-check: its startup check waits only 1 s for set_camera_info, less than discovery can take.
 exec python3 -c "$calibrator_code" \
-    --size 8x6 --square "$square_size_m" --no-service-check "$@" \
+    --size "$board_size" --square "$square_size_m" --no-service-check "$@" \
     --ros-args \
     -r image:="${camera_namespace}/image_raw" \
     -r camera/set_camera_info:="${camera_namespace}/set_camera_info"
