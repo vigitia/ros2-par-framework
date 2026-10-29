@@ -61,6 +61,13 @@ CAMERA_DRIVER_REMAPPINGS = {
         ('/camera/webcam/camera_info', DEFAULT_TOPIC_NAME_CAMERA_INFO),
         ('/camera/webcam/set_camera_info', DEFAULT_SERVICE_NAME_CAMERA_SET_INFO),
     ],
+    # FLIR Blackfly S through the released spinnaker_camera_driver. Its calibration service
+    # ignores the node's namespace and is created at the root
+    'blackfly': [
+        ('/camera/blackfly/image_raw', DEFAULT_TOPIC_NAME_CAMERA_IMAGE),
+        ('/camera/blackfly/camera_info', DEFAULT_TOPIC_NAME_CAMERA_INFO),
+        ('/set_camera_info', DEFAULT_SERVICE_NAME_CAMERA_SET_INFO),
+    ],
 }
 # For error messages, so they list every camera CAMERA_DRIVER_REMAPPINGS knows
 CAMERA_NAMES_TEXT = ', '.join(CAMERA_DRIVER_REMAPPINGS)
@@ -74,8 +81,9 @@ FOLDER_PATH_EXTRINSICS = 'calibration/extrinsics'
 FOLDER_PATH_PROFILES = 'profiles'
 # Profile names and camera serials become parts of file names: nothing that could leave the folder
 FILE_NAME_PART_PATTERN = re.compile(r'[A-Za-z0-9_-]+')
-# The Brio's section in the parameter files, which holds its serial
+# The cameras' sections in the parameter files, which hold their serials
 BRIO_NODE_PARAMETERS_KEY = '/camera/brio/logitech_brio_node'
+BLACKFLY_NODE_PARAMETERS_KEY = '/camera/blackfly'
 # What a camera pose needs, in the measured camera_pose_<camera>.yaml and in the placeholder
 POSE_TRANSLATION_KEYS = [f'translation.{axis}' for axis in 'xyz']
 POSE_ROTATION_KEYS = [f'rotation.{axis}' for axis in 'xyzw']
@@ -197,9 +205,9 @@ def get_chosen_camera(context):
     return camera
 
 
-# Co-authored by Claude Code: the final error names the gap it catches
+# Co-authored by Claude Code: the final error names the gap it catches, the Blackfly
 def create_camera_nodes(context, camera):
-    """Create the camera's driver and its mount transform: brio, kinect, realsense, webcam."""
+    """Create the camera's driver and its mount transform, for each of CAMERA_DRIVER_REMAPPINGS."""
     if camera == 'brio':
         # The Brio node itself publishes brio_link -> brio_optical_frame
         return [*create_logitech_brio_node(context),
@@ -216,6 +224,9 @@ def create_camera_nodes(context, camera):
     if camera == 'webcam':
         return [*create_webcam_nodes(context),
                 *create_mount_tf_publisher(context, 'webcam_tf_publisher', 'webcam_link')]
+    if camera == 'blackfly':
+        return [*create_blackfly_nodes(context),
+                *create_mount_tf_publisher(context, 'blackfly_tf_publisher', 'blackfly_link')]
     # get_chosen_camera already rejects unknown cameras, so this is a camera in
     # CAMERA_DRIVER_REMAPPINGS without a start above
     raise ValueError(f'[launch_helpers]: create_camera_nodes cannot start camera {camera!r}: add '
@@ -226,7 +237,8 @@ def create_camera_nodes(context, camera):
 def create_logitech_brio_node(context):
     """Create the Brio with the parameter files and its unit's calibration."""
     # cameracalibrator's COMMIT writes it there
-    camera_info_file_name = get_brio_camera_info_file_name(context)
+    camera_info_file_name = get_camera_info_file_name(context, 'brio', BRIO_NODE_PARAMETERS_KEY,
+                                                      'serial')
     camera_info_relative_path = f'{FOLDER_PATH_CAMERA_INTRINSICS}/{camera_info_file_name}'
     camera_info_path = get_path_in_config_folder(camera_info_relative_path)
     camera_info_url = f'file://{camera_info_path}'
@@ -242,21 +254,21 @@ def create_logitech_brio_node(context):
     )]
 
 
-# Co-authored by Claude Code
-def get_brio_camera_info_file_name(context):
-    """Return the Brio's intrinsics file name: per unit when its serial is set, else shared."""
-    # The intrinsics belong to the lens, so each unit has its own; without a serial the node picks
-    # any Brio, which is only unambiguous with one connected
-    brio_section = read_merged_parameters(context).get(BRIO_NODE_PARAMETERS_KEY) or {}
-    brio_parameters = brio_section.get('ros__parameters') or {}
-    serial = str(brio_parameters.get('serial', ''))
+# Co-authored by Claude Code: one function for every camera whose driver takes a serial
+def get_camera_info_file_name(context, camera, node_parameters_key, serial_parameter_name):
+    """Return the camera's intrinsics file name: per unit when its serial is set, else shared."""
+    # The intrinsics belong to the lens, so each unit has its own; without a serial the shared
+    # file is only unambiguous with one unit in use
+    node_section = read_merged_parameters(context).get(node_parameters_key) or {}
+    node_parameters = node_section.get('ros__parameters') or {}
+    serial = str(node_parameters.get(serial_parameter_name, ''))
     if not serial:
-        return 'camera_info_brio.yaml'
+        return f'camera_info_{camera}.yaml'
     if not FILE_NAME_PART_PATTERN.fullmatch(serial):
-        raise RuntimeError(f'[launch_helpers]: Brio serial {serial!r} under '
-                           f'{BRIO_NODE_PARAMETERS_KEY} is no serial number: use only letters, '
+        raise RuntimeError(f'[launch_helpers]: {camera} {serial_parameter_name} {serial!r} under '
+                           f'{node_parameters_key} is no serial number: use only letters, '
                            f'digits, _ and -')
-    return f'camera_info_brio_{serial}.yaml'
+    return f'camera_info_{camera}_{serial}.yaml'
 
 
 # Co-authored by Claude Code: name, and the parameter files with the profile
@@ -293,7 +305,7 @@ def create_realsense_driver_node(context):
 
 
 # Co-authored by Claude Code: builds the calibration path in named steps, resolves the parameter
-# files
+# files, the optical frame transform from create_optical_frame_tf_publisher
 def create_webcam_nodes(context):
     """Create a generic UVC webcam with v4l2_camera, and its body -> optical frame transform."""
     # In FOLDER_PATH_CAMERA_INTRINSICS like the Brio's; cameracalibrator's COMMIT writes it there.
@@ -315,18 +327,58 @@ def create_webcam_nodes(context):
                         {'camera_info_url': camera_info_url}],
             remappings=CAMERA_DRIVER_REMAPPINGS['webcam'],
         ),
-        # What the Brio node publishes itself: z forward, y down (REP 103), roll -90, yaw -90 deg
-        Node(
-            package='tf2_ros',
-            executable='static_transform_publisher',
-            name='webcam_optical_tf_publisher',
-            arguments=['--frame-id', 'webcam_link', '--child-frame-id', 'webcam_optical_frame',
-                       '--qx', '-0.5', '--qy', '0.5', '--qz', '-0.5', '--qw', '0.5'],
-        ),
+        create_optical_frame_tf_publisher('webcam'),
     ]
 
 
-# Co-authored by Claude Code: checks the pose before it is used, reads the profile's files
+# Written by Claude Code
+def create_blackfly_nodes(context):
+    """Create a FLIR Blackfly S with spinnaker_camera_driver, and its optical frame transform."""
+    # In FOLDER_PATH_CAMERA_INTRINSICS like the Brio's, per unit through serial_number
+    camera_info_file_name = get_camera_info_file_name(
+        context, 'blackfly', BLACKFLY_NODE_PARAMETERS_KEY, 'serial_number')
+    camera_info_relative_path = f'{FOLDER_PATH_CAMERA_INTRINSICS}/{camera_info_file_name}'
+    camera_info_path = get_path_in_config_folder(camera_info_relative_path)
+    camera_info_url = f'file://{camera_info_path}'
+    # The driver maps its ROS parameters onto the camera's settings with this file, which ships
+    # with the driver for the whole Blackfly S series
+    camera_settings_mapping_path = os.path.join(
+        get_package_share_directory('spinnaker_camera_driver'), 'config', 'blackfly_s.yaml')
+    return [
+        Node(
+            package='spinnaker_camera_driver',
+            executable='camera_driver_node',
+            name='blackfly',
+            namespace='/camera',
+            output='screen',
+            emulate_tty=True,
+            # frame_id must match the optical frame transform below, so it is set here and not in
+            # params_file. The driver spells its calibration parameter camerainfo_url
+            parameters=[*get_params_file_paths(context),
+                        {'parameter_file': camera_settings_mapping_path,
+                         'camerainfo_url': camera_info_url,
+                         'frame_id': 'blackfly_optical_frame'}],
+            remappings=CAMERA_DRIVER_REMAPPINGS['blackfly'],
+        ),
+        create_optical_frame_tf_publisher('blackfly'),
+    ]
+
+
+# Co-authored by Claude Code: one transform for every driver that does not publish it itself
+def create_optical_frame_tf_publisher(camera):
+    """Create the publisher of <camera>_link -> <camera>_optical_frame."""
+    # What the Brio node publishes itself: z forward, y down (REP 103), roll -90, yaw -90 deg
+    return Node(
+        package='tf2_ros',
+        executable='static_transform_publisher',
+        name=f'{camera}_optical_tf_publisher',
+        arguments=['--frame-id', f'{camera}_link', '--child-frame-id', f'{camera}_optical_frame',
+                   '--qx', '-0.5', '--qy', '0.5', '--qz', '-0.5', '--qw', '0.5'],
+    )
+
+
+# Co-authored by Claude Code: checks the pose before it is used, reads the profile's files,
+# variable names
 def create_mount_tf_publisher(context, publisher_name, child_frame_id):
     """
     Create the publisher of world -> child_frame_id: the measured camera pose, or the placeholder.
@@ -345,26 +397,26 @@ def create_mount_tf_publisher(context, publisher_name, child_frame_id):
     pose_source_path = get_path_in_config_folder(measured_pose_relative_path)
     if os.path.exists(pose_source_path):
         with open(pose_source_path) as measured_pose_file:
-            pose = yaml.safe_load(measured_pose_file)
+            camera_pose = yaml.safe_load(measured_pose_file)
         fix_hint = (f're-run the camera pose calibration, or delete the file to use the '
                     f'placeholder /{publisher_name} in the parameter files')
     else:
         pose_source_path = ' + '.join(get_params_file_paths(context))
         publisher_section = read_merged_parameters(context).get(f'/{publisher_name}') or {}
-        pose = publisher_section.get('ros__parameters')
+        camera_pose = publisher_section.get('ros__parameters')
         fix_hint = f'set them under /{publisher_name} ros__parameters in the parameter files'
     # Both files can be edited by hand or cut short, and every launch with this camera reads
     # them: a gap is reported here with its file instead of ending as a bare KeyError
-    invalid_keys = get_invalid_pose_keys(pose)
+    invalid_keys = get_invalid_pose_keys(camera_pose)
     if invalid_keys:
         raise RuntimeError(f'[launch_helpers]: {pose_source_path} has no finite number for '
                            f'{", ".join(invalid_keys)}: {fix_hint}')
     print(f'[launch_helpers]: {publisher_name}: camera pose from {pose_source_path}')
     transform_arguments = ['--frame-id', 'world', '--child-frame-id', child_frame_id]
     for axis in 'xyz':
-        transform_arguments += [f'--{axis}', str(pose[f'translation.{axis}'])]
+        transform_arguments += [f'--{axis}', str(camera_pose[f'translation.{axis}'])]
     for axis in 'xyzw':
-        transform_arguments += [f'--q{axis}', str(pose[f'rotation.{axis}'])]
+        transform_arguments += [f'--q{axis}', str(camera_pose[f'rotation.{axis}'])]
     return [Node(
         package='tf2_ros',
         executable='static_transform_publisher',

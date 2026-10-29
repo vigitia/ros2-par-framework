@@ -2417,3 +2417,54 @@ the faster value where it has been checked.
 
 **Alternatives:** changing the default to one window for every setup (rejected: the right window depends on the
 camera, its distance and the marker size, so it must be checked per setup).
+
+## 2026-10-29: FLIR Blackfly S as camera `blackfly`
+
+**What changed:** `camera:=blackfly` starts a FLIR Blackfly S through the released `spinnaker_camera_driver`
+(`config/ros_packages.list`), as `/camera/blackfly`. `launch_helpers` got `create_blackfly_nodes` and its entry in
+`CAMERA_DRIVER_REMAPPINGS`; `par_setup.yaml` its settings (fixed short exposure, fixed gain, high frame rate, a
+driver queue of one frame) and a placeholder pose under `/blackfly_tf_publisher`; `par.launch.py` an RViz config.
+Intrinsics are per unit (`camera_info_blackfly_<serial_number>.yaml`): `get_brio_camera_info_file_name` became
+`get_camera_info_file_name`, shared by the Brio and the Blackfly. The webcam's body-to-optical transform became
+`create_optical_frame_tf_publisher`, used by both cameras that need it. README, quick-launch and CLAUDE.md list the
+camera.
+
+**Why:** a fast global-shutter camera for the detectors. The driver is released for the distro and ships the Spinnaker
+SDK, so a rosdep key is all a fresh computer needs. Details found on the real driver: its calibration parameter is
+spelt `camerainfo_url`, and its `set_camera_info` service ignores the node's namespace and appears at the root, so the
+remapping takes `/set_camera_info`. `frame_id` is set in the launch code, next to the transform it must match. The
+exposure bounds the frame rate (a frame cannot be shorter than its exposure), so auto exposure is off; string values
+such as `Off` are quoted, because YAML reads a bare `Off` as a boolean, which the driver silently ignores.
+
+**Alternatives:**
+- *Camera name `flir`:* ambiguous next to the FLIR Lepton thermal camera node. Rejected for `blackfly`.
+- *Including the driver's `driver_node.launch.py`:* would bring its own node name, example parameters and a remapping
+  to an exposure controller the framework doesn't run. Rejected; the node is started like the other drivers.
+- *Best-effort images through `qos_overrides`:* matches the Brio's default, but couldn't be verified without the
+  camera connected, and the driver's reliable default already reaches best-effort subscribers and `cameracalibrator`.
+  Left at the driver's default.
+- *Colour conversion in the driver:* the monochrome model only offers mono formats; nodes that need colour convert
+  with cv_bridge.
+
+## 2026-10-29: clearer names in `par.launch.py` and `create_mount_tf_publisher`
+
+**What changed:** `CAMERA_OVERRIDES` is now `CAMERA_DETECTOR_PARAMETER_OVERRIDES` (also in the README), and the local
+`pose` in `launch_helpers.create_mount_tf_publisher` is `camera_pose`.
+
+**Why:** the old names didn't say what is overridden or whose pose it is.
+
+**Alternatives:** renaming `DEPTH_CAMERA_OVERRIDES` and `get_invalid_pose_keys`'s parameter in the same pass (not
+done: not part of the request).
+
+## 2026-10-29: Blackfly binning and image size set explicitly
+
+**What changed:** the `/camera/blackfly` section in `par_setup.yaml` sets `binning_x`/`binning_y` (1), `offset_x`/
+`offset_y` (0) and `image_width`/`image_height` (full sensor size).
+
+**Why:** the camera keeps these values until it loses power, and the driver only writes the parameters it is given.
+After one run with 2x2 binning, every later start delivered binned images, and switching binning back to 1 alone
+left the image at the reduced size. Listing all of them makes every start independent of what ran before. Binning
+and size are only writable while the camera is not streaming, so they take effect at driver start only.
+
+**Alternatives:** leaving them out and power-cycling the camera after a binning test (rejected: a silent wrong image
+size changes every pixel coordinate, e.g. stored corners and intrinsics, without an error).

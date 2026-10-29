@@ -124,6 +124,34 @@ ros2 run tf2_ros static_transform_publisher \
   --ros-args -r __node:=webcam_optical_tf_publisher
 ```
 
+### FLIR Blackfly S (`camera:=blackfly`)
+
+`spinnaker_camera_driver` turns each camera setting in its mapping file (`blackfly_s.yaml`, shipped with the driver)
+into a parameter: `ros2 param list /camera/blackfly` while it runs. Set `serial_number` to your camera's. Strings
+such as `Off` need quotes inside the value, or YAML reads them as booleans. USB3 models need a larger USB buffer
+(`usbcore.usbfs_memory_mb`) than Linux's default. The second command is the body-to-optical-frame transform, as for
+the webcam.
+
+```bash
+ros2 run spinnaker_camera_driver camera_driver_node --ros-args \
+  -r __ns:=/camera -r __node:=blackfly \
+  -p parameter_file:=/opt/ros/$ROS_DISTRO/share/spinnaker_camera_driver/config/blackfly_s.yaml \
+  -p "serial_number:='22260466'" -p frame_id:=blackfly_optical_frame \
+  -p "exposure_auto:='Off'" -p exposure_time:=600.0 -p "gain_auto:='Off'" -p gain:=18.0 \
+  -p "frame_rate_auto:='Off'" -p frame_rate_enable:=true -p frame_rate:=158.0 -p buffer_queue_size:=1 \
+  -p camerainfo_url:=file://$PWD/packages/par-framework-core/config/calibration/intrinsics/camera_info_blackfly_22260466.yaml \
+  -r /camera/blackfly/image_raw:=/camera/image_raw \
+  -r /camera/blackfly/camera_info:=/camera/camera_info \
+  -r /set_camera_info:=/camera/set_camera_info
+```
+
+```bash
+ros2 run tf2_ros static_transform_publisher \
+  --frame-id blackfly_link --child-frame-id blackfly_optical_frame \
+  --qx -0.5 --qy 0.5 --qz -0.5 --qw 0.5 \
+  --ros-args -r __node:=blackfly_optical_tf_publisher
+```
+
 ### FLIR Lepton thermal camera
 
 Not part of `par.launch.py`. The node puts itself in `/thermal/lepton`; nothing in the framework reads it yet, so it
@@ -159,6 +187,10 @@ ros2 run tf2_ros static_transform_publisher --frame-id world --child-frame-id re
 ros2 run tf2_ros static_transform_publisher --frame-id world --child-frame-id webcam_link \
   --x 0.0 --y 0.0 --z 0.93 --qx 0.0 --qy 0.7071068 --qz 0.0 --qw 0.7071068 \
   --ros-args -r __node:=webcam_tf_publisher
+
+ros2 run tf2_ros static_transform_publisher --frame-id world --child-frame-id blackfly_link \
+  --x 0.0 --y 0.0 --z 0.93 --qx 0.0 --qy 0.7071068 --qz 0.0 --qw 0.7071068 \
+  --ros-args -r __node:=blackfly_tf_publisher
 ```
 
 ## Detectors
@@ -170,7 +202,7 @@ on the camera, as `par.launch.py` sets them:
 |---------------------|-------------------------------------------------------|----------------------------------------------------------|
 | brio                | `true` (object_detector, fiducials_detector, page_locator) | `false`                                             |
 | kinect, realsense   | `false`                                               | `true` (object_detector, fiducials_detector, hand_landmarks) |
-| webcam              | `false`                                               | `false`                                                  |
+| webcam, blackfly    | `false`                                               | `false`                                                  |
 
 The commands below show the Brio's values. With another camera, change them as the table says: a raw-frame subscriber
 on the Brio makes its driver decode every JPEG, which slows down every node reading the compressed frames.
@@ -267,7 +299,7 @@ ros2 run rviz2 rviz2 -d packages/par-framework-core/config/rviz/par_framework_br
 ```
 
 RViz configurations: `par_framework_brio.rviz`, `par_framework_kinect.rviz`, `par_framework_realsense.rviz`,
-`par_framework_webcam.rviz`.
+`par_framework_webcam.rviz`, `par_framework_blackfly.rviz`.
 
 ## Calibration tools
 

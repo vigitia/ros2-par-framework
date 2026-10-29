@@ -3,7 +3,7 @@
 Bring up the PAR framework as the parameter file's par_launch section describes it.
 
 The framework's one entry point for every camera. par_launch names the camera (brio, kinect,
-realsense or webcam) and switches each node on or off. With another parameter file:
+realsense, webcam or blackfly) and switches each node on or off. With another parameter file:
 
     ros2 launch par_framework_core par.launch.py params_file:=/path/to/<file>.yaml
 
@@ -15,8 +15,8 @@ Each of them can be overridden for one run, e.g. camera:=kinect rviz:=true hand_
 an argument left empty keeps the parameter file's value. With a depth camera (kinect, realsense)
 the detectors also use its depth. camera_only:=true starts just the camera and its mount transform,
 e.g. for a preview or a calibration. Camera calibrations are
-config/calibration/intrinsics/camera_info_<camera>.yaml (a Brio with its serial set:
-camera_info_brio_<serial>.yaml), shared by all parameter files and profiles.
+config/calibration/intrinsics/camera_info_<camera>.yaml (a Brio or Blackfly with its serial set:
+camera_info_<camera>_<serial>.yaml), shared by all parameter files and profiles.
 """
 
 import os
@@ -46,7 +46,7 @@ DEPTH_CAMERA_OVERRIDES = {
     'fiducials_detector': {'use_depth': True},
     'hand_landmarks': {'use_depth': True},
 }
-CAMERA_OVERRIDES = {
+CAMERA_DETECTOR_PARAMETER_OVERRIDES = {
     # The Brio's driver passes the camera's own JPEGs through on /camera/image_raw/compressed:
     # object_detector, fiducials_detector and page_locator's debug preview decode them
     # themselves, so the driver only decodes for raw subscribers
@@ -59,7 +59,8 @@ CAMERA_OVERRIDES = {
 RVIZ_CONFIG_FILE_NAMES = {'brio': 'par_framework_brio.rviz',
                           'kinect': 'par_framework_kinect.rviz',
                           'realsense': 'par_framework_realsense.rviz',
-                          'webcam': 'par_framework_webcam.rviz'}
+                          'webcam': 'par_framework_webcam.rviz',
+                          'blackfly': 'par_framework_blackfly.rviz'}
 
 
 def launch_setup(context):
@@ -97,7 +98,7 @@ def launch_setup(context):
     # fiducials_detector and hand_landmarks; page_locator reads frames only for its debug preview
     for detector in DETECTORS:
         if is_enabled(detector):
-            camera_overrides = CAMERA_OVERRIDES.get(camera, {})
+            camera_overrides = CAMERA_DETECTOR_PARAMETER_OVERRIDES.get(camera, {})
             detector_overrides = camera_overrides.get(detector)
             launch_actions.append(create_framework_node(detector, detector_overrides))
 
@@ -164,8 +165,8 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'camera',
             default_value='',
-            description='brio, kinect, realsense or webcam. Empty uses par_launch.camera from '
-                        'params_file.'),
+            description='brio, kinect, realsense, webcam or blackfly. Empty uses '
+                        'par_launch.camera from params_file.'),
         DeclareLaunchArgument(
             'camera_only',
             default_value='false',

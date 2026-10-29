@@ -171,17 +171,18 @@ newly referenced external package (`std_msgs`, `geometry_msgs`, …) in **both**
 ## Camera interface
 
 The framework nodes never subscribe to a camera driver's own topics. Every driver keeps its own names
-(`/camera/brio/...`, the Kinect's `/rgb/...`, `/camera/realsense/...`, `/camera/webcam/...`), and the launch file
+(`/camera/brio/...`, the Kinect's `/rgb/...`, `/camera/realsense/...`, `/camera/webcam/...`,
+`/camera/blackfly/...`), and the launch file
 that starts it remaps them onto one neutral interface. Which camera runs is `par_launch.camera` in `par_setup.yaml`,
 or `camera:=` for one run.
 
 | Name | Type | Content | Provided by |
 | --- | --- | --- | --- |
-| `/camera/image_raw` | `sensor_msgs/Image` | colour image, BGR channel order (`bgr8`; the Kinect `bgra8`) | every camera |
+| `/camera/image_raw` | `sensor_msgs/Image` | colour image, BGR channel order (`bgr8`; the Kinect `bgra8`, a monochrome Blackfly `mono8`) | every camera |
 | `/camera/image_raw/compressed` | `sensor_msgs/CompressedImage` | the camera's own JPEGs, passed through undecoded | Brio |
 | `/camera/image_rect_color` | `sensor_msgs/Image` | undistorted colour image | Brio |
 | `/camera/camera_info` | `sensor_msgs/CameraInfo` | intrinsics of `/camera/image_raw` | every camera |
-| `/camera/set_camera_info` | `sensor_msgs/srv/SetCameraInfo` | stores new intrinsics | Brio, webcam |
+| `/camera/set_camera_info` | `sensor_msgs/srv/SetCameraInfo` | stores new intrinsics | Brio, webcam, Blackfly |
 | `/camera/depth_registered/image_raw` | `sensor_msgs/Image` | depth on the colour image's pixel grid | Kinect, RealSense |
 
 **Names are constants, remapping chooses.** Nodes take these names as constants, not as parameters; another topic
@@ -211,21 +212,22 @@ the frame interval.
 
 **Optional streams are switched per camera, not detected.** A node that can use the compressed or the depth
 stream has a parameter for it (`object_detector`, `fiducials_detector`: `use_compressed`, `use_depth`), and `par.launch.py` sets it
-for the cameras that provide the stream (`CAMERA_OVERRIDES`).
+for the cameras that provide the stream (`CAMERA_DETECTOR_PARAMETER_OVERRIDES`).
 
 **Detections are in raw image pixels.** Detectors publish positions in pixels of `/camera/image_raw`, distorted
 as the camera saw them. `par_geometry.pixels_to_table` undistorts them with `/camera/camera_info` and turns them
 into table coordinates; it needs calibrated intrinsics and the camera pose.
 
-**Intrinsics travel on `camera_info`.** The Brio and the webcam load theirs from
+**Intrinsics travel on `camera_info`.** The Brio, the webcam and the Blackfly load theirs from
 `config/calibration/intrinsics/camera_info_<camera>.yaml` (gitignored, one per camera type), which
 `scripts/run_cameracalibrator.sh` writes through `/camera/set_camera_info`. A Brio whose `serial` is set has its own
-file, `camera_info_brio_<serial>.yaml`, since every lens differs; set it when several Brios are in use. Intrinsics
+file, `camera_info_brio_<serial>.yaml`, since every lens differs; set it when several Brios are in use. The
+Blackfly always has its `serial_number` set, so its file is `camera_info_blackfly_<serial_number>.yaml`. Intrinsics
 are shared by all profiles. The Kinect and the RealSense publish
 their factory calibration instead.
 
 **The camera pose is a static transform.** `world` → the camera's body frame (`brio_link`, `camera_base`,
-`realsense_link`, `webcam_link`) is published by `/<camera>_tf_publisher`, started with the driver. It uses the
+`realsense_link`, `webcam_link`, `blackfly_link`) is published by `/<camera>_tf_publisher`, started with the driver. It uses the
 measured `config/calibration/extrinsics/camera_pose_<camera>.yaml` while that file exists (written by
 `camera_pose_calibration_kinect.launch.py`; with a profile in `extrinsics/<profile>/`), and otherwise the placeholder
 under `/<camera>_tf_publisher` in `par_setup.yaml` or the profile. The table is the plane z = 0 of `world`.
@@ -241,8 +243,8 @@ No consumer changes. In `packages/par-framework-core/`:
    `/<camera>_tf_publisher`.
 3. `launch/par.launch.py`: an RViz configuration (a file in `config/rviz/`, named in `RVIZ_CONFIG_FILE_NAMES`),
    and the camera in
-   `CAMERA_OVERRIDES` if it provides depth or JPEGs. A depth camera also goes into `DEPTH_CAMERAS` in
-   `launch/projection_calibration.launch.py`.
+   `CAMERA_DETECTOR_PARAMETER_OVERRIDES` if it provides depth or JPEGs. A depth camera also goes into
+   `DEPTH_CAMERAS` in `launch/projection_calibration.launch.py`.
 4. A released driver goes into `config/ros_packages.list`, a driver from source into `config/nodes.list`.
 
 ---
@@ -254,7 +256,7 @@ Four coordinate systems, and every value in the framework is in exactly one of t
 | System | Unit | Origin and axes | Used for |
 | --- | --- | --- | --- |
 | Camera pixels | px | raw, distorted `/camera/image_raw`: origin top left, x right, y down | everything detectors find (contours, fiducial and page corners, hand landmarks, `Gesture.pixel`), the clicked projection corners |
-| Camera optical frame | m | the image's `header.frame_id` (`rgb_camera_link`, `brio_optical_frame`, `realsense_color_optical_frame`, `webcam_optical_frame`): x right, y down, z forward | what a depth camera measures: `center_3d`, `hull_contour_3d`, `hand_landmarks_3d`, `corners_3d` |
+| Camera optical frame | m | the image's `header.frame_id` (`rgb_camera_link`, `brio_optical_frame`, `realsense_color_optical_frame`, `webcam_optical_frame`, `blackfly_optical_frame`): x right, y down, z forward | what a depth camera measures: `center_3d`, `hull_contour_3d`, `hand_landmarks_3d`, `corners_3d` |
 | Table, frame `world` | m | z = 0 is the tabletop, z points up, the origin lies below the camera | `Gesture.position`, `/projection_mapping` and the projector centre, the RViz markers |
 | Projector pixels | px | origin top left of the projected image, at the projector's resolution | `/projector/mask`, `/projector/content_mask`, what an app draws |
 

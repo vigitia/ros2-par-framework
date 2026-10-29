@@ -1,5 +1,5 @@
 # Co-authored by Claude Code (notes on the camera pose placeholders, the projection mask, the demo app, the
-# RealSense driver settings, the hand landmarks, the page_locator marker orientation).
+# RealSense and Blackfly driver settings, the hand landmarks, the page_locator marker orientation).
 # Parameters of one physical PAR setup: which camera, which projector, at what
 # resolution. This is the file to edit when moving the framework to a new table
 # or a new machine -- node source should not need per-setup constants.
@@ -69,6 +69,39 @@
     # Depth on the colour image's pixel grid, which the framework uses (/camera/depth_registered/image_raw).
     align_depth:
       enable: true
+
+# FLIR Blackfly S (camera: blackfly), e.g. the monochrome BFS-U3-23S3M-C, through spinnaker_camera_driver; the
+# launch files start it as /camera/blackfly. A monochrome model publishes mono8 frames. The calibration is
+# calibration/intrinsics/camera_info_blackfly_<serial_number>.yaml below this file, set by the launch files.
+# More options: ros2 param list /camera/blackfly. USB3 models need a larger USB buffer than Linux's default
+# (usbcore.usbfs_memory_mb, e.g. 1000), otherwise frames are dropped at high frame rates.
+# Write string values in quotes: YAML reads a bare Off as false, which the driver ignores.
+/camera/blackfly:
+  ros__parameters:
+    # Printed on the camera, shown in SpinView. The driver opens only this camera.
+    serial_number: '22260470' # '22260466'
+    # The frame interval at frame_rate must be longer than the exposure; the gain (dB) makes up for the short
+    # exposure at the cost of noise.
+    exposure_auto: 'Off'
+    exposure_time: 600.0
+    gain_auto: 'Off'
+    gain: 18.0
+    frame_rate_auto: 'Off'
+    frame_rate_enable: true
+    frame_rate: 158.0
+    # Frames the driver holds between the camera and publishing: 1 publishes only the newest, for the lowest
+    # latency.
+    buffer_queue_size: 1
+    # 2x2 binning: a quarter of the pixels, brighter, but pixel coordinates (corners, intrinsics) change with it.
+    # Binning and image size are set explicitly, because the camera keeps them until it loses power, the driver
+    # sets only listed parameters, and switching binning back off does not enlarge the image again. Both take
+    # effect only at driver start, not at runtime. The size is the sensor's full size divided by the binning.
+    binning_x: 1
+    binning_y: 1
+    offset_x: 0
+    offset_y: 0
+    image_width: 1920
+    image_height: 1200
 
 surface_selector_node:
   ros__parameters:
@@ -213,7 +246,7 @@ demo_app_node:
   ros__parameters:
     translation.x: 0.0
     translation.y: 0.0
-    translation.z: 0.93
+    translation.z: 1.0
     rotation.x: 0.0
     rotation.y: 0.7071068
     rotation.z: 0.0
@@ -225,7 +258,7 @@ demo_app_node:
   ros__parameters:
     translation.x: 0.0
     translation.y: 0.0
-    translation.z: 0.93
+    translation.z: 1.0
     rotation.x: 0.0
     rotation.y: 0.7071068
     rotation.z: 0.0
@@ -234,6 +267,18 @@ demo_app_node:
 # Pose of the RealSense body frame (realsense_link, x forward, z up). PLACEHOLDER -- DO NOT EDIT, see
 # /brio_tf_publisher. The real pose is calibration/extrinsics/camera_pose_realsense.yaml below this file.
 /realsense_tf_publisher:
+  ros__parameters:
+    translation.x: 0.0
+    translation.y: 0.0
+    translation.z: 1.0
+    rotation.x: 0.0
+    rotation.y: 0.7071068
+    rotation.z: 0.0
+    rotation.w: 0.7071068
+
+# Pose of the Blackfly body frame (blackfly_link). PLACEHOLDER -- DO NOT EDIT, see /brio_tf_publisher.
+# The real pose is calibration/extrinsics/camera_pose_blackfly.yaml below this file, written by hand.
+/blackfly_tf_publisher:
   ros__parameters:
     translation.x: 0.0
     translation.y: 0.0
@@ -289,17 +334,17 @@ k4a_ros_device_node:
 # and an empty list has no type a node could read.
 par_launch:
   ros__parameters:
-    # brio, kinect, realsense or webcam
+    # brio, kinect, realsense, webcam or blackfly
     camera: kinect
-    object_detector: true
-    fiducials_detector: true
-    hand_landmarks: true
+    object_detector: false
+    fiducials_detector: false
+    hand_landmarks: false
     # Needs fiducials_detector
-    page_locator: true
+    page_locator: false
     # Needs hand_landmarks
-    gesture_detector: true
+    gesture_detector: false
     # RViz with rviz_bridge
-    rviz: true
+    rviz: false
     # Keeps projected light off hands and objects (/projector/mask); needs a depth camera, the calibration and
     # ros2-par-framework-projection-mask in config/nodes.list
     projection_mask: false

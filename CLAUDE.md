@@ -65,11 +65,11 @@ colcon-buildable package whose `package.xml` declares all dependencies (`ament_p
 `ament_python`), PyPI deps in an optional root `requirements.txt`. Packages may sit at the root, one level down, or
 several per repo; each is keyed by its `<name>`. A third-party repo written for an older distro may need a fork.
 
-**Released packages** (`v4l2_camera`, `realsense2_camera`) are not cloned: they are rosdep keys in
-`config/ros_packages.list`, turned into a generated `package.xml` by `write_ros_packages_manifest` in
+**Released packages** (`v4l2_camera`, `realsense2_camera`, `spinnaker_camera_driver`) are not cloned: they are rosdep
+keys in `config/ros_packages.list`, turned into a generated `package.xml` by `write_ros_packages_manifest` in
 `scripts/common.sh`. So camera drivers stay optional and `par_framework_core` declares none. The Kinect SDK (`K4A`) is
 installed by hand (rosdep runs with `--skip-keys K4A`); nothing in core may declare the Kinect driver, or a Brio-only
-build breaks.
+build breaks. `spinnaker_camera_driver` brings its own copy of the Spinnaker SDK.
 
 **Interfaces.** All `.msg`/`.srv`/`.action` live in `par_framework_interfaces` (repo `ros2-par-framework-interfaces`),
 which is `ament_cmake` because `rosidl_generate_interfaces()` is a CMake macro, so interfaces can never move into a
