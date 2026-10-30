@@ -1,9 +1,15 @@
 # Written by Claude Code
-# RViz view of the PAR setup with a generic webcam: par_framework_brio.rviz, the same /camera topics.
-# v4l2_camera publishes Reliable, which the Best Effort displays receive as well.
+# RViz view of the PAR setup, for every camera (par.launch.py with rviz): world grid, TF frames, the camera's
+# frustum (drawn by the CameraInfo display from /camera/camera_info), its live image and what rviz_bridge projects
+# onto the table. One file serves all cameras, because every driver is remapped onto the same /camera/... topics.
+# What only some cameras or sensors publish is in here too, switched off; a disabled display subscribes to
+# nothing. The camera topics are subscribed Best Effort: that also receives from drivers that publish Reliable,
+# while RViz's default Reliable would receive nothing from a Best Effort driver.
 Panels:
   - Class: rviz_common/Displays
     Name: Displays
+  - Class: rviz_common/Views
+    Name: Views
 Visualization Manager:
   Class: ""
   Displays:
@@ -18,7 +24,7 @@ Visualization Manager:
       Show Names: true
     - Class: rviz_default_plugins/CameraInfo
       Enabled: true
-      Name: Brio frustum
+      Name: Camera frustum
       # Length of the frustum in metres along the optical axis. Longer than any expected camera height, so
       # it passes through the table even when the camera is tilted; RViz cannot clip it at the table plane
       Far clip: 2
@@ -34,13 +40,40 @@ Visualization Manager:
         Value: /camera/camera_info
     - Class: rviz_default_plugins/Image
       Enabled: true
-      Name: Brio image
+      Name: Camera image
       Topic:
         Depth: 1
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Best Effort
         Value: /camera/image_raw
+    # Events of the event camera (par_launch event_camera), collected into images by its renderer. Off by
+    # default: most setups have no event camera
+    - Class: rviz_default_plugins/Image
+      Enabled: false
+      Name: Event camera image
+      Topic:
+        Depth: 1
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /event_camera/renderer/image_raw
+    # Coloured depth point cloud from the Kinect driver, in depth_camera_link. Not remapped, since no framework
+    # node reads it, so only the Kinect fills this topic
+    - Class: rviz_default_plugins/PointCloud2
+      # Off while point_cloud is off in par_setup.yaml
+      Enabled: false
+      Name: Kinect point cloud
+      Style: Points
+      Size (Pixels): 2
+      Color Transformer: RGB8
+      Decay Time: 0
+      Topic:
+        Depth: 1
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /points2
     # Projection area selected with surface_selector, projected onto the table by rviz_bridge
     - Class: rviz_default_plugins/MarkerArray
       Enabled: true
@@ -126,3 +159,22 @@ Visualization Manager:
       Yaw: 0.8
       Target Frame: <Fixed Frame>
       Value: Orbit (rviz_default_plugins)
+# Docks Displays on the left, Views and the camera image on the right, so all three are visible on
+# every start. QMainWindow State is Qt's saved dock layout, generated with Qt; it names the image
+# panel, so it must match the Image display's Name. Arrange the panels in RViz and save the config
+# (Ctrl+S) to change it. No window position on purpose: GNOME then opens
+# RViz on the current monitor (the one being worked on), and with a monitor-sized window its
+# auto-maximize setting maximises it there. Saving adds X and Y: remove them again, or RViz always
+# opens at that spot (possibly on the projector).
+Window Geometry:
+  Width: 1920
+  Height: 1080
+  Displays:
+    collapsed: false
+  Hide Left Dock: false
+  Hide Right Dock: false
+  Camera image:
+    collapsed: false
+  QMainWindow State: 000000ff00000000fd00000002000000000000014a000003b6fc0200000001fb000000100044006900730070006c0061007900730100000000000003b60000001300ffffff00000001000001e0000003b6fc0200000002fb0000000a005600690065007700730100000000000001ee0000001300fffffffb0000001800430061006d00650072006100200069006d00610067006501000001f4000001c20000001300ffffff0000030a000003b600000004000000040000000800000008fc00000000
+  Views:
+    collapsed: false
