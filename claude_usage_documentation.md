@@ -2633,3 +2633,13 @@ commit until the first working version, so the remote's default branch would clo
 
 **Decisions:** The pin moves to `main` once the port is merged there. The line goes on `develop` directly rather than a
 core feature branch, because nothing else in core changes for the first port steps.
+
+## 2026-10-30: `/datasets/` gitignored
+
+**What changed:** `.gitignore` ignores `/datasets/` at the framework root.
+
+**Why:** object teaching stores captured frames, its dataset and training runs in `<workspace root>/datasets/`
+by default (`data_dir` parameter of its nodes); these are local recordings, not source.
+
+**Decisions:** a root folder next to `/models/`, rather than inside `install/` (deleted by clean builds) or the
+user's home (harder to find next to the framework).

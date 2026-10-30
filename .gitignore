@@ -19,6 +19,9 @@
 # Models like YOLO, SAM, etc. Used for e.g. the object detector node
 /models/
 
+# Captured frames, datasets and training runs, e.g. of object teaching
+/datasets/
+
 __pycache__/
 *.py[cod]
 .pytest_cache/
