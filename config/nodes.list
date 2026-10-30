@@ -39,7 +39,7 @@ hand_landmarks            git@github.com:vigitia/ros2-par-framework-hand-landmar
 gesture_detector          git@github.com:vigitia/ros2-par-framework-gestures.git            main
 page_locator              git@github.com:vigitia/ros2-par-framework-page-locator.git        main
 projection_mask           git@github.com:vigitia/ros2-par-framework-projection-mask.git     main
-
+object_teaching           git@github.com:vigitia/ros2-par-framework-object-teaching.git     main
 
 # Rendering (the rendering manager is a Wayland compositor, built with cargo; colcon builds its ROS bridge):
 

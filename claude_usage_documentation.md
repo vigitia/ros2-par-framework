@@ -2622,3 +2622,14 @@ row than the infrared pixel it corrects.
 **Decisions:** Switched off rather than kept: a uniform projector image in the infrared image disturbs less than
 patches that look like objects. The node's correction stays; a position-dependent version is to be decided after
 measuring whether the share follows image position or the projection surface.
+
+## 2026-10-30: `object_teaching` added to `config/nodes.list`
+
+**What changed:** New line for `ros2-par-framework-object-teaching` (packages `training_images_collector` and
+`transfer_learning_service`), pinned to `feature/object-teaching`.
+
+**Why:** The old VIGITIA object teaching pipeline is ported step by step in that repo. Its `main` stays at the initial
+commit until the first working version, so the remote's default branch would clone an empty repo.
+
+**Decisions:** The pin moves to `main` once the port is merged there. The line goes on `develop` directly rather than a
+core feature branch, because nothing else in core changes for the first port steps.
