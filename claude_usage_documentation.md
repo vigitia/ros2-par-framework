@@ -2643,3 +2643,16 @@ by default (`data_dir` parameter of its nodes); these are local recordings, not 
 
 **Decisions:** a root folder next to `/models/`, rather than inside `install/` (deleted by clean builds) or the
 user's home (harder to find next to the framework).
+
+## 2026-10-30: `par_geometry.table_to_pixels`
+
+**What changed:** New function `table_to_pixels(points_m, camera_matrix, distortion_coefficients, rotation,
+translation_m)`: table points (z = 0) to raw camera pixels, with the camera's distortion applied, via
+`cv2.projectPoints` and the inverted camera pose. Exported from the package.
+
+**Why:** object teaching stores its region as a table polygon in metres, but its trainer crops and masks the captured
+camera frames in camera pixels. Until now the library only had the opposite direction (`pixels_to_table`).
+
+**Decisions:** the same pose arguments as `pixels_to_table` (the optical frame's pose in the table frame), so callers
+pass one TF lookup to both. Points behind the camera are not filtered, because a table region seen by the camera never
+has any; the docstring says so. Checked with a round trip pixels -> table -> pixels on a tilted, distorted camera.

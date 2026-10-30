@@ -3,9 +3,9 @@
 Coordinate conversions of the PAR framework, free of ROS plumbing.
 
 camera pixels --pixels_to_table--> table (metres, z = 0 of world) --table_to_projector-->
-projector pixels, and back with projector_to_table. Above the table: a depth image
---depth_to_table--> table frame points --project_to_table--> the table points lit by the same
-projector pixels, given the projector's optical centre (found with intersect_rays).
+projector pixels, and back with projector_to_table and table_to_pixels. Above the table: a depth
+image --depth_to_table--> table frame points --project_to_table--> the table points lit by the
+same projector pixels, given the projector's optical centre (found with intersect_rays).
 """
 
 import cv2
@@ -42,6 +42,27 @@ def pixels_to_table(pixels, camera_matrix, distortion_coefficients, rotation, tr
     # ray_scale <= 0: the ray points away from the table; not finite: it runs parallel to it
     hits_table = np.isfinite(ray_scales) & (ray_scales > 0)
     return table_hits_m[hits_table]
+
+
+def table_to_pixels(points_m, camera_matrix, distortion_coefficients, rotation, translation_m):
+    """
+    Map Nx2 table points (x, y in metres, z = 0) to pixels of the raw camera image.
+
+    The inverse of pixels_to_table.
+
+    rotation and translation_m are the pose of the optical frame in the table frame, as for
+    pixels_to_table. Returns an Nx2 array with the camera's distortion applied. Points behind the
+    camera are not dropped; they give meaningless pixels.
+    """
+    points_m = np.asarray(points_m, np.float64).reshape(-1, 2)
+    table_points_m = np.column_stack([points_m, np.zeros(len(points_m))])
+    # Pose of the table frame in the optical frame: the inverse of the optical frame's pose
+    rotation_table_to_optical = rotation.T
+    translation_table_to_optical_m = -rotation.T @ translation_m
+    rotation_vector, _ = cv2.Rodrigues(rotation_table_to_optical)
+    pixels, _ = cv2.projectPoints(table_points_m, rotation_vector, translation_table_to_optical_m,
+                                  camera_matrix, distortion_coefficients)
+    return pixels.reshape(-1, 2)
 
 
 def apply_homography(homography, points):
