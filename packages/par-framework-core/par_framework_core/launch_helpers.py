@@ -27,6 +27,12 @@ DEFAULT_TOPIC_NAME_CAMERA_IMAGE_COMPRESSED = DEFAULT_TOPIC_NAME_CAMERA_IMAGE + '
 DEFAULT_TOPIC_NAME_CAMERA_INFO = '/camera/camera_info'
 # Depth registered to the colour image (same pixel grid), only from a depth camera
 DEFAULT_TOPIC_NAME_CAMERA_DEPTH = '/camera/depth_registered/image_raw'
+# Infrared on the colour image's pixel grid, only from a camera that has one. Unlike depth, the
+# name does not say "registered"; /camera/ir_registered/image_raw would be the consistent
+# alternative. Infrared on another grid (e.g. a depth camera's) is not mapped onto this name.
+DEFAULT_TOPIC_NAME_CAMERA_IR = '/camera/ir/image_raw'
+# Raw events (event_camera_msgs/EventPacket), only from an event camera
+DEFAULT_TOPIC_NAME_CAMERA_EVENTS = '/camera/events'
 
 # cameracalibrator's COMMIT stores the calibration through this service
 DEFAULT_SERVICE_NAME_CAMERA_SET_INFO = '/camera/set_camera_info'
@@ -68,6 +74,22 @@ CAMERA_DRIVER_REMAPPINGS = {
         ('/camera/blackfly/camera_info', DEFAULT_TOPIC_NAME_CAMERA_INFO),
         ('/set_camera_info', DEFAULT_SERVICE_NAME_CAMERA_SET_INFO),
     ],
+    # e-con See3CAM_CU40 RGB-IR camera through its node from this framework. Its infrared pixels
+    # are part of the colour sensor, so the infrared image is on the colour image's grid
+    'cu40': [
+        ('/camera/cu40/image_raw', DEFAULT_TOPIC_NAME_CAMERA_IMAGE),
+        ('/camera/cu40/camera_info', DEFAULT_TOPIC_NAME_CAMERA_INFO),
+        ('/camera/cu40/ir/image_raw', DEFAULT_TOPIC_NAME_CAMERA_IR),
+        ('/camera/cu40/set_camera_info', DEFAULT_SERVICE_NAME_CAMERA_SET_INFO),
+    ],
+    # Event camera through the released metavision_driver: its renderer's images become the
+    # camera image, and the renderer reads the events from the neutral name as well. The
+    # driver publishes no camera_info
+    'event': [
+        ('/camera/event/events', DEFAULT_TOPIC_NAME_CAMERA_EVENTS),
+        ('/camera/event_renderer/events', DEFAULT_TOPIC_NAME_CAMERA_EVENTS),
+        ('/camera/event_renderer/image_raw', DEFAULT_TOPIC_NAME_CAMERA_IMAGE),
+    ],
 }
 # For error messages, so they list every camera CAMERA_DRIVER_REMAPPINGS knows
 CAMERA_NAMES_TEXT = ', '.join(CAMERA_DRIVER_REMAPPINGS)
@@ -84,6 +106,7 @@ FILE_NAME_PART_PATTERN = re.compile(r'[A-Za-z0-9_-]+')
 # The cameras' sections in the parameter files, which hold their serials
 BRIO_NODE_PARAMETERS_KEY = '/camera/brio/logitech_brio_node'
 BLACKFLY_NODE_PARAMETERS_KEY = '/camera/blackfly'
+CU40_NODE_PARAMETERS_KEY = '/camera/cu40/see3cam_cu40_node'
 # What a camera pose needs, in the measured camera_pose_<camera>.yaml and in the placeholder
 POSE_TRANSLATION_KEYS = [f'translation.{axis}' for axis in 'xyz']
 POSE_ROTATION_KEYS = [f'rotation.{axis}' for axis in 'xyzw']
@@ -227,6 +250,13 @@ def create_camera_nodes(context, camera):
     if camera == 'blackfly':
         return [*create_blackfly_nodes(context),
                 *create_mount_tf_publisher(context, 'blackfly_tf_publisher', 'blackfly_link')]
+    if camera == 'cu40':
+        # The CU40 node itself publishes cu40_link -> cu40_optical_frame
+        return [*create_see3cam_cu40_node(context),
+                *create_mount_tf_publisher(context, 'cu40_tf_publisher', 'cu40_link')]
+    if camera == 'event':
+        return [*create_event_camera_nodes(context),
+                *create_mount_tf_publisher(context, 'event_tf_publisher', 'event_link')]
     # get_chosen_camera already rejects unknown cameras, so this is a camera in
     # CAMERA_DRIVER_REMAPPINGS without a start above
     raise ValueError(f'[launch_helpers]: create_camera_nodes cannot start camera {camera!r}: add '
@@ -251,6 +281,27 @@ def create_logitech_brio_node(context):
         parameters=[*get_params_file_paths(context),
                     {'camera_info_url': camera_info_url}],
         remappings=CAMERA_DRIVER_REMAPPINGS['brio'],
+    )]
+
+
+# Written by Claude Code
+def create_see3cam_cu40_node(context):
+    """Create the See3CAM_CU40 with the parameter files and its unit's calibration."""
+    # In FOLDER_PATH_CAMERA_INTRINSICS like the Brio's, per unit through serial
+    camera_info_file_name = get_camera_info_file_name(context, 'cu40', CU40_NODE_PARAMETERS_KEY,
+                                                      'serial')
+    camera_info_relative_path = f'{FOLDER_PATH_CAMERA_INTRINSICS}/{camera_info_file_name}'
+    camera_info_path = get_path_in_config_folder(camera_info_relative_path)
+    camera_info_url = f'file://{camera_info_path}'
+    return [Node(
+        package='see3cam_cu40',
+        executable='see3cam_cu40',
+        name='see3cam_cu40_node',
+        output='screen',
+        emulate_tty=True,
+        parameters=[*get_params_file_paths(context),
+                    {'camera_info_url': camera_info_url}],
+        remappings=CAMERA_DRIVER_REMAPPINGS['cu40'],
     )]
 
 
@@ -366,7 +417,17 @@ def create_blackfly_nodes(context):
 
 # Written by Claude Code
 def create_event_camera_nodes(context):
-    """Create an event camera with metavision_driver, and a renderer of its events as images."""
+    """Create an event camera, a renderer of its events as images, and its optical frame."""
+    # TODO: intrinsic calibration. The driver publishes no camera_info and offers no
+    # set_camera_info, so scripts/run_cameracalibrator.sh cannot store a calibration yet:
+    # 1. A node that loads camera_info_event.yaml from FOLDER_PATH_CAMERA_INTRINSICS (as
+    #    camera_info_url, like the other cameras), publishes /camera/camera_info with each image's
+    #    header and serves /camera/set_camera_info. First check whether ROS 2 already ships one;
+    #    otherwise a small node built on camera_info_manager.
+    # 2. A blink source: utils/checkerboard.png full screen on a movable display (not the
+    #    projector, the board needs many poses), alternating with black at a few Hz, slower than
+    #    the renderer's fps. Only the white squares fire, so each rendered image shows the board.
+    #    Not board and inverse: then every square fires, and a slice with two switches is uniform
     event_camera_actions = []
     # OpenEB finds plugins that a camera maker ships separately only through this variable.
     # Without it such a camera fails with "cannot open default camera", which names no cause
@@ -375,30 +436,34 @@ def create_event_camera_nodes(context):
             msg='[launch_helpers]: MV_HAL_PLUGIN_PATH is not set: an event camera whose maker '
                 'ships its own OpenEB plugin is not found. Set it in this shell, e.g. for a '
                 'SilkyEvCam: export MV_HAL_PLUGIN_PATH=/usr/lib/CenturyArks/hal/plugins'))
-    # Settings (serial, biases, trigger) under /event_camera in params_file. Publishes
-    # /event_camera/events, and only while something subscribes
+    # Settings (serial, biases, trigger) under /camera/event in params_file. Publishes the
+    # events only while something subscribes. frame_id must match the optical frame transform
+    # below, so it is set here and not in params_file
     event_camera_actions.append(Node(
         package='metavision_driver',
         executable='driver_node',
-        name='event_camera',
+        name='event',
+        namespace='/camera',
         output='screen',
         emulate_tty=True,
-        # Named like the other cameras' optical frames; no transform places it yet
         parameters=[*get_params_file_paths(context),
-                    {'frame_id': 'event_camera_optical_frame'}],
+                    {'frame_id': 'event_optical_frame'}],
+        remappings=CAMERA_DRIVER_REMAPPINGS['event'],
     ))
-    # Collects the events into images on /event_camera/renderer/image_raw. It reads events only
-    # while something displays that image, so it costs nothing otherwise
+    # Collects the events into the camera images (rate and style under /camera/event_renderer in
+    # params_file). It reads events only while something subscribes to the images, and its
+    # images carry the events' frame_id
     event_camera_actions.append(Node(
         package='event_camera_renderer',
         executable='renderer_node',
-        name='renderer',
-        namespace='/event_camera',
+        name='event_renderer',
+        namespace='/camera',
         output='screen',
         emulate_tty=True,
         parameters=get_params_file_paths(context),
-        remappings=[('~/events', 'events')],
+        remappings=CAMERA_DRIVER_REMAPPINGS['event'],
     ))
+    event_camera_actions.append(create_optical_frame_tf_publisher('event'))
     return event_camera_actions
 
 

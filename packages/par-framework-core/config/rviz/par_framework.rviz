@@ -47,17 +47,6 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Best Effort
         Value: /camera/image_raw
-    # Events of the event camera (par_launch event_camera), collected into images by its renderer. Off by
-    # default: most setups have no event camera
-    - Class: rviz_default_plugins/Image
-      Enabled: false
-      Name: Event camera image
-      Topic:
-        Depth: 1
-        Durability Policy: Volatile
-        History Policy: Keep Last
-        Reliability Policy: Best Effort
-        Value: /event_camera/renderer/image_raw
     # Coloured depth point cloud from the Kinect driver, in depth_camera_link. Not remapped, since no framework
     # node reads it, so only the Kinect fills this topic
     - Class: rviz_default_plugins/PointCloud2

@@ -15,5 +15,5 @@
 v4l2_camera               # generic UVC webcam (camera: webcam)
 realsense2_camera         # RealSense depth camera support
 spinnaker_camera_driver   # FLIR Blackfly S and other Spinnaker cameras, with the SDK (camera: blackfly)
-metavision_driver         # event cameras on OpenEB, e.g. SilkyEvCam (par_launch event_camera); some need a vendor plugin, see par_setup.yaml
-event_camera_renderer     # turns the event camera's events into images for viewing
+metavision_driver         # event cameras on OpenEB, e.g. SilkyEvCam (camera: event); some need a vendor plugin, see par_setup.yaml
+event_camera_renderer     # turns the event camera's events into its camera images

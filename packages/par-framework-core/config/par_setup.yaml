@@ -1,5 +1,6 @@
 # Co-authored by Claude Code (notes on the camera pose placeholders, the projection mask, the demo app, the
-# RealSense, Blackfly and event camera driver settings, the hand landmarks, the page_locator marker orientation).
+# RealSense, Blackfly, See3CAM_CU40 and event camera driver settings, the hand landmarks, the page_locator marker
+# orientation).
 # Parameters of one physical PAR setup: which camera, which projector, at what
 # resolution. This is the file to edit when moving the framework to a new table
 # or a new machine -- node source should not need per-setup constants.
@@ -103,21 +104,56 @@
     image_width: 1920
     image_height: 1200
 
-# Event camera (par_launch event_camera) through metavision_driver, started as /event_camera next to the camera. It
-# publishes /event_camera/events (event_camera_msgs/EventPacket) only while something subscribes; the renderer
-# /event_camera/renderer shows them as an image on /event_camera/renderer/image_raw. A SilkyEvCam needs its maker's
-# OpenEB plugin, in the version of the driver's bundled OpenEB, and MV_HAL_PLUGIN_PATH set in the shell (README).
-# Needs USB 3: on USB 2, changing a bias while events stream can abort the driver, and the camera then only opens
-# again after replugging. More options: ros2 param list /event_camera.
-/event_camera:
+# e-con See3CAM_CU40 RGB-IR camera (camera: cu40) through see3cam_cu40, started as /camera/cu40. It also publishes
+# its infrared image, on the colour image's pixel grid (/camera/ir/image_raw). The colour image is not
+# white-balanced and contains infrared light. The calibration is
+# calibration/intrinsics/camera_info_cu40[_<serial>].yaml below this file, set by the launch files, and only fits
+# the image size it was made at.
+/camera/cu40/see3cam_cu40_node:
+  ros__parameters:
+    # Part of the camera's /dev/v4l/by-id/ name, only needed if several are connected.
+    serial: ''
+    # Sensor mode: 672x380, 1280x720, 1920x1080 or 2688x1520.
+    sensor_width_px: 1280
+    sensor_height_px: 720
+    # true: images at the sensor size with interpolated colours; false: half width and height, cheaper.
+    full_resolution: true
+    # Share of the blue, green and red signal that also reaches the infrared pixels, [b, g, r]; the node subtracts
+    # it, so e.g. projected content fades from the infrared image. Depends on the sensor and on the light's
+    # spectrum: measured with this setup's projector showing red, green and blue, each against black, as the
+    # infrared increase divided by the colour increase (least squares). [0.0, 0.0, 0.0] leaves it uncorrected.
+    # Uncorrected for now: the share varies across the image, so one set of shares for the whole image (this
+    # setup's average: [0.0565, 0.0018, 0.0914]) leaves bright and dark patches where the projector shines, which
+    # ir_gain makes clearly visible.
+    visible_to_ir_leakage_bgr: [0.0, 0.0, 0.0]
+    # Factor for the infrared image after that correction (1.0 to 64.0). Indoors without infrared lighting the
+    # infrared signal is weak; the gain brightens it without costing frame rate, unlike a longer exposure, which
+    # would also saturate the colour pixels. Noise is amplified with it.
+    ir_gain: 16.0
+
+# Event camera (camera: event) through metavision_driver, started as /camera/event. It publishes the raw events on
+# /camera/events (event_camera_msgs/EventPacket) only while something subscribes; /camera/event_renderer collects
+# them into the camera images. No camera_info: the driver has no calibration. A SilkyEvCam needs its maker's OpenEB
+# plugin, in the version of the driver's bundled OpenEB, and MV_HAL_PLUGIN_PATH set in the shell (README). Needs
+# USB 3: on USB 2, changing a bias while events stream can abort the driver, and the camera then only opens again
+# after replugging. More options: ros2 param list /camera/event.
+/camera/event:
   ros__parameters:
     # The camera to open; empty opens the first one found. The driver logs the serial at start.
     serial: ''
     # Biases (contrast thresholds, filters), left out for the camera's defaults. Ranges depend on the sensor:
-    # ros2 param describe /event_camera <bias>, e.g. on a Gen3.1 sensor bias_diff_on 374-499, bias_diff_off
+    # ros2 param describe /camera/event <bias>, e.g. on a Gen3.1 sensor bias_diff_on 374-499, bias_diff_off
     # 100-234. They can also be changed while running, with ros2 param set.
     # bias_diff_on: 400
     # bias_diff_off: 200
+
+# Turns the event camera's events into its camera images.
+/camera/event_renderer:
+  ros__parameters:
+    # Images per second; each collects the events since the one before.
+    fps: 25.0
+    # time_slice: all events between two images; sharp: adapts the number of events per image for sharper edges.
+    display_type: 'time_slice'
 
 surface_selector_node:
   ros__parameters:
@@ -304,6 +340,30 @@ demo_app_node:
     rotation.z: 0.0
     rotation.w: 0.7071068
 
+# Pose of the See3CAM_CU40 body frame (cu40_link). PLACEHOLDER -- DO NOT EDIT, see /brio_tf_publisher.
+# The real pose is calibration/extrinsics/camera_pose_cu40.yaml below this file, written by hand.
+/cu40_tf_publisher:
+  ros__parameters:
+    translation.x: 0.0
+    translation.y: 0.0
+    translation.z: 1.0
+    rotation.x: 0.0
+    rotation.y: 0.7071068
+    rotation.z: 0.0
+    rotation.w: 0.7071068
+
+# Pose of the event camera body frame (event_link). PLACEHOLDER -- DO NOT EDIT, see /brio_tf_publisher.
+# The real pose is calibration/extrinsics/camera_pose_event.yaml below this file, written by hand.
+/event_tf_publisher:
+  ros__parameters:
+    translation.x: 0.0
+    translation.y: 0.0
+    translation.z: 1.0
+    rotation.x: 0.0
+    rotation.y: 0.7071068
+    rotation.z: 0.0
+    rotation.w: 0.7071068
+
 # Azure Kinect driver (the *_kinect launch files). The node sets this name in code.
 k4a_ros_device_node:
   ros__parameters:
@@ -350,11 +410,8 @@ k4a_ros_device_node:
 # and an empty list has no type a node could read.
 par_launch:
   ros__parameters:
-    # brio, kinect, realsense, webcam or blackfly
+    # brio, kinect, realsense, webcam, blackfly, cu40 or event
     camera: kinect
-    # An event camera next to the camera, on /event_camera/...; needs metavision_driver and event_camera_renderer
-    # from config/ros_packages.list
-    event_camera: false
     object_detector: false
     fiducials_detector: false
     hand_landmarks: false

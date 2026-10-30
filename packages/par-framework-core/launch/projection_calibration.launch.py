@@ -8,7 +8,8 @@ fiducials_detector finds them in the camera image, and projection_calibrator fit
 from the table plane to projector pixels. It is stored by projection_calibration_server_node in
 config/calibration/extrinsics/projection_mapping_<camera>.yaml, and published latched on
 /projection_mapping. The launch ends when the calibrator is done. camera:= (brio, kinect,
-realsense, webcam or blackfly) picks the camera; without it, par_launch.camera from params_file.
+realsense, webcam, blackfly, cu40 or event) picks the camera; without it, par_launch.camera
+from params_file.
 
 Needs the camera calibration and the camera pose (/<camera>_tf_publisher in par_setup.yaml), and
 a clear table. The camera calibration is config/calibration/intrinsics/camera_info_<camera>.yaml;
@@ -92,7 +93,7 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'camera',
             default_value='',
-            description='brio, kinect, realsense, webcam or blackfly. Empty uses '
+            description='brio, kinect, realsense, webcam, blackfly, cu40 or event. Empty uses '
                         'par_launch.camera from params_file.'),
         DeclareLaunchArgument(
             'projector_center',

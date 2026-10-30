@@ -152,23 +152,33 @@ ros2 run tf2_ros static_transform_publisher \
   --ros-args -r __node:=blackfly_optical_tf_publisher
 ```
 
-### Event camera (`event_camera:=true`)
+### Event camera (`camera:=event`)
 
-Started next to the camera, not instead of it; nothing is remapped, since no framework node reads events yet. A
-camera that needs its maker's OpenEB plugin, such as a SilkyEvCam, also needs `MV_HAL_PLUGIN_PATH` set (README, "Event
-camera"). The driver turns each bias into a parameter: `ros2 param list /event_camera` while it runs. The second
-command shows the events as an image on `/event_camera/renderer/image_raw`.
+A camera that needs its maker's OpenEB plugin, such as a SilkyEvCam, also needs `MV_HAL_PLUGIN_PATH` set (README,
+"Event camera"). The driver turns each bias into a parameter: `ros2 param list /camera/event` while it runs. The
+second command collects the events into the camera images, the third is the body-to-optical-frame transform, as for
+the webcam. The driver publishes no camera info.
 
 ```bash
 ros2 run metavision_driver driver_node --ros-args \
-  -r __node:=event_camera \
-  -p "serial:=''" -p frame_id:=event_camera_optical_frame
+  -r __ns:=/camera -r __node:=event \
+  -p "serial:=''" -p frame_id:=event_optical_frame \
+  -r /camera/event/events:=/camera/events
 ```
 
 ```bash
 ros2 run event_camera_renderer renderer_node --ros-args \
-  -r __ns:=/event_camera -r __node:=renderer -r '~/events:=events' \
-  -p fps:=25.0 -p display_type:=time_slice
+  -r __ns:=/camera -r __node:=event_renderer \
+  -p fps:=25.0 -p display_type:=time_slice \
+  -r /camera/event_renderer/events:=/camera/events \
+  -r /camera/event_renderer/image_raw:=/camera/image_raw
+```
+
+```bash
+ros2 run tf2_ros static_transform_publisher \
+  --frame-id event_link --child-frame-id event_optical_frame \
+  --qx -0.5 --qy 0.5 --qz -0.5 --qw 0.5 \
+  --ros-args -r __node:=event_optical_tf_publisher
 ```
 
 ### FLIR Lepton thermal camera
@@ -210,6 +220,10 @@ ros2 run tf2_ros static_transform_publisher --frame-id world --child-frame-id we
 ros2 run tf2_ros static_transform_publisher --frame-id world --child-frame-id blackfly_link \
   --x 0.0 --y 0.0 --z 0.93 --qx 0.0 --qy 0.7071068 --qz 0.0 --qw 0.7071068 \
   --ros-args -r __node:=blackfly_tf_publisher
+
+ros2 run tf2_ros static_transform_publisher --frame-id world --child-frame-id event_link \
+  --x 0.0 --y 0.0 --z 1.0 --qx 0.0 --qy 0.7071068 --qz 0.0 --qw 0.7071068 \
+  --ros-args -r __node:=event_tf_publisher
 ```
 
 ## Detectors
@@ -221,7 +235,7 @@ on the camera, as `par.launch.py` sets them:
 |---------------------|-------------------------------------------------------|----------------------------------------------------------|
 | brio                | `true` (object_detector, fiducials_detector, page_locator) | `false`                                             |
 | kinect, realsense   | `false`                                               | `true` (object_detector, fiducials_detector, hand_landmarks) |
-| webcam, blackfly    | `false`                                               | `false`                                                  |
+| webcam, blackfly, event | `false`                                           | `false`                                                  |
 
 The commands below show the Brio's values. With another camera, change them as the table says: a raw-frame subscriber
 on the Brio makes its driver decode every JPEG, which slows down every node reading the compressed frames.
@@ -317,7 +331,7 @@ ros2 run rviz_bridge rviz_bridge
 ros2 run rviz2 rviz2 -d packages/par-framework-core/config/rviz/par_framework.rviz
 ```
 
-One RViz configuration for every camera. The Kinect point cloud and the event camera image are in it, switched off.
+One RViz configuration for every camera. The Kinect point cloud is in it, switched off.
 
 ## Calibration tools
 

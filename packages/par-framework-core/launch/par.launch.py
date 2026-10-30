@@ -3,7 +3,8 @@
 Bring up the PAR framework as the parameter file's par_launch section describes it.
 
 The framework's one entry point for every camera. par_launch names the camera (brio, kinect,
-realsense, webcam or blackfly) and switches each node on or off. With another parameter file:
+realsense, webcam, blackfly, cu40 or event) and switches each node on or off. With another
+parameter file:
 
     ros2 launch par_framework_core par.launch.py params_file:=/path/to/<file>.yaml
 
@@ -14,8 +15,8 @@ config/calibration/extrinsics/<name>/.
 Each of them can be overridden for one run, e.g. camera:=kinect rviz:=true hand_landmarks:=false;
 an argument left empty keeps the parameter file's value. With a depth camera (kinect, realsense)
 the detectors also use its depth. camera_only:=true starts just the camera and its mount transform,
-e.g. for a preview or a calibration. event_camera:=true starts an event camera next to it, on
-/event_camera/... (no detector reads it yet), also with camera_only. Camera calibrations are
+e.g. for a preview or a calibration. An event camera (event) delivers its events collected into
+images, and the raw events on /camera/events; it has no calibration. Camera calibrations are
 config/calibration/intrinsics/camera_info_<camera>.yaml (a Brio or Blackfly with its serial set:
 camera_info_<camera>_<serial>.yaml), shared by all parameter files and profiles.
 """
@@ -28,7 +29,7 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, LogInfo, OpaqueFunction
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
-from par_framework_core.launch_helpers import (create_camera_nodes, create_event_camera_nodes,
+from par_framework_core.launch_helpers import (create_camera_nodes,
                                                create_profile_launch_argument,
                                                create_projection_calibration_server_node,
                                                get_chosen_camera, get_params_file_paths,
@@ -38,7 +39,7 @@ PACKAGE_NAME = 'par_framework_core'
 # The node switches of par_launch, each also a launch argument that overrides it for one run
 DETECTORS = ('object_detector', 'fiducials_detector', 'hand_landmarks', 'page_locator',
              'gesture_detector')
-LAUNCH_SWITCHES = DETECTORS + ('event_camera', 'projection_mask', 'demo_app', 'rviz')
+LAUNCH_SWITCHES = DETECTORS + ('projection_mask', 'demo_app', 'rviz')
 # Per camera: parameter overrides for each detector. Every camera
 # publishes on the same /camera/... topics (launch_helpers.CAMERA_DRIVER_REMAPPINGS); the overrides
 # cover what the cameras offer differently.
@@ -76,23 +77,6 @@ def launch_setup(context):
         return switch_value == 'true'
 
     launch_actions = create_camera_nodes(context, camera)
-
-    # An extra sensor next to the camera, not a camera:= choice: it publishes events, no
-    # images for the detectors. Its driver is optional like every camera driver.
-    # Possible alternative: an event camera as camera:=event, with the renderer's images
-    # remapped onto /camera/image_raw. Worth it once detectors work on rendered events; it
-    # would then replace the image camera in that run instead of running next to it
-    if is_enabled('event_camera'):
-        if (has_resource('packages', 'metavision_driver')
-                and has_resource('packages', 'event_camera_renderer')):
-            launch_actions += create_event_camera_nodes(context)
-        else:
-            launch_actions.append(LogInfo(msg='[par.launch]: the event camera driver is not '
-                                              'installed: uncomment metavision_driver and '
-                                              'event_camera_renderer in '
-                                              'config/ros_packages.list and run '
-                                              './scripts/local_build.sh'))
-
     if LaunchConfiguration('camera_only').perform(context) == 'true':
         return launch_actions
 
@@ -180,13 +164,12 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'camera',
             default_value='',
-            description='brio, kinect, realsense, webcam or blackfly. Empty uses '
+            description='brio, kinect, realsense, webcam, blackfly, cu40 or event. Empty uses '
                         'par_launch.camera from params_file.'),
         DeclareLaunchArgument(
             'camera_only',
             default_value='false',
-            description='true: start only the camera and its mount transform (and the event '
-                        'camera with event_camera).'),
+            description='true: start only the camera and its mount transform.'),
         *switch_arguments,
         OpaqueFunction(function=launch_setup),
     ])

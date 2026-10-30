@@ -26,6 +26,7 @@ framework-calibration     git@github.com:vigitia/ros2-par-framework-calibration.
 # Sensors (check also ros_packages.list, especially some cameras already provide prebuilt rosdep packages):
 
 logitech_brio             git@github.com:vigitia/ros2-logitech-brio.git                     main
+see3cam_cu40              git@github.com:vigitia/ros2-see3cam-cu40.git                      main
 azure_kinect_ros_driver   git@github.com:nlouman/azure_kinect_ros_driver_extended.git       main
 # Released packages, e.g. the RealSense driver, are installed from ros_packages.list instead
 

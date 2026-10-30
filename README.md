@@ -178,12 +178,14 @@ or `camera:=` for one run.
 
 | Name | Type | Content | Provided by |
 | --- | --- | --- | --- |
-| `/camera/image_raw` | `sensor_msgs/Image` | colour image, BGR channel order (`bgr8`; the Kinect `bgra8`, a monochrome Blackfly `mono8`) | every camera |
+| `/camera/image_raw` | `sensor_msgs/Image` | colour image, BGR channel order (`bgr8`; the Kinect `bgra8`, a monochrome Blackfly `mono8`; from an event camera its events collected into images) | every camera |
 | `/camera/image_raw/compressed` | `sensor_msgs/CompressedImage` | the camera's own JPEGs, passed through undecoded | Brio |
 | `/camera/image_rect_color` | `sensor_msgs/Image` | undistorted colour image | Brio |
-| `/camera/camera_info` | `sensor_msgs/CameraInfo` | intrinsics of `/camera/image_raw` | every camera |
-| `/camera/set_camera_info` | `sensor_msgs/srv/SetCameraInfo` | stores new intrinsics | Brio, webcam, Blackfly |
+| `/camera/camera_info` | `sensor_msgs/CameraInfo` | intrinsics of `/camera/image_raw` | every camera except the event camera |
+| `/camera/set_camera_info` | `sensor_msgs/srv/SetCameraInfo` | stores new intrinsics | Brio, webcam, Blackfly, CU40 |
 | `/camera/depth_registered/image_raw` | `sensor_msgs/Image` | depth on the colour image's pixel grid | Kinect, RealSense |
+| `/camera/ir/image_raw` | `sensor_msgs/Image` | infrared on the colour image's pixel grid (`mono8`) | CU40 |
+| `/camera/events` | `event_camera_msgs/EventPacket` | raw events, EVT3 encoded; published only while something subscribes | event camera |
 
 **Names are constants, remapping chooses.** Nodes take these names as constants, not as parameters; another topic
 is chosen by remapping, ROS 2's own mechanism. The defaults are the `DEFAULT_TOPIC_NAME_*` constants in
@@ -249,16 +251,13 @@ No consumer changes. In `packages/par-framework-core/`:
 
 ### Event camera
 
-An event camera reports brightness changes per pixel instead of frames, so it is no `camera:=` choice: there is
-nothing it could publish as `/camera/image_raw`. `par_launch.event_camera` in `par_setup.yaml` (or
-`event_camera:=true` for one run) starts it next to the camera, through the released `metavision_driver` (OpenEB),
-with its settings under `/event_camera`. No detector reads events yet, and the event camera has no pose transform
-and no intrinsics.
-
-| Name | Type | Content |
-| --- | --- | --- |
-| `/event_camera/events` | `event_camera_msgs/EventPacket` | the events, EVT3 encoded; published only while something subscribes |
-| `/event_camera/renderer/image_raw` | `sensor_msgs/Image` | the events collected into `bgr8` images for viewing (reliable, transient local); the renderer reads events only while this image has a subscriber |
+An event camera reports brightness changes per pixel instead of frames. `camera:=event` starts it like the other
+cameras, through the released `metavision_driver` (OpenEB) as `/camera/event`, with its settings there in
+`par_setup.yaml`. Next to it, `event_camera_renderer` (`/camera/event_renderer`) collects the events into `bgr8`
+images on `/camera/image_raw`, at `fps` per second, and reads events only while something subscribes to the images.
+The raw events are on `/camera/events` for nodes that want them. The driver publishes no `camera_info`, so the
+event camera has no intrinsics, and nothing that needs them (`pixels_to_table`, the frustum in RViz) works with it.
+The detectors are built for normal images; how well they work on collected events depends on the scene.
 
 **Vendor plugin.** OpenEB opens Prophesee's own cameras; other makers ship a HAL plugin, which has to match the OpenEB
 version bundled with the driver

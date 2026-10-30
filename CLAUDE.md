@@ -98,13 +98,14 @@ take plain Python/NumPy values, so it is testable with plain pytest and reusable
 ### Cameras
 
 Framework nodes subscribe to neutral names: `/camera/image_raw`, `/camera/camera_info`, `/camera/set_camera_info` and,
-from a depth camera, `/camera/depth_registered/image_raw` (depth on the colour image's pixel grid). `object_detector`
-and `fiducials_detector` with `use_compressed` take `/camera/image_raw/compressed` instead (`par.launch.py` sets it
-for the Brio, the only driver publishing JPEGs). Drivers keep their own topics; launch files remap them with
-`launch_helpers.CAMERA_DRIVER_REMAPPINGS`, the only place that knows them. A new camera = a driver start in
-`launch_helpers` plus its entry there. Nodes hard-code the neutral names; another topic is chosen by remapping, not by
-parameter. An event camera is an extra sensor next to the camera (`par_launch.event_camera`), not a `camera:=`
-choice: it has no images, and publishes `/event_camera/events` plus a rendered `/event_camera/renderer/image_raw`.
+from a depth camera, `/camera/depth_registered/image_raw` (depth on the colour image's pixel grid), and from a camera
+with infrared on that grid, `/camera/ir/image_raw` (the Kinect's infrared is on its depth grid, so it stays unmapped).
+`object_detector` and `fiducials_detector` with `use_compressed` take `/camera/image_raw/compressed` instead
+(`par.launch.py` sets it for the Brio, the only driver publishing JPEGs). Drivers keep their own topics; launch files
+remap them with `launch_helpers.CAMERA_DRIVER_REMAPPINGS`, the only place that knows them. A new camera = a driver
+start in `launch_helpers` plus its entry there. Nodes hard-code the neutral names; another topic is chosen by
+remapping, not by parameter. The event camera (`camera:=event`) has no frames: `event_camera_renderer` collects its
+events into `/camera/image_raw`, the raw events are on `/camera/events`, and there is no `camera_info`.
 
 Intrinsics: `config/calibration/intrinsics/camera_info_<camera>.yaml` (gitignored), set as `camera_info_url` by
 `launch_helpers`, written by `scripts/run_cameracalibrator.sh`. The Kinect publishes its factory calibration instead.

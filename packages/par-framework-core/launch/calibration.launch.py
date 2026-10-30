@@ -69,7 +69,7 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'camera',
             default_value='',
-            description='brio, kinect, realsense, webcam or blackfly. Empty uses '
+            description='brio, kinect, realsense, webcam, blackfly, cu40 or event. Empty uses '
                         'par_launch.camera from params_file.'),
 
         OpaqueFunction(function=create_camera_and_surface_selector),

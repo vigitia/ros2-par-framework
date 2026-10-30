@@ -2521,3 +2521,104 @@ made the next build fail ("doesn't exist or not a regular file"); removing the d
 **Alternatives:** keeping separate files only for cameras that really differ, e.g. a depth camera with its point
 cloud on (rejected: switching on one display in RViz is one click, while every extra file has to be kept in sync and
 the existing copies had already drifted apart).
+
+## 2026-10-30: event camera as camera `event`
+
+**What changed:** the event camera is a `camera:=` choice like the others, replacing the extra-sensor switch
+`par_launch.event_camera`. `camera:=event` starts `metavision_driver` as `/camera/event` and `event_camera_renderer`
+as `/camera/event_renderer`; `CAMERA_DRIVER_REMAPPINGS['event']` maps the renderer's images onto `/camera/image_raw`
+and the raw events onto the new neutral `/camera/events` (`DEFAULT_TOPIC_NAME_CAMERA_EVENTS`), which the renderer also
+reads. The camera got a mount transform (`/event_tf_publisher`, placeholder pose in `par_setup.yaml`) and an optical
+frame (`event_optical_frame`, set as the driver's `frame_id`). `par_setup.yaml` has the renderer's `fps` and
+`display_type` under `/camera/event_renderer`. The disabled event display left the RViz config, since the image now
+arrives on `/camera/image_raw`. README, quick-launch, CLAUDE.md and the camera lists of the launch files follow.
+
+**Why:** Vitus' decision: a user mostly wants the image, and only sometimes the events. As an extra sensor, the
+event camera's image never reached the detectors or the RViz camera display.
+
+**Details:** the driver publishes no `camera_info`, so the event camera has no intrinsics, and what needs them
+(`pixels_to_table`, the RViz frustum) does not work with it. Tested without the camera (it was unplugged) in its own DDS
+domain, apart from another session's test: parameters reach the renderer, a subscriber on `/camera/image_raw` makes
+the renderer subscribe to `/camera/events`, and `world` → `event_optical_frame` resolves. The driver's own topic
+remapping was checked against its source (`~/events`, i.e. `/camera/event/events`), not with a running camera.
+
+**Alternatives:**
+- *Keeping the extra-sensor switch next to `camera:=event`:* two ways to start the same driver with different topic
+  names. Rejected.
+- *Keeping the events on the driver's own name (`/event_camera/events`):* every other camera topic is remapped onto a
+  neutral name that nodes hard-code; the events follow that rule.
+- *Camera name `silkyevcam`:* the driver runs every OpenEB camera, so a model name would need a second name for the
+  same driver. `event` is generic like `webcam`.
+
+## 2026-10-30: e-con See3CAM_CU40 as camera `cu40`
+
+**What changed:** `config/nodes.list` adds `see3cam_cu40` (repo `ros2-see3cam-cu40`, branch `develop`).
+`launch_helpers` has a `cu40` entry in `CAMERA_DRIVER_REMAPPINGS` (`image_raw`, `camera_info`, `set_camera_info`
+onto the neutral names) and `create_see3cam_cu40_node`, which sets the intrinsics file per unit through `serial`
+like the Brio. `par_setup.yaml` has the node's section (`/camera/cu40/see3cam_cu40_node`: serial, sensor mode,
+`full_resolution`) and the placeholder pose `/cu40_tf_publisher`. The launch files list `cu40` among the cameras.
+
+**Why:** The CU40 is an RGB-IR camera: a quarter of its pixels see infrared. It only offers V4L2 `Y16`, the raw
+10-bit mosaic in 16-bit pixels, which no released ROS 2 driver turns into images (`v4l2_camera` aborts on `Y16`,
+`usb_cam` has no package for this distro). So it gets its own node, which splits the mosaic into a colour and an
+infrared image.
+
+**Decisions:**
+- *Own repo, not under `packages/`*: a camera driver is useful outside the framework.
+- *`develop` in `nodes.list`*: the repo's `main` holds only its initial commit so far.
+- *The infrared image keeps the driver's name* (`/camera/cu40/ir/image_raw`): the framework has no neutral
+  name for infrared yet, and inventing one for a single camera would be a convention nothing consumes.
+- *No `use_compressed` or depth override in `par.launch.py`*: the node publishes neither.
+
+## 2026-10-30: See3CAM_CU40 infrared correction in `par_setup.yaml`
+
+**What changed:** `/camera/cu40/see3cam_cu40_node` sets `visible_to_ir_leakage_bgr`, the share of the blue, green
+and red signal that reaches the camera's infrared pixels; the node subtracts it from the infrared image.
+
+**Why:** Projected content showed up in the infrared image. The shares depend on the spectrum of the light to be
+removed, here the projector's, so they are per setup and live in the parameter file. The comment there says how
+they are measured, so another setup can measure its own.
+
+**Decisions:** The node's own default stays `[0, 0, 0]` (uncorrected), so a setup without a measurement gets the
+unchanged infrared image instead of a correction made for another projector.
+
+## 2026-10-30: See3CAM_CU40 infrared gain in `par_setup.yaml`
+
+**What changed:** `/camera/cu40/see3cam_cu40_node` sets `ir_gain`.
+
+**Why:** After the leakage correction the indoor infrared image was very dark. The gain is chosen so the brightest
+parts of this setup's scene come close to full brightness; it depends on the scene's infrared light, so it is per
+setup. A longer exposure was rejected: it costs frame rate and saturates the colour pixels, which breaks the
+leakage correction.
+
+## 2026-10-30: neutral name `/camera/ir/image_raw` for infrared
+
+**What changed:** `launch_helpers` has `DEFAULT_TOPIC_NAME_CAMERA_IR = '/camera/ir/image_raw'`, and the `cu40` entry
+remaps the driver's `/camera/cu40/ir/image_raw` onto it. `CLAUDE.md`, the README's topic table and the CU40
+comment in `par_setup.yaml` name it; the README also lists the CU40 under `/camera/set_camera_info`.
+
+**Why:** The CU40's infrared image was the only image stream left under its driver's name, against the convention
+that framework nodes see only neutral `/camera/...` names, chosen by remapping.
+
+**Decisions:**
+- *The name promises the colour image's pixel grid*, like `depth_registered` does for depth, so a consumer can
+  combine infrared and colour pixel by pixel. The CU40 meets it, because its infrared pixels are part of the colour
+  sensor. The Kinect's infrared is on its depth camera's grid, so it is not mapped onto this name.
+- *`/camera/ir/image_raw` instead of `/camera/ir_registered/image_raw`*: shorter, and as long as only cameras with
+  infrared on the colour grid are mapped onto it, the rule is documented where the name is defined.
+
+## 2026-10-30: See3CAM_CU40 infrared leakage correction switched off in `par_setup.yaml`
+
+**What changed:** `visible_to_ir_leakage_bgr` is `[0.0, 0.0, 0.0]` again; the measured average shares stay in the
+comment next to it.
+
+**Why:** With `ir_gain` the infrared image showed bright and dark patches where the projector shone. Projecting
+single colours and mapping what was left of them in the corrected infrared image showed that the leaked share
+varies across the image, so one set of shares for the whole image under-corrects some regions and over-corrects
+others, and the gain makes both visible. Under blue, horizontal stripes appeared as well, most likely because the
+DLP projector's short light pulses meet the camera's row-by-row exposure, and the blue pixel lies in a different
+row than the infrared pixel it corrects.
+
+**Decisions:** Switched off rather than kept: a uniform projector image in the infrared image disturbs less than
+patches that look like objects. The node's correction stays; a position-dependent version is to be decided after
+measuring whether the share follows image position or the projection surface.
