@@ -2468,3 +2468,56 @@ and size are only writable while the camera is not streaming, so they take effec
 
 **Alternatives:** leaving them out and power-cycling the camera after a binning test (rejected: a silent wrong image
 size changes every pixel coordinate, e.g. stored corners and intrinsics, without an error).
+
+## 2026-10-30: event camera as an extra sensor (`event_camera`)
+
+**What changed:** `par_launch.event_camera` (launch argument `event_camera:=true`) starts an event camera next to the
+chosen camera: the released `metavision_driver` as `/event_camera`, and `event_camera_renderer` as
+`/event_camera/renderer`, which turns the events into images on `/event_camera/renderer/image_raw`. Both are in
+`config/ros_packages.list`; `launch_helpers` got `create_event_camera_nodes`, `par_setup.yaml` an `/event_camera`
+section and the switch. `par.launch.py` starts it only when both packages are installed, otherwise it logs which list
+to edit. It also starts with `camera_only`. README ("Event camera"), quick-launch and CLAUDE.md describe it, including
+how to install a camera maker's OpenEB plugin by hand.
+
+**Why:** an event camera publishes events, not frames, so the detectors and calibrations, which read
+`/camera/image_raw`, can't use it; as a `camera:=` choice it would have replaced the image camera that they need.
+Found on the real driver and camera: the driver needs a vendor plugin for cameras outside Prophesee's own, found only
+through `MV_HAL_PLUGIN_PATH`. A missing variable ends in a bare "cannot open default camera", so the launch logs a
+hint when the variable is unset. The driver catches no exceptions while writing a bias; on a USB 2 link a live bias
+change aborted it and left the camera unopenable until replugged, while on USB 3 repeated changes at a high event rate
+worked. The README therefore requires USB 3. The renderer subscribes to events only while its image has a subscriber,
+so starting it with every event camera launch costs nothing when nobody watches.
+
+**Alternatives:**
+- *Event camera as `camera:=event`, with the rendered images remapped onto `/camera/image_raw`:* the detectors and the
+  intrinsics calibration are built for normal images and mostly fail on accumulated events, and there would be no
+  image camera in the same run. Rejected; chosen together with Vitus.
+- *Including the driver's own `driver_node.launch.py`:* it hard-codes its parameters (e.g. `trigger_in_mode:
+  external`), so `par_setup.yaml` couldn't set them. Rejected; started like the other drivers, with the parameter
+  files.
+- *Setting `MV_HAL_PLUGIN_PATH` in the launch file:* the folder depends on the camera maker's installer, not on the
+  framework. Rejected for a hint naming the command.
+- *A pose transform and intrinsics for the event camera:* nothing consumes them yet. Left out; the events carry
+  `event_camera_optical_frame`, named like the other optical frames, so a transform can be added later.
+
+## 2026-10-30: one RViz configuration for every camera
+
+**What changed:** `config/rviz/par_framework.rviz` replaces `par_framework_<camera>.rviz` for brio, kinect,
+realsense, webcam and blackfly. It is the former Kinect file (with its dock layout and the disabled point cloud) with
+neutral display names ("Camera image", "Camera frustum") and an added, disabled "Event camera image". `par.launch.py`
+uses `RVIZ_CONFIG_FILE_NAME` instead of the per-camera `RVIZ_CONFIG_FILE_NAMES`; README ("Adding a camera") and
+quick-launch name the one file.
+
+**Why:** every driver is remapped onto the same `/camera/...` topics, so the five files had become copies: without
+comments, the webcam and Blackfly files were identical to the Brio's, and the others differed only in display names,
+a saved window layout and the Kinect's disabled point cloud. Each new camera added another copy to keep in sync. A
+disabled display subscribes to nothing, so topics only some setups publish can sit in the shared file switched off.
+
+**Details:** Qt's saved dock layout (`QMainWindow State`) refers to the image panel by its display name, encoded as
+UTF-16 inside the hex string; the name was changed there too ("Camera image" has the same length as "Kinect image",
+so the length field stays valid). With `--symlink-install`, the build folder kept links to the removed files, which
+made the next build fail ("doesn't exist or not a regular file"); removing the dangling links fixed it.
+
+**Alternatives:** keeping separate files only for cameras that really differ, e.g. a depth camera with its point
+cloud on (rejected: switching on one display in RViz is one click, while every extra file has to be kept in sync and
+the existing copies had already drifted apart).

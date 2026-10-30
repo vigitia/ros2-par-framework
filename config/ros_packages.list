@@ -1,4 +1,4 @@
-# Co-authored by Claude Code (the Spinnaker camera driver).
+# Co-authored by Claude Code (the Spinnaker camera driver, the event camera driver and renderer).
 # Released packages that make up the current ROS2 PAR Framework.
 # Those are installed instead of cloned from a repository. See nodes.list for the nodes
 # that do not have a release, e.g. custom framework nodes and apps.
@@ -15,3 +15,5 @@
 v4l2_camera               # generic UVC webcam (camera: webcam)
 realsense2_camera         # RealSense depth camera support
 spinnaker_camera_driver   # FLIR Blackfly S and other Spinnaker cameras, with the SDK (camera: blackfly)
+metavision_driver         # event cameras on OpenEB, e.g. SilkyEvCam (par_launch event_camera); some need a vendor plugin, see par_setup.yaml
+event_camera_renderer     # turns the event camera's events into images for viewing

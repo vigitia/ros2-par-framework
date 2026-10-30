@@ -14,7 +14,7 @@ import os
 import re
 
 from ament_index_python.packages import get_package_share_directory
-from launch.actions import DeclareLaunchArgument
+from launch.actions import DeclareLaunchArgument, LogInfo
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 import yaml
@@ -362,6 +362,44 @@ def create_blackfly_nodes(context):
         ),
         create_optical_frame_tf_publisher('blackfly'),
     ]
+
+
+# Written by Claude Code
+def create_event_camera_nodes(context):
+    """Create an event camera with metavision_driver, and a renderer of its events as images."""
+    event_camera_actions = []
+    # OpenEB finds plugins that a camera maker ships separately only through this variable.
+    # Without it such a camera fails with "cannot open default camera", which names no cause
+    if not os.environ.get('MV_HAL_PLUGIN_PATH'):
+        event_camera_actions.append(LogInfo(
+            msg='[launch_helpers]: MV_HAL_PLUGIN_PATH is not set: an event camera whose maker '
+                'ships its own OpenEB plugin is not found. Set it in this shell, e.g. for a '
+                'SilkyEvCam: export MV_HAL_PLUGIN_PATH=/usr/lib/CenturyArks/hal/plugins'))
+    # Settings (serial, biases, trigger) under /event_camera in params_file. Publishes
+    # /event_camera/events, and only while something subscribes
+    event_camera_actions.append(Node(
+        package='metavision_driver',
+        executable='driver_node',
+        name='event_camera',
+        output='screen',
+        emulate_tty=True,
+        # Named like the other cameras' optical frames; no transform places it yet
+        parameters=[*get_params_file_paths(context),
+                    {'frame_id': 'event_camera_optical_frame'}],
+    ))
+    # Collects the events into images on /event_camera/renderer/image_raw. It reads events only
+    # while something displays that image, so it costs nothing otherwise
+    event_camera_actions.append(Node(
+        package='event_camera_renderer',
+        executable='renderer_node',
+        name='renderer',
+        namespace='/event_camera',
+        output='screen',
+        emulate_tty=True,
+        parameters=get_params_file_paths(context),
+        remappings=[('~/events', 'events')],
+    ))
+    return event_camera_actions
 
 
 # Co-authored by Claude Code: one transform for every driver that does not publish it itself

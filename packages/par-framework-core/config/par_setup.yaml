@@ -1,5 +1,5 @@
 # Co-authored by Claude Code (notes on the camera pose placeholders, the projection mask, the demo app, the
-# RealSense and Blackfly driver settings, the hand landmarks, the page_locator marker orientation).
+# RealSense, Blackfly and event camera driver settings, the hand landmarks, the page_locator marker orientation).
 # Parameters of one physical PAR setup: which camera, which projector, at what
 # resolution. This is the file to edit when moving the framework to a new table
 # or a new machine -- node source should not need per-setup constants.
@@ -83,7 +83,7 @@
     # The frame interval at frame_rate must be longer than the exposure; the gain (dB) makes up for the short
     # exposure at the cost of noise.
     exposure_auto: 'Off'
-    exposure_time: 600.0
+    exposure_time: 300.0
     gain_auto: 'Off'
     gain: 18.0
     frame_rate_auto: 'Off'
@@ -102,6 +102,22 @@
     offset_y: 0
     image_width: 1920
     image_height: 1200
+
+# Event camera (par_launch event_camera) through metavision_driver, started as /event_camera next to the camera. It
+# publishes /event_camera/events (event_camera_msgs/EventPacket) only while something subscribes; the renderer
+# /event_camera/renderer shows them as an image on /event_camera/renderer/image_raw. A SilkyEvCam needs its maker's
+# OpenEB plugin, in the version of the driver's bundled OpenEB, and MV_HAL_PLUGIN_PATH set in the shell (README).
+# Needs USB 3: on USB 2, changing a bias while events stream can abort the driver, and the camera then only opens
+# again after replugging. More options: ros2 param list /event_camera.
+/event_camera:
+  ros__parameters:
+    # The camera to open; empty opens the first one found. The driver logs the serial at start.
+    serial: ''
+    # Biases (contrast thresholds, filters), left out for the camera's defaults. Ranges depend on the sensor:
+    # ros2 param describe /event_camera <bias>, e.g. on a Gen3.1 sensor bias_diff_on 374-499, bias_diff_off
+    # 100-234. They can also be changed while running, with ros2 param set.
+    # bias_diff_on: 400
+    # bias_diff_off: 200
 
 surface_selector_node:
   ros__parameters:
@@ -336,6 +352,9 @@ par_launch:
   ros__parameters:
     # brio, kinect, realsense, webcam or blackfly
     camera: kinect
+    # An event camera next to the camera, on /event_camera/...; needs metavision_driver and event_camera_renderer
+    # from config/ros_packages.list
+    event_camera: false
     object_detector: false
     fiducials_detector: false
     hand_landmarks: false

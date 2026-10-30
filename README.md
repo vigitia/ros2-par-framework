@@ -241,11 +241,47 @@ No consumer changes. In `packages/par-framework-core/`:
    with the mount transform.
 2. `config/par_setup.yaml`: the driver's parameters (colour images in BGR order) and a placeholder pose under
    `/<camera>_tf_publisher`.
-3. `launch/par.launch.py`: an RViz configuration (a file in `config/rviz/`, named in `RVIZ_CONFIG_FILE_NAMES`),
-   and the camera in
-   `CAMERA_DETECTOR_PARAMETER_OVERRIDES` if it provides depth or JPEGs. A depth camera also goes into
-   `DEPTH_CAMERAS` in `launch/projection_calibration.launch.py`.
+3. `launch/par.launch.py`: the camera in `CAMERA_DETECTOR_PARAMETER_OVERRIDES` if it provides depth or JPEGs. A
+   depth camera also goes into `DEPTH_CAMERAS` in `launch/projection_calibration.launch.py`. The one RViz
+   configuration, `config/rviz/par_framework.rviz`, shows the `/camera/...` topics and needs no change; a topic only
+   the new camera publishes goes in there as a disabled display.
 4. A released driver goes into `config/ros_packages.list`, a driver from source into `config/nodes.list`.
+
+### Event camera
+
+An event camera reports brightness changes per pixel instead of frames, so it is no `camera:=` choice: there is
+nothing it could publish as `/camera/image_raw`. `par_launch.event_camera` in `par_setup.yaml` (or
+`event_camera:=true` for one run) starts it next to the camera, through the released `metavision_driver` (OpenEB),
+with its settings under `/event_camera`. No detector reads events yet, and the event camera has no pose transform
+and no intrinsics.
+
+| Name | Type | Content |
+| --- | --- | --- |
+| `/event_camera/events` | `event_camera_msgs/EventPacket` | the events, EVT3 encoded; published only while something subscribes |
+| `/event_camera/renderer/image_raw` | `sensor_msgs/Image` | the events collected into `bgr8` images for viewing (reliable, transient local); the renderer reads events only while this image has a subscriber |
+
+**Vendor plugin.** OpenEB opens Prophesee's own cameras; other makers ship a HAL plugin, which has to match the OpenEB
+version bundled with the driver
+(`grep VERSION /opt/ros/$ROS_DISTRO/opt/openeb_vendor/include/metavision/sdk/version.h`). For a SilkyEvCam that is
+Century Arks' "SilkyEvCam Plugin Installer for ubuntu" of the same version. Its installer refuses Ubuntu versions it
+has no folder for; the newest folder's plugin can be installed by hand instead, from the unpacked installer:
+
+```bash
+sudo install -D -m 644 resources/24.04/libsilky_common_plugin.so /usr/lib/CenturyArks/hal/plugins/libsilky_common_plugin.so
+sudo cp resources/ca_device.rules /etc/udev/rules.d/ && sudo udevadm control --reload-rules
+```
+
+Then replug the camera, and set the plugin folder in every shell that starts ROS (`par.launch.py` warns when it is
+missing; bash: `~/.bashrc`, fish: `set -gx` in `~/.config/fish/config.fish`):
+
+```bash
+export MV_HAL_PLUGIN_PATH=/usr/lib/CenturyArks/hal/plugins
+```
+
+The package's two command-line tools are not needed by the driver.
+
+**USB 3 only.** On a USB 2 link (`cat /sys/bus/usb/devices/*/speed` shows `480`, e.g. through a USB 2 extension cable),
+changing a bias while events stream can abort the driver, and the camera then opens again only after replugging.
 
 ---
 

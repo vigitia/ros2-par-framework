@@ -69,7 +69,9 @@ several per repo; each is keyed by its `<name>`. A third-party repo written for 
 keys in `config/ros_packages.list`, turned into a generated `package.xml` by `write_ros_packages_manifest` in
 `scripts/common.sh`. So camera drivers stay optional and `par_framework_core` declares none. The Kinect SDK (`K4A`) is
 installed by hand (rosdep runs with `--skip-keys K4A`); nothing in core may declare the Kinect driver, or a Brio-only
-build breaks. `spinnaker_camera_driver` brings its own copy of the Spinnaker SDK.
+build breaks. `spinnaker_camera_driver` brings its own copy of the Spinnaker SDK. `metavision_driver` (event camera)
+brings OpenEB; a SilkyEvCam's plugin is installed by hand and found through `MV_HAL_PLUGIN_PATH` (README, "Event
+camera").
 
 **Interfaces.** All `.msg`/`.srv`/`.action` live in `par_framework_interfaces` (repo `ros2-par-framework-interfaces`),
 which is `ament_cmake` because `rosidl_generate_interfaces()` is a CMake macro, so interfaces can never move into a
@@ -101,7 +103,8 @@ and `fiducials_detector` with `use_compressed` take `/camera/image_raw/compresse
 for the Brio, the only driver publishing JPEGs). Drivers keep their own topics; launch files remap them with
 `launch_helpers.CAMERA_DRIVER_REMAPPINGS`, the only place that knows them. A new camera = a driver start in
 `launch_helpers` plus its entry there. Nodes hard-code the neutral names; another topic is chosen by remapping, not by
-parameter.
+parameter. An event camera is an extra sensor next to the camera (`par_launch.event_camera`), not a `camera:=`
+choice: it has no images, and publishes `/event_camera/events` plus a rendered `/event_camera/renderer/image_raw`.
 
 Intrinsics: `config/calibration/intrinsics/camera_info_<camera>.yaml` (gitignored), set as `camera_info_url` by
 `launch_helpers`, written by `scripts/run_cameracalibrator.sh`. The Kinect publishes its factory calibration instead.

@@ -152,6 +152,25 @@ ros2 run tf2_ros static_transform_publisher \
   --ros-args -r __node:=blackfly_optical_tf_publisher
 ```
 
+### Event camera (`event_camera:=true`)
+
+Started next to the camera, not instead of it; nothing is remapped, since no framework node reads events yet. A
+camera that needs its maker's OpenEB plugin, such as a SilkyEvCam, also needs `MV_HAL_PLUGIN_PATH` set (README, "Event
+camera"). The driver turns each bias into a parameter: `ros2 param list /event_camera` while it runs. The second
+command shows the events as an image on `/event_camera/renderer/image_raw`.
+
+```bash
+ros2 run metavision_driver driver_node --ros-args \
+  -r __node:=event_camera \
+  -p "serial:=''" -p frame_id:=event_camera_optical_frame
+```
+
+```bash
+ros2 run event_camera_renderer renderer_node --ros-args \
+  -r __ns:=/event_camera -r __node:=renderer -r '~/events:=events' \
+  -p fps:=25.0 -p display_type:=time_slice
+```
+
 ### FLIR Lepton thermal camera
 
 Not part of `par.launch.py`. The node puts itself in `/thermal/lepton`; nothing in the framework reads it yet, so it
@@ -295,11 +314,10 @@ These declare no parameters.
 ```bash
 ros2 run demo_app demo_app
 ros2 run rviz_bridge rviz_bridge
-ros2 run rviz2 rviz2 -d packages/par-framework-core/config/rviz/par_framework_brio.rviz
+ros2 run rviz2 rviz2 -d packages/par-framework-core/config/rviz/par_framework.rviz
 ```
 
-RViz configurations: `par_framework_brio.rviz`, `par_framework_kinect.rviz`, `par_framework_realsense.rviz`,
-`par_framework_webcam.rviz`, `par_framework_blackfly.rviz`.
+One RViz configuration for every camera. The Kinect point cloud and the event camera image are in it, switched off.
 
 ## Calibration tools
 
