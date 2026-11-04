@@ -2716,3 +2716,33 @@ margin. A profile for such a setup can then use a single threshold window, which
 at OpenCV's values, so other setups behave as before.
 
 **Alternatives:** *Changing the defaults*: rejected until checked on a colour camera with larger markers.
+
+## 2026-11-04: `demo_app` `page_content` in `par_setup.yaml`
+
+**What changed:** `par_setup.yaml` lists the demo app's new `page_content` parameter at its default `white`.
+
+**Why:** It lists every per-setup value; a profile switches to `checkerboard` for a showcase under projected content.
+
+**Alternatives:** *A launch argument*: rejected, the launch files pass the demo app's settings only through
+parameter files, and a profile already covers a per-setup choice.
+
+## 2026-11-04: template for a sensor processing node
+
+**What changed:** `templates/sensor_processing_node.py` is a blueprint for `<pkg>/<pkg>_node.py` of a node that
+processes camera frames. It collects what the existing processing nodes share: neutral camera topics, the
+best-effort depth-1 frame QoS, read-only parameters with descriptions, the optional `use_compressed` and
+`use_depth` inputs (pairing, missing-depth warning, 16UC1 to metres, pixel-grid check), dropping `camera_info`
+once calibrated, one result message per frame with the frame's header, throttled warnings, and the shutdown
+pattern in `main()`.
+
+**Why:** Each node had grown the same pieces separately, with small differences in names and behaviour (e.g. the
+`main()` without the shutdown-race handling in some nodes). A new node starts from the agreed version instead.
+
+**Decisions:**
+- *One commented Python file instead of a generator (cookiecutter, `ros2 pkg create` template).* Copying and
+  renaming one file is enough today, and it needs no new dependency.
+- *Optional blocks included and marked, rather than left out.* `use_compressed` and `use_depth` are the parts
+  most often copied between nodes and the easiest to get subtly wrong.
+- *Missing-depth check inline in the node, not as a helper class.* `fiducials_detector` has one in its logic
+  module, but a template can't import it; the few lines of timing are ROS glue anyway.
+- *No TF or table coordinates.* Detectors publish camera pixels; consumers convert with `par_geometry`.

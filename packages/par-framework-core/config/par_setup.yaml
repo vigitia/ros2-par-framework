@@ -288,6 +288,9 @@ demo_app_node:
   ros__parameters:
     # Display the projector is connected to, as counted by pygame (0 = primary).
     display_id: 2
+    # What is projected onto each page: white fills it, checkerboard shows a moving checkerboard that sticks to the
+    # paper, to show that page tracking keeps working under projected content.
+    page_content: white
 
 # Pose of the Brio body frame (brio_link, x forward, z up) in world, in metres.
 # PLACEHOLDER -- DO NOT EDIT. 0.93 m above world, looking straight down (pitch +90 deg); it only
