@@ -191,6 +191,14 @@ fiducials_detector_node:
     # markers about 30 px across) detects faster; check that no markers are lost.
     adaptive_thresh_win_size_min_px: 3
     adaptive_thresh_win_size_max_px: 23
+    # 0: off. 2 or more: also detect on the mean of the last this many frames and add the markers only the mean
+    # finds. For noisy frames (short exposure at high gain) while markers lie still; doubles the detection time.
+    temporal_mean_frame_count: 0
+    # 0: off. More than 0: search each frame only in square windows of this size (pixels) around the known markers,
+    # and whole frames in a background thread full_scan_rate_hz times a second to find new or lost markers. Much
+    # faster per frame on large images; the window must hold a marker plus its movement between two frames.
+    tracking_window_size_px: 0
+    full_scan_rate_hz: 5.0
     # true: show the frames with the detected markers in a window (needs a display) and print the detection
     # accuracy. Slows detection down a little, so only for testing.
     debug: false

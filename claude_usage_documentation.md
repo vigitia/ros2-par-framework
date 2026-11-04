@@ -2656,3 +2656,34 @@ camera frames in camera pixels. Until now the library only had the opposite dire
 **Decisions:** the same pose arguments as `pixels_to_table` (the optical frame's pose in the table frame), so callers
 pass one TF lookup to both. Points behind the camera are not filtered, because a table region seen by the camera never
 has any; the docstring says so. Checked with a round trip pixels -> table -> pixels on a tilted, distorted camera.
+
+## 2026-11-04: `temporal_mean_frame_count` in `par_setup.yaml`
+
+**What changed:** the `fiducials_detector_node` section lists the detector's new parameter `temporal_mean_frame_count`
+(0 = off) with a comment on when to use it.
+
+**Why:** per-setup values belong in `par_setup.yaml`; a setup with a noisy camera (short exposure at high gain) sets it
+there or in its profile, without changing the node.
+
+**Decisions:** off by default, because it roughly doubles the detection work per frame; the reasoning behind the
+feature is in the fiducials repo's documentation.
+
+## 2026-11-04: `/projector/content_mask` comes from the rendering manager
+
+**What changed:** CLAUDE.md, "Projector masks": the content mask is no longer a convention for apps but an optional
+topic of `rendering_manager_bridge` (`content_mask_enabled`), downscaled by `content_mask_downscale_factor` and stamped
+with the drawing time.
+
+**Why:** only the compositor knows the final projected image, including black areas inside apps; apps don't know the
+warp or what lies over them. The reasoning and the alternatives are in the rendering manager repo's documentation.
+
+**Decisions:** the mask is smaller than the projector's resolution, so consumers scale by its size; a full-resolution
+mask would cost a large read-back and DDS bandwidth on every frame.
+
+## 2026-11-04: tracking parameters in `par_setup.yaml`
+
+**What changed:** the `fiducials_detector_node` section lists the detector's new parameters
+`tracking_window_size_px` (0 = off) and `full_scan_rate_hz`, with a comment on what they do.
+
+**Why:** per-setup values belong in `par_setup.yaml`; a setup with a large camera image and small markers turns
+tracking on there or in its profile. Off by default, so other setups keep their current behaviour.

@@ -146,14 +146,17 @@ clears the centre. The clicked `/projection_corners` are a manual fallback, name
 
 ### Projector masks
 
-mono8 images in projector pixels at the projector's resolution, BEST_EFFORT depth 1. There is no central projector
-window; apps apply or publish them.
+mono8 images in projector pixels, BEST_EFFORT depth 1 (`/projector/mask` at the projector's resolution, the content
+mask downscaled). Apps apply `/projector/mask` themselves.
 - `/projector/mask` (from the `projection_mask` capability): 255 where the light would hit something higher than
   `min_height`; apply with `frame[mask > 0] = 0`. Needs a depth camera and the mapping; without the projector centre
   it assumes light straight down.
-- `/projector/content_mask`: a convention, published by apps, 255 where they draw content. Nothing consumes it yet.
-  Reading the screen instead was rejected (Wayland allows it only through the portal with user consent, not from a
-  container, and with extra delay).
+- `/projector/content_mask` (optional, from `rendering_manager_bridge` with `content_mask_enabled`): 255 where the
+  projector sends light, 0 where the output is black, read back by the rendering manager from the frame it draws.
+  Downscaled: one pixel per `content_mask_downscale_factor` projector pixels in each direction, so scale coordinates by
+  the mask's size, not the projector's. Stamped when the frame was drawn; the projector shows it later (delay not
+  measured yet). Nothing consumes it yet. Reading the screen from outside was rejected (Wayland allows it only through
+  the portal with user consent, not from a container, and with extra delay).
 
 ## Conventions
 
