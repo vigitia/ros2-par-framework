@@ -191,6 +191,11 @@ fiducials_detector_node:
     # markers about 30 px across) detects faster; check that no markers are lost.
     adaptive_thresh_win_size_min_px: 3
     adaptive_thresh_win_size_max_px: 23
+    # How each candidate's bits are read (OpenCV defaults 4 and 0.13): its square is resampled to this many pixels
+    # per cell, ignoring this fraction of each cell at its edges. For markers only a few camera pixels per cell
+    # wide, more pixels and a wider margin (e.g. 8 and 0.3) average out sensor noise and blurred cell edges.
+    bit_sample_px_per_cell: 4
+    bit_ignored_margin_per_cell: 0.13
     # 0: off. 2 or more: also detect on the mean of the last this many frames and add the markers only the mean
     # finds. For noisy frames (short exposure at high gain) while markers lie still; doubles the detection time.
     temporal_mean_frame_count: 0

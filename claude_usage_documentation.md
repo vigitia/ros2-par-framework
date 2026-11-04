@@ -2687,3 +2687,32 @@ mask would cost a large read-back and DDS bandwidth on every frame.
 
 **Why:** per-setup values belong in `par_setup.yaml`; a setup with a large camera image and small markers turns
 tracking on there or in its profile. Off by default, so other setups keep their current behaviour.
+
+## 2026-11-04: `camera_info` dropped once calibrated
+
+**What changed:** `rviz_bridge_node` destroys its `/camera/camera_info` subscription as soon as a message with a calibrated
+camera matrix (`k[0] != 0`) has arrived, and logs that. Uncalibrated messages keep the subscription.
+
+**Why:** `camera_info` comes with every camera frame, so at a high frame rate it costs one Python callback per frame,
+yet the intrinsics do not change while the camera runs. Measured first in `demo_app`, where it lowered the node's
+CPU load; applied to every node that only stores the message.
+
+**Alternatives:**
+- *Keep the subscription with a smaller queue*: rejected, rclpy still takes and deserialises every message.
+- *Read the intrinsics from the calibration file*: rejected, some cameras publish factory intrinsics that exist only
+  on the topic.
+- *A shared helper for the pattern*: rejected for now, it would need a ROS-side shared package; the pattern is a few
+  lines per node.
+- Accepted limit (marked `Simplification:`): intrinsics stored with `set_camera_info` while the node runs take effect
+  only after a restart.
+
+## 2026-11-04: `fiducials_detector` bit-reading parameters in `par_setup.yaml`
+
+**What changed:** `par_setup.yaml` lists `bit_sample_px_per_cell` and `bit_ignored_margin_per_cell` for
+`fiducials_detector_node` at OpenCV's defaults, with a note on when to raise them.
+
+**Why:** Small markers with few camera pixels per cell are read more reliably from more samples per cell and a wider
+margin. A profile for such a setup can then use a single threshold window, which costs much less CPU. Defaults stay
+at OpenCV's values, so other setups behave as before.
+
+**Alternatives:** *Changing the defaults*: rejected until checked on a colour camera with larger markers.
