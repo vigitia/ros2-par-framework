@@ -112,8 +112,8 @@ class RvizBridgeNode(Node):
         self.create_timer(CALIBRATION_REDRAW_INTERVAL_SEC, self.publish_projector_outline)
 
     def _create_subscriptions(self):
-        self.create_subscription(CameraInfo, TOPIC_NAME_CAMERA_INFO, self.on_camera_info,
-                                 CAMERA_INFO_QOS)
+        self.camera_info_subscription = self.create_subscription(
+            CameraInfo, TOPIC_NAME_CAMERA_INFO, self.on_camera_info, CAMERA_INFO_QOS)
         self.create_subscription(ObjectList, TOPIC_NAME_OBJECTS, self.on_objects, QUEUE_SIZE)
         self.create_subscription(ProjectionCorners, TOPIC_NAME_PROJECTION_CORNERS,
                                  self.on_projection_corners, LATCHED_QOS)
@@ -144,6 +144,16 @@ class RvizBridgeNode(Node):
 
     def on_camera_info(self, msg):
         self.camera_info = msg
+        # Uncalibrated, the camera matrix is all zeros: keep listening until calibrated
+        # intrinsics arrive
+        if msg.k[0] == 0.0:
+            return
+        # camera_info comes with every frame, but the intrinsics stay the same while the camera
+        # runs. Simplification: intrinsics stored with set_camera_info while this node runs take
+        # effect only after a restart. Upgrade: subscribe again on a slow timer.
+        self.destroy_subscription(self.camera_info_subscription)
+        self.get_logger().info(f'Calibrated camera info received, no longer subscribed to '
+                               f'{TOPIC_NAME_CAMERA_INFO}')
 
     def on_projection_corners(self, msg):
         self.projection_corners = msg
