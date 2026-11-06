@@ -2860,3 +2860,33 @@ the calibrator is done.
   already running camera, which would depend on what else was started.
 - The body frame per camera (`<camera>_link`, the Kinect's `camera_base`) is derived in the launch file, matching
   `create_camera_nodes`.
+
+## 2026-11-06 — Setup wizard skeleton: Flutter app and FastAPI backend (`setup_wizard/`)
+
+**What:** New top-level folder `setup_wizard/` with a Flutter desktop project (`app/`, package `par_setup_wizard`,
+Linux only for now, generated with `flutter create --empty`) and a Python backend (`backend/setup_wizard_backend.py`,
+FastAPI served by uvicorn on `127.0.0.1:8800`, one endpoint `GET /api/status`). `backend/requirements.txt` adds
+`fastapi` and `uvicorn`; `scripts/local_build.sh` includes it in its single `pip` call.
+
+**Why:** The setup wizard is rebuilt in Flutter so the same UI can later run on a phone or in a browser. Everything
+that touches the PAR machine (profiles, cameras, displays, launches) goes through a backend on that machine, so the
+desktop app already talks to it the way a phone or browser will.
+
+**Decisions and rejected alternatives:**
+- Outside `packages/`, because colcon scans that folder; the backend is not a ROS package, it will start launches as
+  subprocesses. Rejected: an `ament_python` package under `packages/` (a build step for something no node depends on).
+- FastAPI + uvicorn: WebSockets built in (needed for live sharpness, preview, logs, install progress), typed request
+  validation at the network boundary, generated API docs at `/docs`, and the same stack as the worksheets app's
+  backend. Rejected: Flask (WebSockets only through add-ons, one thread per open connection or a Socket.IO protocol
+  the Dart side would need a special client for; no built-in validation), aiohttp (nothing else in the project uses
+  it), rosbridge (cannot start processes or read files), gRPC (browsers need a proxy), the Flutter app starting
+  Python directly (rules out phone and browser).
+- Installed into the shared `.venv` instead of a separate environment like the worksheets backend, because the
+  backend will import `launch_helpers` from the sourced workspace; lower bounds match worksheets so the one `pip`
+  call stays conflict-free.
+- Bound to `127.0.0.1` only: nothing authenticates requests yet. Port 8800 because the worksheets backend uses 8000.
+- Linux desktop only for now; web and Android are added later with `flutter create --platforms=... .`.
+- The app reaches the backend through the `http` package (Dart team), wrapped in `SetupWizardBackendClient`
+  (`lib/setup_wizard_backend_client.dart`) so screens never build URLs themselves. Rejected: `dart:io`'s
+  `HttpClient`, which does not exist in a browser build. The start screen shows the connection and the machine name
+  at the bottom, with the command to start the backend when it is unreachable.

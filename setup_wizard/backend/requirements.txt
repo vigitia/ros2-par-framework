@@ -1,0 +1,4 @@
+# Written by Claude Code
+# Installed into the shared .venv by scripts/local_build.sh. Lower bounds match the worksheets app's backend.
+fastapi>=0.138.1
+uvicorn>=0.49.0
