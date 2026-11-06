@@ -2890,3 +2890,93 @@ desktop app already talks to it the way a phone or browser will.
   (`lib/setup_wizard_backend_client.dart`) so screens never build URLs themselves. Rejected: `dart:io`'s
   `HttpClient`, which does not exist in a browser build. The start screen shows the connection and the machine name
   at the bottom, with the command to start the backend when it is unreachable.
+
+## 2026-11-06 — Setup wizard: profile list and start screen dropdown
+
+**What:** The backend lists the profiles (`GET /api/profiles`: the names of `config/profiles/*.yaml` and the one
+selected last time) and stores the selection (`PUT /api/profiles/last-selected`) in the hidden file
+`config/profiles/.setup_wizard_last_selected_profile`. The app's start screen (`lib/start_screen.dart`) shows a
+dropdown of the profiles with the last one preselected and "+ New profile" at the end; Continue saves the selection
+and opens a placeholder for the overview or the new-profile screen, which come next.
+
+**Why:** First step of the wizard's flow: a returning user picks their hardware setup, a new user creates one.
+
+**Decisions and rejected alternatives:**
+- The backend reuses `FOLDER_PATH_PROFILES`, `FILE_NAME_PART_PATTERN` and `get_path_in_config_folder` from
+  `launch_helpers`, so it finds exactly the profiles `profile:=` accepts. This needs a sourced workspace to start
+  it. Rejected: deriving `packages/par-framework-core/config/` from the backend's own path (works unsourced, but
+  copies the lookup and misses its `--symlink-install` handling).
+- The last selection lives in the profiles folder, which is gitignored as a whole, because it belongs to the
+  machine, not the repository. A leading dot and no `.yaml` keep it out of the profile list. Rejected: a file in
+  `config/` (would need its own `.gitignore` entry) or remembering it in the app (a phone would not know what the
+  desktop chose).
+- `PUT` accepts only names of existing profiles, since the name ends up in a file path and in `profile:=`;
+  unknown names get 404, malformed requests FastAPI's 422.
+- Without a stored selection the first profile is preselected, without any profile "+ New profile".
+- Running without a profile (`par_setup.yaml` alone) is not offered: a hardware setup is a profile.
+
+## 2026-11-06 — Setup wizard: profile cards, title and dark theme
+
+**What:** The start screen shows every profile as a card with its cameras, sensor nodes and apps instead of a
+dropdown; a click selects a card (highlighted border), the last card starts a new profile. `GET /api/profiles`
+returns one summary per profile for this. The app is titled "ROS 2 PAR Framework" (app bar, `MaterialApp.title`
+and the native window title in `linux/runner/my_application.cc`) and always uses a dark Material 3 theme.
+
+**Why:** Choosing a hardware setup by name alone needs knowing what each name means; the card shows it.
+
+**Decisions and rejected alternatives:**
+- The backend reads a profile's `par_launch` section through `launch_helpers.read_launch_section` with a
+  `LaunchContext` whose `params_file` and `profile` are set as `par.launch.py profile:=<name>` would set them, so
+  the cards show exactly what a launch would run. Rejected: merging the YAML files itself (a second copy of the
+  merge rules) or importing the private `_merge_parameters`.
+- Sorting the switches: `demo_app` and `rendering_manager` are apps; `projection_mask`, `rviz` and `capture_camera`
+  are not shown as nodes; every other switch that is on counts as a sensor node, so a new detector appears without
+  a backend change. The capture camera is listed under cameras. Rejected: an explicit sensor node list copied from
+  `DETECTORS` in `par.launch.py` (two lists to keep in sync). The rendering manager's per-page apps are not shown.
+- A profile whose files cannot be read gets a card with the error instead of failing the whole list.
+- Dark theme always (`themeMode: ThemeMode.dark`), not following the desktop setting, since projection setups
+  usually run in dimmed rooms.
+
+## 2026-11-06 — Setup wizard: projector background on the start screen
+
+**What:** `lib/projector_background.dart` draws a simplified grey projector hanging at the top centre and looking
+down (mount, vertical body, lens barrel), with a faint yellow light cone that reaches the window's edges. The
+projector tilts towards the mouse cursor by half the angle, at most 25°. The start screen wraps its content in it
+and extends its body behind the connection bar (`extendBody`), so the light reaches the window's bottom edge.
+
+**Why:** Makes the start screen recognisable as the projection framework's, without an image asset.
+
+**Decisions and rejected alternatives:**
+- Drawn with a `CustomPainter` from a few shapes, so it scales with the window and needs no file. Rejected: an SVG or
+  PNG asset (needs a package such as `flutter_svg` for SVG, or a fixed-resolution image).
+- The cone is drawn longer than the window and clipped to it, so it always ends at the window's edges, whichever way
+  the projector tilts.
+- The widget wraps the content and tracks the cursor with a translucent `MouseRegion`, because a background behind
+  the content would not receive hover events over the cards. The cursor position goes through a `ValueNotifier`
+  passed as the painter's `repaint`, so a mouse move repaints only the background, not the cards.
+- Follows the cursor only partly and within a limit, so the light stays recognisable as coming down from above.
+- Smaller than a 90° turn of the earlier front view, so the hanging projector does not reach the first row of cards.
+- The cone fades with the distance from the lens, so text over it stays readable; the cards are opaque anyway.
+
+## 2026-11-06 — Setup wizard: camera calibration state on the profile cards
+
+**What:** `GET /api/profiles` reports per camera of a profile the state of its intrinsics (`calibrated`, `factory`,
+`missing`, `unsupported`) and of its pose (`measured`, `placeholder`, `invalid`, `unsupported`). The app combines
+both into three levels and shows them as an icon on the camera chip: green check (everything the camera supports is
+calibrated), amber warning (one of the two), red cross (neither); a tooltip names each state.
+
+**Why:** Shows at a glance which hardware setup is ready and which still needs a calibration step.
+
+**Decisions and rejected alternatives:**
+- Intrinsics and pose together in three levels, chosen over intrinsics only (would hide a missing pose, which every
+  table coordinate depends on) and one icon per calibration including the projection mapping (too busy for a card;
+  belongs on the overview).
+- The intrinsics file name comes from `launch_helpers.get_camera_info_file_name`, with the node section and serial
+  parameter per camera copied from the `create_*_node` functions (marked as a simplification in the backend; a
+  shared function returning a camera's intrinsics path would remove the copy). Kinect and RealSense count as
+  calibrated (factory intrinsics); the event camera's intrinsics and the capture camera's pose are `unsupported`
+  and do not count against the level.
+- The pose is the file `create_mount_tf_publisher` reads (`camera_pose_<camera>.yaml` in the profile's extrinsics
+  folder), checked with `get_invalid_pose_keys`, so a broken file shows as `invalid` instead of as measured.
+- Intrinsics files are only checked for existence, not content (marked as a simplification).
+- Icons differ in shape as well as colour, so the state does not depend on telling green, amber and red apart.

@@ -20,6 +20,7 @@ static void first_frame_cb(MyApplication* self, FlView* view) {
 }
 
 // Implements GApplication::activate.
+// Co-authored by Claude Code: the window title
 static void my_application_activate(GApplication* application) {
   MyApplication* self = MY_APPLICATION(application);
   GtkWindow* window =
@@ -45,11 +46,11 @@ static void my_application_activate(GApplication* application) {
   if (use_header_bar) {
     GtkHeaderBar* header_bar = GTK_HEADER_BAR(gtk_header_bar_new());
     gtk_widget_show(GTK_WIDGET(header_bar));
-    gtk_header_bar_set_title(header_bar, "par_setup_wizard");
+    gtk_header_bar_set_title(header_bar, "ROS 2 PAR Framework");
     gtk_header_bar_set_show_close_button(header_bar, TRUE);
     gtk_window_set_titlebar(window, GTK_WIDGET(header_bar));
   } else {
-    gtk_window_set_title(window, "par_setup_wizard");
+    gtk_window_set_title(window, "ROS 2 PAR Framework");
   }
 
   gtk_window_set_default_size(window, 1280, 720);
