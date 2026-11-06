@@ -99,7 +99,8 @@ take plain Python/NumPy values, so it is testable with plain pytest and reusable
 
 Framework nodes subscribe to neutral names: `/camera/image_raw`, `/camera/camera_info`, `/camera/set_camera_info` and,
 from a depth camera, `/camera/depth_registered/image_raw` (depth on the colour image's pixel grid), and from a camera
-with infrared on that grid, `/camera/ir/image_raw` (the Kinect's infrared is on its depth grid, so it stays unmapped).
+with infrared on that grid, `/camera/ir/image_raw` (the Kinect's driver transforms its infrared onto the colour grid,
+`ir_to_rgb/image_raw`, computed only while subscribed).
 `object_detector` and `fiducials_detector` with `use_compressed` take `/camera/image_raw/compressed` instead
 (`par.launch.py` sets it for the Brio, the only driver publishing JPEGs). Drivers keep their own topics; launch files
 remap them with `launch_helpers.CAMERA_DRIVER_REMAPPINGS`, the only place that knows them. A new camera = a driver

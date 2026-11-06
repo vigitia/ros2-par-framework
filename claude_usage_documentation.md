@@ -2785,3 +2785,14 @@ started nodes would get it anyway, so a single switch already reaches just the n
 stays possible in `par_setup.yaml` or a profile. *A list of node names (`debug:=hand_landmarks,gesture_detector`)*:
 more flexible but a second syntax to learn for little gain. *Keeping a list of nodes that have `debug`*: has to be
 updated with every node that adds one; rejected since undeclared overrides are harmless.
+
+## 2026-11-06: Kinect infrared on the colour grid, `use_ir` for hand landmarks
+
+**What changed:**
+- Kinect driver (`src/azure_kinect_ros_driver`): new topic `ir_to_rgb/image_raw`, the IR image transformed into the colour camera's geometry with the Azure Kinect SDK's `depth_image_to_color_camera_custom` (IR viewed as `CUSTOM16`, linear interpolation, 0 where there is no depth), stamped like `depth_to_rgb`, in the colour camera's frame. It is only computed while someone subscribes.
+- `launch_helpers.CAMERA_DRIVER_REMAPPINGS['kinect']` remaps it onto the neutral `/camera/ir/image_raw`; CLAUDE.md says so instead of "stays unmapped".
+- `par_setup.yaml`: `hand_landmarks_node.use_ir: false` with an explanation (the node is in the `hand_landmarks` repo).
+
+**Why:** Hands under a projected checkerboard were lost completely in the colour image; in the Kinect's IR image, with contrast enhancement, they were found (offline test, kanban card "Detect hand gestures"). The framework's convention is that `/camera/ir/image_raw` lies on the colour image's grid, so landmarks found in IR are colour pixels and line up with the registered depth and `camera_info` like before. Transforming in the driver keeps every node camera-neutral and serves any later IR consumer too.
+
+**Alternatives:** *Running MediaPipe on the IR image's own grid and moving the landmarks to colour pixels in `hand_landmarks`* (via depth, both intrinsics and TF): Kinect-specific code and extra subscriptions in a camera-neutral node, and a landmark without depth could not be moved; rejected by Vitus in favour of the driver. *Remapping the raw `ir/image_raw`*: wrong pixel grid for every consumer.

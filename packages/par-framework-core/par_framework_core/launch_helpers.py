@@ -53,6 +53,9 @@ CAMERA_DRIVER_REMAPPINGS = {
         ('/rgb/image_raw', DEFAULT_TOPIC_NAME_CAMERA_IMAGE),
         ('/rgb/camera_info', DEFAULT_TOPIC_NAME_CAMERA_INFO),
         ('/depth_to_rgb/image_raw', DEFAULT_TOPIC_NAME_CAMERA_DEPTH),
+        # Infrared transformed onto the colour image's grid by the driver (its ir/image_raw is on
+        # the depth grid)
+        ('/ir_to_rgb/image_raw', DEFAULT_TOPIC_NAME_CAMERA_IR),
     ],
     # Realsense driver from GitHub. aligned_depth_to_color is its
     # depth on the colour image's pixel grid, published with align_depth.enable in params_file
