@@ -101,6 +101,29 @@
     image_width: 1920
     image_height: 1200
 
+# Added by Claude Code:
+# Capture camera (par_launch capture_camera): a second FLIR Blackfly S in software trigger mode, started as
+# /capture_camera/blackfly next to the main camera and not remapped onto /camera/..., so its frames stay on
+# /capture_camera/blackfly/image_raw. It sends no frames by itself: every
+#   ros2 param set /capture_camera/blackfly trigger_software true
+# makes it take one (config/blackfly_s_software_trigger.yaml maps that command). Subscribe RELIABLE: a best-effort
+# subscriber can lose a whole full-resolution frame, and no other follows. After a USB reconnect the driver keeps
+# running but the camera is back on its power-on settings (e.g. Bayer frames): restart the driver.
+# The calibration is calibration/intrinsics/camera_info_blackfly_<serial_number>.yaml, as for the main Blackfly.
+/capture_camera/blackfly:
+  ros__parameters:
+    # Required: without it the driver would open whichever Blackfly it finds first, possibly the main camera.
+    serial_number: ''
+    trigger_selector: 'FrameStart'
+    trigger_source: 'Software'
+    trigger_mode: 'On'
+    # In trigger mode the trigger decides when a frame is taken, not the frame rate
+    frame_rate_enable: false
+    # The driver restarts streaming when its last frame is older than this (s). Captures can be minutes apart, and a
+    # restart between them can lose the next trigger, so effectively never (one day).
+    acquisition_timeout: 86400.0
+    buffer_queue_size: 1
+
 # e-con See3CAM_CU40 RGB-IR camera (camera: cu40) through see3cam_cu40, started as /camera/cu40. It also publishes
 # its infrared image, on the colour image's pixel grid (/camera/ir/image_raw). The colour image is not
 # white-balanced and contains infrared light. The calibration is
@@ -476,3 +499,6 @@ par_launch:
     # Rendering manager (Wayland compositor on the projector) with its bridge, one app per detected page; needs
     # ros2-par-framework-rendering-manager in config/nodes.list and page_locator. Not together with demo_app
     rendering_manager: false
+    # Second FLIR Blackfly S next to the main camera, which takes single high-resolution frames on request
+    # (/capture_camera/blackfly, see there); needs its serial_number
+    capture_camera: false

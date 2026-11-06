@@ -2796,3 +2796,67 @@ updated with every node that adds one; rejected since undeclared overrides are h
 **Why:** Hands under a projected checkerboard were lost completely in the colour image; in the Kinect's IR image, with contrast enhancement, they were found (offline test, kanban card "Detect hand gestures"). The framework's convention is that `/camera/ir/image_raw` lies on the colour image's grid, so landmarks found in IR are colour pixels and line up with the registered depth and `camera_info` like before. Transforming in the driver keeps every node camera-neutral and serves any later IR consumer too.
 
 **Alternatives:** *Running MediaPipe on the IR image's own grid and moving the landmarks to colour pixels in `hand_landmarks`* (via depth, both intrinsics and TF): Kinect-specific code and extra subscriptions in a camera-neutral node, and a landmark without depth could not be moved; rejected by Vitus in favour of the driver. *Remapping the raw `ir/image_raw`*: wrong pixel grid for every consumer.
+
+## 2026-11-06 — Capture camera: a second Blackfly S in software trigger mode
+
+**What:** New `par_launch` switch `capture_camera` (also a launch argument of `par.launch.py`). It starts a second
+`spinnaker_camera_driver` as `/capture_camera/blackfly` (`launch_helpers.create_capture_camera_node`), with the new
+mapping file `config/blackfly_s_software_trigger.yaml` (the driver's `blackfly_s.yaml` with `trigger_mode` after
+`trigger_source` and a `trigger_software` command parameter). `par_setup.yaml` gets the section
+`/capture_camera/blackfly` with the trigger parameters and a long `acquisition_timeout`; serial and image format go
+into the setup's profile.
+
+**Why:** Apps such as the tabletop worksheets need single high-resolution colour frames of a sheet, while another
+camera keeps tracking at a high frame rate. A software trigger avoids streaming full-resolution frames over USB all
+the time.
+
+**Decisions and rejected alternatives:**
+- Not remapped onto `/camera/...`: the main camera keeps that interface, and the capture camera's frames are only
+  for the app that triggers them. Rejected: a general multi-camera scheme for all cameras, larger than one use needs.
+- The launch fails without a `serial_number` for the capture camera: otherwise the driver opens the first Blackfly
+  it finds, which can be the main camera. Rejected: falling back to the first camera found.
+- The mapping file is a copy of the driver's file, kept in the framework. Rejected: changing the installed driver
+  file (lost on every update, and it would change the main Blackfly too).
+- `acquisition_timeout` of one day: the driver restarts streaming when its last frame is older than this, and in
+  trigger mode a restart between two captures can lose the next trigger.
+- Not started with `camera_only:=true`, which keeps meaning the main camera alone. No transforms and no
+  calibration use yet: nothing maps the capture camera's pixels onto the table so far.
+- Not done yet: a first trigger right after start, and a restart after a USB reconnect.
+
+## 2026-11-06 — Focus preview for any camera (`scripts/focus_preview.py`)
+
+**What:** A small rclpy script that shows the newest frame from `/camera/image_raw` scaled to fit, next to its centre
+crop enlarged without smoothing, with a sharpness score (variance of the Laplacian of the crop, averaged over a few
+frames) and the peak score so far. Keys: `q` quits, `r` resets the peak.
+
+**Why:** After a camera is remounted it has to be refocused by hand. The enlarged crop shows single pixels, and
+the score with its peak shows when the focus ring has passed the best setting, which is hard to see by eye on a
+noisy, high-gain infrared image.
+
+**Decisions and rejected alternatives:**
+- Subscribes to the neutral camera topic, so it works with every camera the launch files start. Rejected: talking to
+  one camera's SDK directly (works for one camera only, and not while the driver runs).
+- A script in `scripts/` instead of a node package: it is a setup tool, not part of a running setup. Rejected: a
+  package with an entry point (build step for a tool that has no dependents).
+- The crop's brightness is stretched for display only; the score uses the raw pixels, so the stretch does not
+  change it. A dim frame behind an infrared filter would otherwise show its edges poorly.
+- The score has no absolute threshold: it depends on the scene and the light, so only the peak in the same scene is
+  a fair reference.
+- Converts `sensor_msgs/Image` with NumPy instead of `cv_bridge`, for the four 8-bit encodings the drivers publish.
+
+## 2026-11-06 — Launch file for the checkerboard camera pose (`camera_pose_calibration_sheet.launch.py`)
+
+**What:** Starts the chosen camera (`camera:=` or `par_launch.camera`) and `sheet_pose_calibrator` from
+`ros2-par-framework-calibration`, with the board size (`board_columns`, `board_rows`, inner corners) and
+`square_size_mm`, and writes `camera_pose_<camera>.yaml` into the profile's extrinsics folder. The launch ends when
+the calibrator is done.
+
+**Why:** Cameras without depth need a measured pose too, especially when mounted at an angle.
+
+**Decisions and rejected alternatives:**
+- Its own launch file instead of a mode in `camera_pose_calibration_kinect.launch.py`: that one is about the Kinect's
+  depth; this one works for every camera with intrinsics, including the Kinect's colour camera.
+- Starts the camera itself like the Kinect launch, so one command does the measurement. Rejected: attaching to an
+  already running camera, which would depend on what else was started.
+- The body frame per camera (`<camera>_link`, the Kinect's `camera_base`) is derived in the launch file, matching
+  `create_camera_nodes`.

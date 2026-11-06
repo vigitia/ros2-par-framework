@@ -109,6 +109,9 @@ FILE_NAME_PART_PATTERN = re.compile(r'[A-Za-z0-9_-]+')
 # The cameras' sections in the parameter files, which hold their serials
 BRIO_NODE_PARAMETERS_KEY = '/camera/brio/logitech_brio_node'
 BLACKFLY_NODE_PARAMETERS_KEY = '/camera/blackfly'
+CAPTURE_CAMERA_NODE_PARAMETERS_KEY = '/capture_camera/blackfly'
+# Driver mapping of the capture camera's ROS parameters onto its settings, next to par_setup.yaml
+CAPTURE_CAMERA_SETTINGS_MAPPING_FILE_NAME = 'blackfly_s_software_trigger.yaml'
 CU40_NODE_PARAMETERS_KEY = '/camera/cu40/see3cam_cu40_node'
 # What a camera pose needs, in the measured camera_pose_<camera>.yaml and in the placeholder
 POSE_TRANSLATION_KEYS = [f'translation.{axis}' for axis in 'xyz']
@@ -416,6 +419,44 @@ def create_blackfly_nodes(context):
         ),
         create_optical_frame_tf_publisher('blackfly'),
     ]
+
+
+# Written by Claude Code
+def create_capture_camera_node(context):
+    """
+    Create the capture camera, a second Blackfly S in software trigger mode.
+
+    It runs as /capture_camera/blackfly. Not remapped onto /camera/..., so it runs next to the main camera. No transforms yet: nothing
+    maps its pixels onto the table so far.
+    """
+    node_section = read_merged_parameters(context).get(CAPTURE_CAMERA_NODE_PARAMETERS_KEY) or {}
+    node_parameters = node_section.get('ros__parameters') or {}
+    if not str(node_parameters.get('serial_number', '')):
+        raise RuntimeError(f'[launch_helpers]: capture_camera needs serial_number under '
+                           f'{CAPTURE_CAMERA_NODE_PARAMETERS_KEY} ros__parameters in the '
+                           f'parameter files; without it the driver opens whichever Blackfly it finds '
+                           f'first, possibly the main camera')
+    # Same file name as for the main Blackfly: the intrinsics belong to the unit, whichever role
+    # it has
+    camera_info_file_name = get_camera_info_file_name(
+        context, 'blackfly', CAPTURE_CAMERA_NODE_PARAMETERS_KEY, 'serial_number')
+    camera_info_relative_path = f'{FOLDER_PATH_CAMERA_INTRINSICS}/{camera_info_file_name}'
+    camera_info_path = get_path_in_config_folder(camera_info_relative_path)
+    camera_settings_mapping_path = os.path.join(
+        get_package_share_directory('par_framework_core'), 'config',
+        CAPTURE_CAMERA_SETTINGS_MAPPING_FILE_NAME)
+    return Node(
+        package='spinnaker_camera_driver',
+        executable='camera_driver_node',
+        name='blackfly',
+        namespace='/capture_camera',
+        output='screen',
+        emulate_tty=True,
+        parameters=[*get_params_file_paths(context),
+                    {'parameter_file': camera_settings_mapping_path,
+                     'camerainfo_url': f'file://{camera_info_path}',
+                     'frame_id': 'capture_camera_optical_frame'}],
+    )
 
 
 # Written by Claude Code

@@ -25,6 +25,10 @@ gestures: camera:=kinect hand_landmarks:=true gesture_detector:=true debug:=true
 
 rendering_manager:=true starts the rendering manager (a Wayland compositor) fullscreen on the
 projector and its ROS bridge, which shows one app on every detected page.
+
+capture_camera:=true also starts a second Blackfly S as /capture_camera/blackfly in software
+trigger mode, for single high-resolution frames on request (see /capture_camera/blackfly in
+par_setup.yaml); it needs its serial_number there or in the profile.
 """
 
 import os
@@ -35,7 +39,7 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, ExecuteProcess, LogInfo, OpaqueFunction
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
-from par_framework_core.launch_helpers import (create_camera_nodes,
+from par_framework_core.launch_helpers import (create_camera_nodes, create_capture_camera_node,
                                                create_profile_launch_argument,
                                                create_projection_calibration_server_node,
                                                get_chosen_camera, get_params_file_paths,
@@ -45,7 +49,8 @@ PACKAGE_NAME = 'par_framework_core'
 # The node switches of par_launch, each also a launch argument that overrides it for one run
 DETECTORS = ('object_detector', 'fiducials_detector', 'hand_landmarks', 'page_locator',
              'gesture_detector')
-LAUNCH_SWITCHES = DETECTORS + ('projection_mask', 'demo_app', 'rendering_manager', 'rviz')
+LAUNCH_SWITCHES = DETECTORS + ('projection_mask', 'demo_app', 'rendering_manager', 'rviz',
+                               'capture_camera')
 # Per camera: parameter overrides for each detector. Every camera
 # publishes on the same /camera/... topics (launch_helpers.CAMERA_DRIVER_REMAPPINGS); the overrides
 # cover what the cameras offer differently.
@@ -133,6 +138,7 @@ def create_rendering_manager_actions(context, params_file_paths):
     ]
 
 
+# Co-authored by Claude Code: starts the capture camera
 def launch_setup(context):
     params_file_paths = get_params_file_paths(context)
     launch_section = read_launch_section(context)
@@ -157,6 +163,10 @@ def launch_setup(context):
     launch_actions = create_camera_nodes(context, camera)
     if LaunchConfiguration('camera_only').perform(context) == 'true':
         return launch_actions
+
+    # A second camera next to the main one, for single high-resolution frames on request
+    if is_enabled('capture_camera'):
+        launch_actions.append(create_capture_camera_node(context))
 
     # Set for every framework node; nodes without a debug parameter ignore it
     debug_override = read_true_false_argument('debug')
