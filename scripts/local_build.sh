@@ -11,6 +11,7 @@
 #   2. install their apt dependencies with rosdep
 #   3. install their PyPI dependencies into .venv
 #   4. build the workspace with colcon
+#   5. build the node repositories' Rust programs with cargo (full builds only)
 
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 cd "$REPO_ROOT"
@@ -75,6 +76,22 @@ if (( $# > 0 )); then
     build_args+=(--packages-select "$@")
 fi
 .venv/bin/python -m colcon build "${build_args[@]}"
+
+# 5. Rust programs, e.g. the rendering manager (a Wayland compositor): colcon builds only their ROS
+# packages, cargo the programs themselves, in release mode as the launch files start them. Only in a
+# full build, so rebuilding one package stays quick; cargo skips what has not changed.
+if (( $# == 0 )); then
+    for cargo_manifest_path in src/*/Cargo.toml; do
+        if [[ ! -f "$cargo_manifest_path" ]]; then
+            continue
+        fi
+        if ! command_exists cargo; then
+            die "cargo not found, needed for ${cargo_manifest_path} -- sudo apt install cargo"
+        fi
+        step "Building ${cargo_manifest_path%/Cargo.toml} with cargo"
+        cargo build --release --manifest-path "$cargo_manifest_path"
+    done
+fi
 
 ok "workspace built"
 info "in each new bash terminal:"

@@ -2746,3 +2746,23 @@ pattern in `main()`.
 - *Missing-depth check inline in the node, not as a helper class.* `fiducials_detector` has one in its logic
   module, but a template can't import it; the few lines of timing are ROS glue anyway.
 - *No TF or table coordinates.* Detectors publish camera pixels; consumers convert with `par_geometry`.
+
+## 2026-11-05: rendering manager in `par.launch.py`
+
+**What changed:** New switch `rendering_manager` (`par_launch` and launch argument). It starts the rendering
+manager (Rust program) fullscreen on the projector with `--socket-name par-tabletop` and `--display-id` from the
+new `rendering_manager` section of `par_setup.yaml`, plus `rendering_manager_bridge` with the parameter files and
+the control socket path. A log line says what is missing when the bridge package or the built program is absent,
+and a warning when `demo_app` is on as well. `local_build.sh` builds every `src/*/Cargo.toml` with
+`cargo build --release` in full builds. `par_setup.yaml` lists the bridge's page app defaults and explains in a comment how a page gets its own app
+(`page_ids_with_own_app`, `page_apps.page<id>.*`).
+
+**Why:** One command starts camera, detectors, compositor and bridge. colcon builds only the ROS packages, so the
+Rust program needs its own build step; release mode because the launch file starts that build.
+
+**Alternatives:** *colcon-cargo*: a new build dependency for one program, rejected. *Installing the program into
+the bridge's install space*: `cargo install` rebuilds from scratch each time; instead the launch file follows the
+bridge's `--symlink-install` link to its repo (marked `Simplification:`). *Searching for the control socket in the
+bridge*: ambiguous with several compositors, so the launch file fixes the socket name. It is
+`wayland-99-par-tabletop`: snap apps such as Chromium may only open sockets matching `wayland-[0-9]*` (their AppArmor
+profile), so a plain name like `par-tabletop` makes them fail with "Permission denied".

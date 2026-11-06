@@ -19,6 +19,9 @@ e.g. for a preview or a calibration. An event camera (event) delivers its events
 images, and the raw events on /camera/events; it has no calibration. Camera calibrations are
 config/calibration/intrinsics/camera_info_<camera>.yaml (a Brio or Blackfly with its serial set:
 camera_info_<camera>_<serial>.yaml), shared by all parameter files and profiles.
+
+rendering_manager:=true starts the rendering manager (a Wayland compositor) fullscreen on the
+projector and its ROS bridge, which shows one app on every detected page.
 """
 
 import os
@@ -26,20 +29,20 @@ import os
 from ament_index_python.packages import get_package_share_directory
 from ament_index_python.resources import has_resource
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, LogInfo, OpaqueFunction
+from launch.actions import DeclareLaunchArgument, ExecuteProcess, LogInfo, OpaqueFunction
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from par_framework_core.launch_helpers import (create_camera_nodes,
                                                create_profile_launch_argument,
                                                create_projection_calibration_server_node,
                                                get_chosen_camera, get_params_file_paths,
-                                               read_launch_section)
+                                               read_launch_section, read_merged_parameters)
 
 PACKAGE_NAME = 'par_framework_core'
 # The node switches of par_launch, each also a launch argument that overrides it for one run
 DETECTORS = ('object_detector', 'fiducials_detector', 'hand_landmarks', 'page_locator',
              'gesture_detector')
-LAUNCH_SWITCHES = DETECTORS + ('projection_mask', 'demo_app', 'rviz')
+LAUNCH_SWITCHES = DETECTORS + ('projection_mask', 'demo_app', 'rendering_manager', 'rviz')
 # Per camera: parameter overrides for each detector. Every camera
 # publishes on the same /camera/... topics (launch_helpers.CAMERA_DRIVER_REMAPPINGS); the overrides
 # cover what the cameras offer differently.
@@ -60,6 +63,71 @@ CAMERA_DETECTOR_PARAMETER_OVERRIDES = {
 }
 # One RViz configuration for every camera, since they all publish on the same topics
 RVIZ_CONFIG_FILE_NAME = 'par_framework.rviz'
+# The rendering manager is a Rust program in the repo of its ROS bridge, built by cargo
+# (scripts/local_build.sh)
+RENDERING_MANAGER_BRIDGE_PACKAGE_NAME = 'rendering_manager_bridge'
+RENDERING_MANAGER_BINARY_RELATIVE_PATH = os.path.join('target', 'release', 'rendering_manager')
+# Its section in the parameter files, read here: the program is no ROS node
+RENDERING_MANAGER_PARAMETERS_KEY = 'rendering_manager'
+# A fixed Wayland socket name, so the bridge knows the control socket
+# $XDG_RUNTIME_DIR/<name>.control; a second rendering manager with this name fails to start
+# instead of taking another socket the bridge would not find. Apps get <name>-<app id>. Snap apps
+# (e.g. Chromium) may only open sockets named wayland-<digit>..., and the desktop's automatic
+# names are wayland-0, wayland-1, ..., so the name starts with a number far above those
+RENDERING_MANAGER_SOCKET_NAME = 'wayland-99-par-tabletop'
+
+
+def get_rendering_manager_binary_path():
+    """Return the rendering manager program's path, in the repo of its installed bridge."""
+    # Simplification: follows the --symlink-install link of the bridge's package.xml back to its
+    # repo, as local_build.sh builds it; upgrade: install the program with the bridge
+    installed_package_xml_path = os.path.join(
+        get_package_share_directory(RENDERING_MANAGER_BRIDGE_PACKAGE_NAME), 'package.xml')
+    bridge_package_path = os.path.dirname(os.path.realpath(installed_package_xml_path))
+    repo_path = os.path.dirname(bridge_package_path)
+    return os.path.join(repo_path, RENDERING_MANAGER_BINARY_RELATIVE_PATH)
+
+
+def create_rendering_manager_actions(context, params_file_paths):
+    """Create the rendering manager, fullscreen on the projector, and its ROS bridge."""
+    if not has_resource('packages', RENDERING_MANAGER_BRIDGE_PACKAGE_NAME):
+        return [LogInfo(msg='[par.launch]: rendering_manager is not installed: add '
+                            'ros2-par-framework-rendering-manager to config/nodes.list and run '
+                            './scripts/local_build.sh')]
+    binary_path = get_rendering_manager_binary_path()
+    if not os.path.isfile(binary_path):
+        return [LogInfo(msg=f'[par.launch]: {binary_path} is not built: run '
+                            f'./scripts/local_build.sh (it builds the rendering manager with '
+                            f'cargo)')]
+    runtime_folder_path = os.environ.get('XDG_RUNTIME_DIR')
+    if not runtime_folder_path:
+        raise RuntimeError('[par.launch]: XDG_RUNTIME_DIR is not set, so the rendering manager '
+                           'has no place for its sockets: start the launch from a desktop '
+                           'session terminal')
+
+    rendering_manager_command = [binary_path, '--socket-name', RENDERING_MANAGER_SOCKET_NAME]
+    rendering_manager_section = read_merged_parameters(context).get(
+        RENDERING_MANAGER_PARAMETERS_KEY, {})
+    rendering_manager_parameters = rendering_manager_section.get('ros__parameters', {})
+    display_id = rendering_manager_parameters.get('display_id')
+    # Without a display_id the desktop picks the display
+    if display_id is not None:
+        rendering_manager_command += ['--display-id', str(display_id)]
+    control_socket_path = os.path.join(runtime_folder_path,
+                                       f'{RENDERING_MANAGER_SOCKET_NAME}.control')
+    bridge_parameters = list(params_file_paths)
+    bridge_parameters.append({'control_socket_path': control_socket_path})
+    return [
+        ExecuteProcess(cmd=rendering_manager_command, name='rendering_manager', output='screen',
+                       emulate_tty=True),
+        # Starts together with the rendering manager and connects as soon as its socket exists
+        Node(package=RENDERING_MANAGER_BRIDGE_PACKAGE_NAME,
+             executable=RENDERING_MANAGER_BRIDGE_PACKAGE_NAME,
+             name='rendering_manager_bridge_node',
+             output='screen',
+             emulate_tty=True,
+             parameters=bridge_parameters),
+    ]
 
 
 def launch_setup(context):
@@ -129,6 +197,14 @@ def launch_setup(context):
                                               'ros2-par-framework-demo-application to '
                                               'config/nodes.list and run '
                                               './scripts/local_build.sh'))
+
+    if is_enabled('rendering_manager'):
+        # Both open a fullscreen window on the projector, and only one can be on top
+        if is_enabled('demo_app'):
+            launch_actions.append(LogInfo(msg='[par.launch]: demo_app and rendering_manager both '
+                                              'draw on the projector; start only one of them, '
+                                              'e.g. demo_app:=false'))
+        launch_actions += create_rendering_manager_actions(context, params_file_paths)
 
     if is_enabled('rviz'):
         launch_actions.append(create_framework_node('rviz_bridge'))

@@ -1,6 +1,6 @@
 # Co-authored by Claude Code (notes on the camera pose placeholders, the projection mask, the demo app, the
-# RealSense, Blackfly, See3CAM_CU40 and event camera driver settings, the hand landmarks, the page_locator marker
-# orientation).
+# rendering manager, the RealSense, Blackfly, See3CAM_CU40 and event camera driver settings, the hand landmarks,
+# the page_locator marker orientation).
 # Parameters of one physical PAR setup: which camera, which projector, at what
 # resolution. This is the file to edit when moving the framework to a new table
 # or a new machine -- node source should not need per-setup constants.
@@ -292,6 +292,35 @@ demo_app_node:
     # paper, to show that page tracking keeps working under projected content.
     page_content: white
 
+# Rendering manager (ros2-par-framework-rendering-manager), a Wayland compositor fullscreen on the projector. No ROS
+# node: par.launch.py reads this section and passes it as command-line options.
+rendering_manager:
+  ros__parameters:
+    # Display the projector is connected to, counted like pygame's display_id (0 = primary).
+    display_id: 2
+
+# Its ROS bridge: one app per detected page, placed on the paper. Which page holds which app: every page gets the
+# page_app_* app (default: page_app_url in a Chromium kiosk window, landscape); a page listed in
+# page_ids_with_own_app gets its own under page_apps.page<id>, where each option left out keeps the page_app_ value.
+# Read at start: restart the launch after a change. Example, set in a profile:
+#   page_ids_with_own_app: [1, 2]
+#   page_apps:
+#     page1:
+#       url: 'https://www.uni-regensburg.de/'
+#       quarter_turns_counterclockwise: 0   # portrait
+#     page2:
+#       command: 'gnome-text-editor --standalone'
+rendering_manager_bridge_node:
+  ros__parameters:
+    page_app_url: 'https://www.openstreetmap.org'
+    # 0 upright, 1 landscape read from the page's right side, 3 from its left side
+    page_app_quarter_turns_counterclockwise: 1
+    # Gaps to the page edges; top and bottom keep the app off the corner markers
+    page_app_left_right_inset_mm: 2.0
+    page_app_top_bottom_inset_mm: 30.0
+    # App pixels per millimetre of paper: more shows smaller content
+    page_app_px_per_mm: 4.0
+
 # Pose of the Brio body frame (brio_link, x forward, z up) in world, in metres.
 # PLACEHOLDER -- DO NOT EDIT. 0.93 m above world, looking straight down (pitch +90 deg); it only
 # keeps the launch files working until the real pose is set. That is
@@ -443,3 +472,6 @@ par_launch:
     # Demo application subscribing to pages, objects and gestures; needs ros2-par-framework-demo-application in
     # config/nodes.list
     demo_app: false
+    # Rendering manager (Wayland compositor on the projector) with its bridge, one app per detected page; needs
+    # ros2-par-framework-rendering-manager in config/nodes.list and page_locator. Not together with demo_app
+    rendering_manager: false
