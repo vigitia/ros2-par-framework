@@ -2766,3 +2766,22 @@ bridge's `--symlink-install` link to its repo (marked `Simplification:`). *Searc
 bridge*: ambiguous with several compositors, so the launch file fixes the socket name. It is
 `wayland-99-par-tabletop`: snap apps such as Chromium may only open sockets matching `wayland-[0-9]*` (their AppArmor
 profile), so a plain name like `par-tabletop` makes them fail with "Permission denied".
+
+## 2026-11-06: `debug` launch argument in `par.launch.py`
+
+**What changed:** New launch argument `debug` (`true`, `false`, or empty). When set, `par.launch.py` adds
+`{'debug': <value>}` to the parameters of every framework node it starts (detectors, `projection_mask`,
+`demo_app`, `rviz_bridge`); empty keeps each node's value from the parameter files. The true/false check of the
+node switches moved into a shared `read_true_false_argument()`, which both use.
+
+**Why:** Testing a feature (e.g. gestures: `hand_landmarks` and `gesture_detector`) needs the debug windows of the
+nodes involved. Before, `debug` could only be set in `par_setup.yaml` or a profile, or by starting the node by hand,
+because most nodes read it once at startup. One argument makes "start everything for this test, with previews" a
+single command. Nodes that declare no `debug` parameter ignore the override (rclpy drops overrides for undeclared
+parameters), so no list of which nodes have one is needed.
+
+**Alternatives:** *One argument per node (`hand_landmarks_debug:=true`, ...)*: five more arguments, and only the
+started nodes would get it anyway, so a single switch already reaches just the nodes of the test; per-node control
+stays possible in `par_setup.yaml` or a profile. *A list of node names (`debug:=hand_landmarks,gesture_detector`)*:
+more flexible but a second syntax to learn for little gain. *Keeping a list of nodes that have `debug`*: has to be
+updated with every node that adds one; rejected since undeclared overrides are harmless.

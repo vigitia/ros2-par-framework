@@ -20,6 +20,9 @@ images, and the raw events on /camera/events; it has no calibration. Camera cali
 config/calibration/intrinsics/camera_info_<camera>.yaml (a Brio or Blackfly with its serial set:
 camera_info_<camera>_<serial>.yaml), shared by all parameter files and profiles.
 
+debug:=true turns on the debug windows of every started node that has one, e.g. for testing
+gestures: camera:=kinect hand_landmarks:=true gesture_detector:=true debug:=true.
+
 rendering_manager:=true starts the rendering manager (a Wayland compositor) fullscreen on the
 projector and its ROS bridge, which shows one app on every detected page.
 """
@@ -135,23 +138,35 @@ def launch_setup(context):
     launch_section = read_launch_section(context)
     camera = get_chosen_camera(context)
 
+    def read_true_false_argument(argument_name):
+        """Return True or False from a true/false launch argument, None when it is left empty."""
+        argument_value = LaunchConfiguration(argument_name).perform(context)
+        if argument_value == '':
+            return None
+        if argument_value not in ('true', 'false'):
+            raise RuntimeError(f'[par.launch]: {argument_name}:={argument_value}: use true or '
+                               f'false, or leave it out to keep the value from the params_file')
+        return argument_value == 'true'
+
     def is_enabled(switch):
-        switch_value = LaunchConfiguration(switch).perform(context)
-        if switch_value not in ('', 'true', 'false'):
-            raise RuntimeError(f'[par.launch]: {switch}:={switch_value}: use true or false, or '
-                               f'leave it out to keep par_launch.{switch} from the params_file')
-        if switch_value == '':
+        switch_value = read_true_false_argument(switch)
+        if switch_value is None:
             return launch_section.get(switch, False)
-        return switch_value == 'true'
+        return switch_value
 
     launch_actions = create_camera_nodes(context, camera)
     if LaunchConfiguration('camera_only').perform(context) == 'true':
         return launch_actions
 
+    # Set for every framework node; nodes without a debug parameter ignore it
+    debug_override = read_true_false_argument('debug')
+
     def create_framework_node(package, parameter_overrides=None):
         node_parameters = list(params_file_paths)
         if parameter_overrides:
             node_parameters.append(parameter_overrides)
+        if debug_override is not None:
+            node_parameters.append({'debug': debug_override})
         return Node(
             package=package,
             executable=package,
@@ -247,5 +262,11 @@ def generate_launch_description():
             default_value='false',
             description='true: start only the camera and its mount transform.'),
         *switch_arguments,
+        DeclareLaunchArgument(
+            'debug',
+            default_value='',
+            description='true or false: the debug parameter of every framework node started here '
+                        '(debug windows and previews, needs a display). Empty keeps the values '
+                        'from params_file.'),
         OpaqueFunction(function=launch_setup),
     ])
