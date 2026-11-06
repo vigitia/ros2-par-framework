@@ -2,7 +2,8 @@
 //
 // Step-by-step wizard for a new hardware setup (profile): hardware, camera image, intrinsics. Each step lives in
 // its own file and only talks to this shell through NewProfileDraft and onCanContinueChanged, so the steps can be
-// built independently. The steps after intrinsics are not specified yet (card "Finish setup wizard UI").
+// built independently. The steps after intrinsics (camera pose, projector, camera to sensor node mapping) are
+// decided on the card "Finish setup wizard UI" but not built yet.
 
 import 'package:flutter/material.dart';
 
@@ -13,13 +14,63 @@ import 'new_profile_hardware_step.dart';
 
 /// What the steps have decided so far for the new profile. Steps write into it; later steps read it.
 class NewProfileDraft {
+  /// Name shown to the user, e.g. 'Labor Neu'.
+  String? profileDisplayName;
+
+  /// Internal name, e.g. 'labor_neu': the file `config/profiles/<profileName>.yaml` and `profile:=<profileName>`.
   String? profileName;
 
-  /// One camera per profile for now (decision of 2026-11-06), a name from launch_helpers.CAMERA_DRIVER_REMAPPINGS.
-  String? cameraName;
+  /// The profile's cameras: none, one or several, also several of one type (e.g. two Brios), while the framework
+  /// still launches one camera at a time.
+  List<CameraInstanceDraft> cameraInstances = [];
 
   /// The output displays the projectors are connected to.
   List<String> projectorDisplayNames = [];
+
+  int countCameraInstancesOfType(String cameraType) {
+    int instanceCount = 0;
+    for (final CameraInstanceDraft cameraInstance in cameraInstances) {
+      if (cameraInstance.cameraType == cameraType) {
+        instanceCount += 1;
+      }
+    }
+    return instanceCount;
+  }
+
+  /// Adds a camera of cameraType named `<type>_<n>` with the lowest number not taken, e.g. 'brio_2'.
+  void addCameraInstance(String cameraType) {
+    final Set<String> takenInstanceNames = {};
+    for (final CameraInstanceDraft cameraInstance in cameraInstances) {
+      takenInstanceNames.add(cameraInstance.instanceName);
+    }
+    int instanceNumber = 1;
+    while (takenInstanceNames.contains('${cameraType}_$instanceNumber')) {
+      instanceNumber += 1;
+    }
+    cameraInstances.add(CameraInstanceDraft(cameraType: cameraType, instanceName: '${cameraType}_$instanceNumber'));
+  }
+
+  /// Removes the camera of cameraType added last, like lowering the count in a shopping cart.
+  void removeLastCameraInstance(String cameraType) {
+    final int lastIndex = cameraInstances.lastIndexWhere(
+      (CameraInstanceDraft cameraInstance) => cameraInstance.cameraType == cameraType,
+    );
+    if (lastIndex >= 0) {
+      cameraInstances.removeAt(lastIndex);
+    }
+  }
+}
+
+/// One camera of the new profile: which driver (type) and its name within the profile.
+class CameraInstanceDraft {
+  CameraInstanceDraft({required this.cameraType, required this.instanceName});
+
+  /// A key of launch_helpers.CAMERA_DRIVER_REMAPPINGS, e.g. 'brio'.
+  final String cameraType;
+
+  /// Unique within the profile, e.g. 'brio_2'; used for namespaces, TF frames and calibration file names.
+  /// Suggested as `<type>_<n>` (decision on the card: editable when added, fixed afterwards).
+  String instanceName;
 }
 
 class NewProfileWizardScreen extends StatefulWidget {

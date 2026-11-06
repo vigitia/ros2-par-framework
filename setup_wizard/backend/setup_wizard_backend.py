@@ -13,6 +13,8 @@ API docs, to try every endpoint in the browser: http://127.0.0.1:8800/docs
 
 import socket
 
+import camera_preview_api
+import cameras_api
 from fastapi import FastAPI
 import profiles_api
 import uvicorn
@@ -27,6 +29,8 @@ setup_wizard_backend_app = FastAPI(title='PAR setup wizard backend')
 # One module per area of the app, each with its own APIRouter (e.g. profiles_api.py), so the areas
 # can be built independently; a new module needs only its include_router line here.
 setup_wizard_backend_app.include_router(profiles_api.profiles_router)
+setup_wizard_backend_app.include_router(cameras_api.cameras_router)
+setup_wizard_backend_app.include_router(camera_preview_api.camera_preview_router)
 
 
 @setup_wizard_backend_app.get('/api/status')

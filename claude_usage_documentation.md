@@ -2939,23 +2939,22 @@ and the native window title in `linux/runner/my_application.cc`) and always uses
 
 ## 2026-11-06 — Setup wizard: projector background on the start screen
 
-**What:** `lib/projector_background.dart` draws a simplified grey projector hanging at the top centre and looking
-down (mount, vertical body, lens barrel), with a faint yellow light cone that reaches the window's edges. The
-projector tilts towards the mouse cursor by half the angle, at most 25°. The start screen wraps its content in it
-and extends its body behind the connection bar (`extendBody`), so the light reaches the window's bottom edge.
+**What:** `lib/projector_background.dart` draws a simplified grey projector in top view (body with a few vent lines,
+lens barrel pointing down with light yellow glass), fixed at the top centre with its upper quarter above the
+window's edge, and a faint yellow light cone from the lens that reaches the window's edges. Only the cone follows
+the mouse cursor, by a quarter of the angle and at most 12°. The start screen wraps its content in it and extends
+its body behind the connection bar (`extendBody`), so the light reaches the window's bottom edge.
 
 **Why:** Makes the start screen recognisable as the projection framework's, without an image asset.
 
 **Decisions and rejected alternatives:**
 - Drawn with a `CustomPainter` from a few shapes, so it scales with the window and needs no file. Rejected: an SVG or
   PNG asset (needs a package such as `flutter_svg` for SVG, or a fixed-resolution image).
-- The cone is drawn longer than the window and clipped to it, so it always ends at the window's edges, whichever way
-  the projector tilts.
+- The projector stays still and only the light moves, and only slightly, so the background does not distract.
+- The cone is drawn longer than the window and clipped to it, so it always ends at the window's edges.
 - The widget wraps the content and tracks the cursor with a translucent `MouseRegion`, because a background behind
   the content would not receive hover events over the cards. The cursor position goes through a `ValueNotifier`
   passed as the painter's `repaint`, so a mouse move repaints only the background, not the cards.
-- Follows the cursor only partly and within a limit, so the light stays recognisable as coming down from above.
-- Smaller than a 90° turn of the earlier front view, so the hanging projector does not reach the first row of cards.
 - The cone fades with the distance from the lens, so text over it stays readable; the cards are opaque anyway.
 
 ## 2026-11-06 — Setup wizard: camera calibration state on the profile cards
@@ -2980,3 +2979,102 @@ calibrated), amber warning (one of the two), red cross (neither); a tooltip name
   folder), checked with `get_invalid_pose_keys`, so a broken file shows as `invalid` instead of as measured.
 - Intrinsics files are only checked for existence, not content (marked as a simplification).
 - Icons differ in shape as well as colour, so the state does not depend on telling green, amber and red apart.
+
+## 2026-11-06 — Setup wizard: profile names and installed cameras in the new-profile wizard
+
+**What:** The wizard's first step (`new_profile_hardware_step.dart`) asks for a friendly profile name (e.g. "Labor
+Neu") and an internal name (e.g. `labor_neu`), derived while typing and editable, and lists the installed cameras as
+checkboxes (none, one or several). New backend module `cameras_api.py` (`GET /api/cameras`: every camera of
+`CAMERA_DRIVER_REMAPPINGS`, its driver packages and whether they are installed) and the app-side
+`lib/cameras_api.dart`. `NewProfileDraft` holds `profileDisplayName`, `profileName` and a list `cameraNames`.
+
+**Why:** The internal name is a file name and the value of `profile:=`, so it must be plain; people should still be
+able to call their setup what they like. A profile can now have several cameras.
+
+**Decisions and rejected alternatives:**
+- The internal name is derived (lowercase, ä/ö/ü → ae/oe/ue, ß → ss, other characters → `_`) until the user edits it
+  by hand; emptying it hands it back to the derivation. Checked against `FILE_NAME_PART_PATTERN` and the existing
+  profiles. Rejected: only one name field (either unreadable names on the cards or unsafe file names).
+- "Installed" means every driver package of the camera is found by `ament_index_python` (`has_resource`), the check
+  `par.launch.py` uses for optional nodes. The camera → package map copies the `create_*_node` functions (marked as
+  a simplification). Not-installed cameras are named in one line instead of being hidden, so it is clear they exist.
+- Rejected: listing only connected cameras; detecting connected units is a separate step (see the card's
+  multi-camera section), and the list now selects camera types, not units.
+- The friendly name is not stored yet: finishing the wizard still saves nothing.
+
+## 2026-11-06 — Setup wizard: profiles open on click, internal profile name hidden
+
+**What:** The start screen has no Continue button any more: clicking a profile card stores it as the last used one
+and opens its hub; clicking "New profile" opens the wizard. The last used profile stays framed. In the wizard's
+first step the internal name field is gone: `createInternalProfileName` generates it from the friendly name
+(umlauts transliterated, other characters → `_`, `profile` when nothing usable is left). A name whose profile
+exists already is refused with a warning under the field; Next stays disabled. Ticking a camera in that step shows
+the live preview of the camera ticked last next to the list (`CameraPreviewView`, below the list in narrow
+windows).
+
+**Why:** One click less per start, and the internal name is a technical detail users should not have to handle.
+
+**Decisions and rejected alternatives:**
+- A taken name is refused instead of made unique with a suffix: two profiles that differ only by `_2` would be
+  hard to tell apart. Names are compared by their internal form, so "Labor Neu" and "labor-neu" collide. Rejected:
+  showing the internal name read-only (still a detail users need not see).
+- The preview shows one camera at a time (the neutral camera topics exist once), the one ticked last, so the user
+  sees which camera is which while choosing.
+- Next waits for the existing profiles to load, so a taken name is always detected.
+- The frame on the last used profile is kept as orientation, although selecting no longer needs it.
+
+## 2026-11-06 — Setup wizard: camera preview stops when nobody watches
+
+**What:** A watchdog thread in `camera_preview_api.py` stops the preview's camera once no frame was requested for
+`PREVIEW_UNWATCHED_TIMEOUT_S` (5 s); the app requests one about every 0.1 s while a preview is shown.
+
+**Why:** The camera kept running after the preview was left. The app's stop request on leaving the screen does not
+cover every case, e.g. a closed window or a crashed app.
+
+**Decisions and rejected alternatives:**
+- In the backend, because only the backend sees every way a preview can end. Rejected: relying on the app's stop
+  alone (never sent when the app quits or crashes), a stop request on window close (desktop only, not for a phone
+  or browser that loses its connection).
+- Five seconds, so a short hiccup in polling does not restart the camera, but an abandoned camera does not keep the
+  device busy for long.
+
+## 2026-11-06 — Setup wizard: settings of the previewed camera
+
+**What:** `GET /api/camera-preview/settings` (in `camera_preview_api.py`) reads the previewed camera's settings
+live from its driver node through the ROS 2 parameter services (`AsyncParameterClient`: `list_parameters`,
+`describe_parameters`, `get_parameters`) and returns name, value, type, description, range and read-only flag.
+`lib/camera_settings_view.dart` lists them read-only under the preview in the wizard's first step and retries
+while the camera is still starting.
+
+**Why:** The user should see which settings a camera offers and their allowed ranges, from one source that always
+matches the installed driver.
+
+**Decisions and rejected alternatives:**
+- Ranges and descriptions come from the drivers' `ParameterDescriptor`s, ROS 2's own mechanism, which our nodes
+  already use. Rejected: the comments in `par_setup.yaml` (written for people, no fixed format, ranges only as
+  prose) and a separate table of ranges (would drift from the drivers).
+- Shown are the parameters with a range plus a few per camera without one (resolution, frame rate); both the
+  driver node names and that list are copied knowledge, marked as simplifications until the camera catalog names
+  the node and the settings to show.
+- One parameter client per driver node, kept for the backend's lifetime, because rclpy offers no way to destroy
+  one on its own. Waiting for the driver happens outside the session lock, so frames keep flowing.
+- Read-only for now; changing values (live through `set_parameters` or by restarting the driver) and storing them
+  in the profile come later.
+
+## 2026-11-06 — Setup wizard: cameras as a cart, preview and settings in the next step
+
+**What:** The wizard's first step lists the installed camera types with − count + instead of checkboxes; every
+added camera becomes an instance named `<type>_<n>` (`NewProfileDraft.cameraInstances`, `CameraInstanceDraft`).
+Preview and settings left that page: the camera image step now goes through the instances one by one with the
+live preview and the settings next to it, the intrinsics step with the preview only, both through the shared
+`lib/camera_instance_preview_panel.dart`.
+
+**Why:** A setup can contain several units of one type (e.g. two Brios), and the first page should stay a quick
+choice of name and hardware.
+
+**Decisions and rejected alternatives:**
+- Instances named `<type>_<n>` with the lowest free number, as decided for the multi-camera model; removing takes
+  the instance added last, like lowering a count in a cart. Editing instance names comes with choosing units.
+- One shared panel for both steps instead of a copy in each; the settings list is switched on per step.
+- Until each instance gets its unit (serial or USB port), the preview starts a camera by type, so every instance
+  of one type shows the same physical camera; the panel says so (marked as a simplification).

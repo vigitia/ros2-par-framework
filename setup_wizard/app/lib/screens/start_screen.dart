@@ -1,8 +1,9 @@
 // Written by Claude Code
 //
 // Start screen of the PAR setup wizard: one question, which hardware setup (profile) to use. Every profile is a
-// card listing its cameras (with how far each is calibrated), sensor nodes and apps; the one chosen last time is
-// preselected, and a last card starts a new profile. The backend connection is shown at the bottom.
+// card listing its cameras (with how far each is calibrated), sensor nodes and apps; clicking a card opens that
+// profile, the one used last time is framed, and a last card starts a new profile. The backend connection is shown
+// at the bottom.
 
 import 'package:flutter/material.dart';
 
@@ -10,9 +11,6 @@ import '../projector_background.dart';
 import '../setup_wizard_backend_client.dart';
 import 'new_profile_wizard_screen.dart';
 import 'profile_hub_screen.dart';
-
-/// Selection value of the "New profile" card. Empty, because no profile can have an empty name.
-const String newProfileSelectionValue = '';
 
 const double profileCardWidth = 320;
 
@@ -31,8 +29,8 @@ class _SetupWizardStartScreenState extends State<SetupWizardStartScreen> {
   SetupWizardBackendStatus? _backendStatus;
   List<ProfileSummary> _profileSummaries = [];
 
-  /// A profile name, or newProfileSelectionValue.
-  String _selectedProfileValue = newProfileSelectionValue;
+  /// Framed on the start screen; null when no profile was opened yet or it no longer exists.
+  String? _lastUsedProfileName;
 
   @override
   void initState() {
@@ -51,7 +49,7 @@ class _SetupWizardStartScreenState extends State<SetupWizardStartScreen> {
       setState(() {
         _backendStatus = backendStatus;
         _profileSummaries = profileList.profileSummaries;
-        _selectedProfileValue = _getPreselectedProfileValue(profileList);
+        _lastUsedProfileName = profileList.lastSelectedProfileName;
         _isLoadingFromBackend = false;
       });
     } catch (error) {
@@ -63,27 +61,10 @@ class _SetupWizardStartScreenState extends State<SetupWizardStartScreen> {
     }
   }
 
-  /// The profile chosen last time, else the first profile, else "New profile" when there is none yet.
-  String _getPreselectedProfileValue(ProfileList profileList) {
-    final String? lastSelectedProfileName = profileList.lastSelectedProfileName;
-    if (lastSelectedProfileName != null) {
-      return lastSelectedProfileName;
-    }
-    if (profileList.profileSummaries.isNotEmpty) {
-      return profileList.profileSummaries.first.profileName;
-    }
-    return newProfileSelectionValue;
-  }
-
-  Future<void> _continueWithSelectedProfile() async {
-    if (_selectedProfileValue == newProfileSelectionValue) {
-      _openScreen(NewProfileWizardScreen(backendClient: widget.backendClient));
-      return;
-    }
-
-    final String selectedProfileName = _selectedProfileValue;
+  /// Remembers the profile as the last used one, then opens its hub.
+  Future<void> _openProfile(String profileName) async {
     try {
-      await widget.backendClient.setLastSelectedProfile(selectedProfileName);
+      await widget.backendClient.setLastSelectedProfile(profileName);
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -92,7 +73,10 @@ class _SetupWizardStartScreenState extends State<SetupWizardStartScreen> {
       }
       return;
     }
-    _openScreen(ProfileHubScreen(backendClient: widget.backendClient, profileName: selectedProfileName));
+    setState(() {
+      _lastUsedProfileName = profileName;
+    });
+    _openScreen(ProfileHubScreen(backendClient: widget.backendClient, profileName: profileName));
   }
 
   void _openScreen(Widget screen) {
@@ -102,19 +86,24 @@ class _SetupWizardStartScreenState extends State<SetupWizardStartScreen> {
     Navigator.of(context).push(MaterialPageRoute<void>(builder: (BuildContext context) => screen));
   }
 
-  void _selectProfileValue(String profileValue) {
-    setState(() {
-      _selectedProfileValue = profileValue;
-    });
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('ROS 2 PAR Framework')),
-      // The body, and with it the projector's light, reaches behind the connection bar to the window's bottom edge.
+      // Transparent, so the projector hangs at the window's top edge behind the title.
+      appBar: AppBar(
+        title: const Text('ROS 2 PAR Framework'),
+        backgroundColor: Colors.transparent,
+        scrolledUnderElevation: 0,
+      ),
+      // The body, and with it the projector and its light, reaches behind the title bar and the connection bar,
+      // from the window's top edge to its bottom edge.
+      extendBodyBehindAppBar: true,
       extendBody: true,
-      body: ProjectorBackground(child: _buildProfileChoice(context)),
+      // A Builder, so the body reads the bar heights the Scaffold reports below itself (MediaQuery padding); the
+      // State's own context sits above the Scaffold and would see none.
+      body: ProjectorBackground(
+        child: Builder(builder: (BuildContext bodyContext) => _buildProfileChoice(bodyContext)),
+      ),
       // At the bottom, so it is always clear which machine the UI controls (matters once phones connect too).
       bottomNavigationBar: _buildBackendConnectionBar(),
     );
@@ -134,19 +123,17 @@ class _SetupWizardStartScreenState extends State<SetupWizardStartScreen> {
     }
     cards.add(_buildNewProfileCard(context));
 
-    // With extendBody, the Scaffold reports the connection bar's height as bottom padding: keep the last cards
-    // and the Continue button above the bar.
-    final double connectionBarHeight = MediaQuery.paddingOf(context).bottom;
+    // With extendBodyBehindAppBar and extendBody, the Scaffold reports the title bar's and the connection bar's
+    // heights as top and bottom padding: keep the content clear of both.
+    final EdgeInsets barPadding = MediaQuery.paddingOf(context);
     return SingleChildScrollView(
-      padding: EdgeInsets.fromLTRB(24, 24, 24, 24 + connectionBarHeight),
+      padding: EdgeInsets.fromLTRB(24, 24 + barPadding.top, 24, 24 + barPadding.bottom),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text('Which hardware setup?', style: Theme.of(context).textTheme.headlineSmall),
           const SizedBox(height: 16),
           Wrap(spacing: 16, runSpacing: 16, children: cards),
-          const SizedBox(height: 24),
-          FilledButton(onPressed: _continueWithSelectedProfile, child: const Text('Continue')),
         ],
       ),
     );
@@ -169,17 +156,19 @@ class _SetupWizardStartScreenState extends State<SetupWizardStartScreen> {
       cardRows.add(_buildNameListRow(context, 'Apps', profileSummary.appNames));
     }
 
-    return _buildSelectableCard(
+    return _buildClickableCard(
       context: context,
-      profileValue: profileSummary.profileName,
+      isLastUsed: profileSummary.profileName == _lastUsedProfileName,
+      onCardTapped: () => _openProfile(profileSummary.profileName),
       cardContent: Column(crossAxisAlignment: CrossAxisAlignment.start, children: cardRows),
     );
   }
 
   Widget _buildNewProfileCard(BuildContext context) {
-    return _buildSelectableCard(
+    return _buildClickableCard(
       context: context,
-      profileValue: newProfileSelectionValue,
+      isLastUsed: false,
+      onCardTapped: () => _openScreen(NewProfileWizardScreen(backendClient: widget.backendClient)),
       cardContent: Row(
         children: [
           const Icon(Icons.add),
@@ -190,16 +179,16 @@ class _SetupWizardStartScreenState extends State<SetupWizardStartScreen> {
     );
   }
 
-  /// A card that selects profileValue when clicked, with a highlighted border while selected.
-  Widget _buildSelectableCard({
+  /// A card that runs onCardTapped when clicked, framed when it is the profile used last time.
+  Widget _buildClickableCard({
     required BuildContext context,
-    required String profileValue,
+    required bool isLastUsed,
+    required VoidCallback onCardTapped,
     required Widget cardContent,
   }) {
     final ColorScheme colorScheme = Theme.of(context).colorScheme;
-    final bool isSelected = profileValue == _selectedProfileValue;
     final BorderSide cardBorder;
-    if (isSelected) {
+    if (isLastUsed) {
       cardBorder = BorderSide(color: colorScheme.primary, width: 2);
     } else {
       cardBorder = BorderSide(color: colorScheme.outlineVariant);
@@ -211,7 +200,7 @@ class _SetupWizardStartScreenState extends State<SetupWizardStartScreen> {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: cardBorder),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
-          onTap: () => _selectProfileValue(profileValue),
+          onTap: onCardTapped,
           child: Padding(padding: const EdgeInsets.all(16), child: cardContent),
         ),
       ),
