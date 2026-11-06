@@ -49,3 +49,4 @@ rendering_manager         git@github.com:vigitia/ros2-par-framework-rendering-ma
 # Applications:
 
 demo_app                  git@github.com:vigitia/ros2-par-framework-demo-application.git    main
+worksheets_app            git@github.com:vigitia/ros2-par-framework-worksheets.git          main
