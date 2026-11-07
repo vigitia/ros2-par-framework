@@ -83,6 +83,30 @@ class SetupWizardBackendClient {
   Future<void> setLastSelectedProfile(String profileName) async {
     await sendJson('PUT', '/api/profiles/last-selected', {'profile_name': profileName});
   }
+
+  /// Creates `config/profiles/<profileName>.yaml` with the camera, the projector's display and the setting changes
+  /// made in the new-profile wizard. Throws with the backend's reason, e.g. when the name is taken.
+  Future<void> createProfile({
+    required String profileName,
+    required String profileDisplayName,
+    required String cameraName,
+    required int? projectorDisplayId,
+  }) async {
+    await sendJson('POST', '/api/profiles', {
+      'profile_name': profileName,
+      'profile_display_name': profileDisplayName,
+      'camera_name': cameraName,
+      'projector_display_id': projectorDisplayId,
+    });
+  }
+
+  /// Deletes a profile: the backend moves its file and extrinsics into config/profiles/.deleted/, from where it can
+  /// be restored by hand. Returns that folder.
+  Future<String> deleteProfile(String profileName) async {
+    final Map<String, dynamic> deletedJson =
+        await sendJson('DELETE', '/api/profiles/${Uri.encodeComponent(profileName)}', null) as Map<String, dynamic>;
+    return deletedJson['deleted_profile_folder_path'] as String;
+  }
 }
 
 /// The hardware setups (profiles) on the PAR machine.
@@ -140,6 +164,7 @@ enum CameraCalibrationLevel { complete, partial, none }
 class CameraCalibrationSummary {
   const CameraCalibrationSummary({
     required this.cameraDisplayName,
+    required this.previewCameraName,
     required this.intrinsicsState,
     required this.poseState,
   });
@@ -147,12 +172,17 @@ class CameraCalibrationSummary {
   factory CameraCalibrationSummary.fromJson(Map<String, dynamic> cameraJson) {
     return CameraCalibrationSummary(
       cameraDisplayName: cameraJson['camera_display_name'] as String,
+      previewCameraName: cameraJson['preview_camera_name'] as String?,
       intrinsicsState: cameraJson['intrinsics_state'] as String,
       poseState: cameraJson['pose_state'] as String,
     );
   }
 
   final String cameraDisplayName;
+
+  /// The camera type to start for a preview (camera:= of par.launch.py); null when the camera cannot be started on
+  /// its own for a preview yet.
+  final String? previewCameraName;
 
   /// 'calibrated', 'factory', 'missing' or 'unsupported' (setup_wizard_backend.py, INTRINSICS_STATE_*).
   final String intrinsicsState;

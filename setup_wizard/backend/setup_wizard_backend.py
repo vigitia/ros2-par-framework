@@ -13,9 +13,12 @@ API docs, to try every endpoint in the browser: http://127.0.0.1:8800/docs
 
 import socket
 
+import apps_api
 import camera_preview_api
 import cameras_api
+import displays_api
 from fastapi import FastAPI
+import intrinsics_api
 import profiles_api
 import uvicorn
 
@@ -31,6 +34,9 @@ setup_wizard_backend_app = FastAPI(title='PAR setup wizard backend')
 setup_wizard_backend_app.include_router(profiles_api.profiles_router)
 setup_wizard_backend_app.include_router(cameras_api.cameras_router)
 setup_wizard_backend_app.include_router(camera_preview_api.camera_preview_router)
+setup_wizard_backend_app.include_router(displays_api.displays_router)
+setup_wizard_backend_app.include_router(intrinsics_api.intrinsics_router)
+setup_wizard_backend_app.include_router(apps_api.apps_router)
 
 
 @setup_wizard_backend_app.get('/api/status')

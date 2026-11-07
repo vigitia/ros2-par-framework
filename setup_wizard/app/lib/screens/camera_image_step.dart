@@ -7,6 +7,7 @@
 import 'package:flutter/material.dart';
 
 import '../camera_instance_preview_panel.dart';
+import '../camera_preview_with_settings_view.dart';
 import '../setup_wizard_backend_client.dart';
 import 'new_profile_wizard_screen.dart';
 
@@ -40,7 +41,11 @@ class CameraImageStep extends StatelessWidget {
         CameraInstancePreviewPanel(
           backendClient: backendClient,
           cameraInstances: newProfileDraft.cameraInstances,
-          isSettingsListShown: true,
+          buildSelectedCameraContent: (CameraInstanceDraft selectedInstance) => CameraPreviewWithSettingsView(
+            backendClient: backendClient,
+            cameraName: selectedInstance.cameraType,
+            isSettingsListShown: true,
+          ),
         ),
       ],
     );

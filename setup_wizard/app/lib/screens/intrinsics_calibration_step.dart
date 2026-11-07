@@ -1,12 +1,13 @@
 // Written by Claude Code
 //
-// New profile, step 3: the cameras' intrinsic calibration. The user goes through the profile's cameras one by one
-// and sees a live preview of the selected one. The calibration itself (checkerboard, coverage view) comes later.
-// Also to be opened from the profile overview to redo it.
+// New-profile step "Intrinsics": the cameras' lens calibration, one camera after the other. Each shows where its
+// intrinsics come from now and, where the driver can store one, a calibration with a checkerboard (see
+// IntrinsicsCalibrationView). Optional: the framework also runs uncalibrated, so Next stays allowed.
 
 import 'package:flutter/material.dart';
 
 import '../camera_instance_preview_panel.dart';
+import '../intrinsics_calibration_view.dart';
 import '../setup_wizard_backend_client.dart';
 import 'new_profile_wizard_screen.dart';
 
@@ -23,8 +24,8 @@ class IntrinsicsCalibrationStep extends StatelessWidget {
   /// What earlier steps decided; this step reads the chosen cameras.
   final NewProfileDraft newProfileDraft;
 
-  /// Tells the wizard whether Next is allowed (see NewProfileWizardScreen for when to call it). Not called yet:
-  /// Next stays allowed until the calibration itself is built.
+  /// Tells the wizard whether Next is allowed (see NewProfileWizardScreen for when to call it). Not called: the
+  /// calibration is optional, so Next stays allowed.
   final ValueChanged<bool> onCanContinueChanged;
 
   @override
@@ -35,12 +36,15 @@ class IntrinsicsCalibrationStep extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text('Calibrate the cameras one after the other.'),
+        const Text('Calibrate the lens of each camera that needs it, one after the other.'),
         const SizedBox(height: 12),
         CameraInstancePreviewPanel(
           backendClient: backendClient,
           cameraInstances: newProfileDraft.cameraInstances,
-          isSettingsListShown: false,
+          buildSelectedCameraContent: (CameraInstanceDraft selectedInstance) => IntrinsicsCalibrationView(
+            backendClient: backendClient,
+            cameraName: selectedInstance.cameraType,
+          ),
         ),
       ],
     );

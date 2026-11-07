@@ -3078,3 +3078,364 @@ choice of name and hardware.
 - One shared panel for both steps instead of a copy in each; the settings list is switched on per step.
 - Until each instance gets its unit (serial or USB port), the preview starts a camera by type, so every instance
   of one type shows the same physical camera; the panel says so (marked as a simplification).
+
+## 2026-11-07 — Setup wizard: start screen shows one profile, switching through a menu
+
+**What:** The start screen shows only the profile opened last time, as one card centered on the page (the first
+profile when the last one no longer exists, the "New profile" card when there is none). A menu button in the
+bottom left corner, next to the backend connection, lists all profiles (the shown one checked) and "New profile".
+Picking a profile in the menu only switches the shown card; clicking the card opens the profile, which also
+remembers it as the last opened one.
+
+**Why:** A machine rarely changes its hardware setup, so a grid of all profiles made the common case (open the
+same profile again) compete with a rare one.
+
+**Decisions and rejected alternatives:**
+- Picking a profile in the menu shows its card instead of opening it right away: the card shows the calibration
+  state before the user commits, and opening stays one click on the card. Rejected: opening directly from the
+  menu, which would make the centered card pointless for every profile but the last one.
+- `MenuAnchor` with one `MenuItemButton` per entry instead of a `DropdownButton`: each entry has its own action,
+  so "New profile" needs no sentinel value mixed in with the profile names.
+
+## 2026-11-07 — Setup wizard: camera settings shown generically
+
+**What:** The camera image step shows every parameter of the camera's driver node, except those ROS 2 itself
+adds to nodes and image publishers (`use_sim_time`, `start_type_description_service`, `qos_overrides.*`,
+image_transport's `*.enable_pub_plugins` and plugin parameters such as `image_raw.compressed.jpeg_quality`).
+`EXTRA_SHOWN_SETTING_NAMES_BY_CAMERA` and the rule "only settings with a range" are gone.
+
+**Why:** The wizard is meant to work with any ROS 2 camera driver that follows ROS conventions, without code per
+driver. Showing only ranged parameters hid settings the camera image step needs, e.g. a webcam's
+`auto_exposure` (a menu control without range) and `white_balance_automatic` (a bool): the automatic modes must be
+switched off before manual exposure or white balance take effect.
+
+**Decisions and rejected alternatives:**
+- Filter out what ROS adds rather than pick what a driver adds: the ROS side is the same for every driver, a pick
+  list would have to be written per driver. Rejected: adding the missing names to the per-camera list (one more
+  special case per driver).
+- image_transport plugin parameters are recognised by the plugin names shipped with ROS 2 (marked as a
+  simplification); asking pluginlib for the installed plugins would cover third-party plugins too.
+- Wiring parameters of the driver (device path, frame id, `camera_info_url`, serial) are shown as well: ROS has
+  no convention that separates them from image settings. How to group or hide them is open.
+
+## 2026-11-07 — Setup wizard: table on the start screen
+
+**What:** The start screen's profile card stands on a dark table drawn at the bottom of the window
+(`lib/tabletop_shape.dart`): a tabletop seen slightly from the front, narrower at the back, above a darker front
+face that the connection bar and the profile menu sit on. `ProjectorBackground` takes an optional
+`surfaceUnderLight`, drawn behind the light cone, so the projector's light falls onto the tabletop.
+
+**Why:** The framework projects onto a table; the start screen now shows that scene: projector, light, table,
+and the profile on it.
+
+**Decisions and rejected alternatives:**
+- The table lies under the light cone instead of in front of it: in front, it cut the light off at its back edge
+  like a wall.
+- The front edge spans the whole window, as if the user stood at the table, so the menu in the bottom left corner
+  sits on the table. Rejected: a table narrower than the window, which left the menu next to it on the floor.
+- Drawn from shapes in the theme's colours, like the projector, so it scales with the window and needs no image.
+- Known limit: the light also falls onto the vertical front face, which a real projector from above would not
+  light.
+
+## 2026-11-07 — Setup wizard: camera preview survives resizing and step changes
+
+**What:** Starting a preview returns a `preview_id`; stopping names that id instead of the camera, and the backend
+ignores a stop for any other preview. `CameraPreviewView` remembers its id and also stops a preview whose start
+was answered only after the view had closed. The new-profile wizard builds only the current step's content, and
+`CameraInstancePreviewPanel` keeps preview and settings under `GlobalKey`s. Below a width that grows with the
+number of steps, the wizard's stepper is vertical. A long setting value wraps instead of overflowing.
+
+**Why:** Resizing the window across the panel's side-by-side width disposed the preview and created a new one;
+the new view started the camera, the old one's stop named the same camera, and the backend ended the new preview.
+Flutter's `Stepper` keeps every step's content alive (horizontal: `Visibility(maintainState: true)`, vertical:
+`AnimatedCrossFade`), so the hidden Intrinsics step ran a second preview of the same camera, each start replacing
+the other's camera process. The horizontal stepper header overflowed in narrow windows, and since every driver
+parameter is shown, a file URL overflowed the settings list.
+
+**Decisions and rejected alternatives:**
+- The id protocol fixes the race at its root: any two views previewing one camera (resize, Next, Back) can no
+  longer stop each other. Rejected: only the `GlobalKey`s, which fix the resize but not moving between steps.
+- The `GlobalKey`s are kept on top, so a resize moves the running preview instead of restarting the camera.
+  Switching between vertical and horizontal stepper still rebuilds the step and restarts the preview; that is rare
+  and now safe.
+- Steps restore themselves from `NewProfileDraft` when they come back, so not keeping hidden steps alive loses no
+  input.
+
+## 2026-11-07 — Setup wizard: light ends at the table, brighter rays through the cursor
+
+**What:** The light cone no longer has a fixed opening angle and no longer turns towards the mouse. Its edges run
+from the lens to the tabletop's back corners and cover the whole tabletop to its front edge. While the cursor is
+inside the light, a narrow, blurred wedge of brighter rays runs from the lens through the cursor. The table moved
+into the projector background's painter (`tabletop_shape.dart` now holds its geometry and painting), replacing
+the `surfaceUnderLight` slot.
+
+**Why:** The light should match the table at every window size, as a projector set up for its table does, and the
+cursor reads as something held into the light.
+
+**Decisions and rejected alternatives:**
+- The cone follows from the table's corners instead of an angle: an angle that fits one window size misses the
+  table in another. The vertical front face stays dark, as under a projector shining from above.
+- Table and light in one painter, because the light's shape depends on the table's corners. Rejected: passing the
+  table geometry between two widgets, which keeps two places that must agree.
+- The wedge is clipped to the light and drawn only while the cursor is inside it: rays cannot pass through a
+  cursor that is outside the light.
+
+## 2026-11-07 — Setup wizard: preview restarts reliably, camera feeds and editable settings
+
+**What:**
+- Backend (`camera_preview_api.py`): a start no longer refuses because of the camera it has just stopped. The
+  publishers of `/camera/image_raw` that a stopped preview had (by DDS endpoint GID) are remembered and count
+  neither as another program's camera nor as the next preview's driver.
+- The driver node is found as the node publishing `/camera/image_raw`; `DRIVER_NODE_NAME_BY_CAMERA` is gone.
+  `GET /api/camera-preview/feeds` lists every `sensor_msgs/Image` topic that node publishes, and
+  `GET /api/camera-preview/frame?topic_name=` serves each feed; depth and 16-bit images (`16UC1`, `mono16`,
+  `32FC1`) are stretched to 8-bit gray between their 1st and 99th percentile, 0 and NaN staying black.
+- `PUT /api/camera-preview/settings` sets one setting on the running driver through `set_parameters`; the value is
+  converted to the parameter's current type (whole numbers only for integers), and a refusal returns the
+  driver's reason. Settings carry the descriptor's `additional_constraints`.
+- The start takes an optional `profile_name` (`profile:=`), checked against the saved profiles
+  (`profiles_api.check_profile_exists`, also used by the last-selected endpoint). Profile summaries name the
+  camera type to preview (`preview_camera_name`), None for the capture camera.
+- App: `CameraPreviewView` shows every feed (one large, several in two columns), each polling its own frames.
+  `CameraSettingsView` offers a switch for bools, a slider for numbers with a range (sent on release), a text
+  field otherwise (sent with Enter, lists comma-separated), and shows the driver's refusal under the setting.
+  `CameraPreviewWithSettingsView` (feeds plus settings, side by side or stacked, with the `GlobalKey`s) is shared
+  by the wizard panel and the hub's overview, which now lists the profile's cameras: clicking one starts it with
+  the profile's settings.
+
+**Why:** Moving from the Camera image to the Intrinsics step stopped one preview and started the next; the old
+driver, ended by a signal, stays in the ROS graph until its DDS lease runs out, so the start took it for another
+program's camera and refused. A depth camera has several images worth checking (colour, depth, infrared), and
+settings must be adjustable both while creating a profile and later.
+
+**Decisions and rejected alternatives:**
+- Generic throughout: driver node, feeds and settings come from the ROS graph and the parameter services, so any
+  convention-following driver works. Rejected: per-driver lists of node names and topics.
+- Remembering stopped publishers by GID instead of waiting until they leave the graph: the lease can take
+  seconds; a camera started elsewhere is still refused.
+- Special cases, marked in the code: the event camera's images come from `event_camera_renderer`, so its
+  settings are the renderer's; the capture camera starts only together with the main camera and has no preview
+  of its own; a menu's options are only shown as text, because ROS gives `additional_constraints` no format.
+- Changes apply to the running driver only and are not saved in the profile yet.
+
+## 2026-11-07 — Setup wizard: projector step with the connected displays
+
+**What:** A new-profile step "Projector" between Camera image and Intrinsics lists the connected displays as
+cards (display id, resolution, refresh rate, position on the desktop, connector, make, model and serial from the
+EDID); clicking one stores its id in `NewProfileDraft.projectorDisplayIds` (renamed from the unused
+`projectorDisplayNames`). Next stays disabled until a display is chosen. Backend: `displays_api.py`,
+`GET /api/displays`.
+
+**Why:** The calibrations that follow project onto the projector, so it has to be known before them.
+
+**Decisions and rejected alternatives:**
+- Displays are listed through SDL, because the framework's `display_id` is SDL's display index
+  (`surface_selector` lists displays with pygame, the rendering manager counts the same way); another source
+  could number the displays differently. SDL is loaded with `ctypes` from the system library pygame also uses,
+  so the backend needs no new Python package. Rejected: importing pygame (comes only with the optional
+  calibration repo), xrandr or Mutter's D-Bus interface (other numbering, desktop-specific).
+- Make, model and serial come from the EDID under `/sys/class/drm`, since SDL names only the connector; this part
+  is Linux-specific.
+- One projector for now, the draft holds a list for setups with several.
+
+## 2026-11-07 — Setup wizard: wider cursor rays that light up the tabletop
+
+**What:** The brighter rays through the cursor are drawn as a sweep gradient around the lens (6° to each side,
+fading to both edges), clipped to the light, and once more on the tabletop, where they hit it brighter.
+
+**Why:** The rays were too narrow, and they did not visibly reach the table.
+
+**Decisions and rejected alternatives:** A sweep gradient is bright by angle, so the rays reach exactly as far as
+the light, whatever the window size. Rejected: the blurred wedge, whose length and blur depended on the window
+and the renderer.
+
+## 2026-11-07 — Setup wizard: lens (intrinsic) calibration in the app
+
+**What:** Backend `intrinsics_api.py`: `GET /api/intrinsics/camera-state` tells for the previewed camera where its
+intrinsics come from (no `camera_info` published, all-zero camera matrix = uncalibrated, the file in the driver's
+`camera_info_url` exists, otherwise the camera itself) and whether the driver offers `/camera/set_camera_info`.
+`/api/intrinsics/calibration/{start,progress,frame,calibrate,save,stop}` run ROS's `camera_calibration` library
+(`MonoCalibrator`) on the preview's frames in a worker thread: coverage of left-right, top-bottom, near-far and
+tilt, the number of views, "good enough", the frame with the detected board (rectified once calibrated, with the
+remaining line error), calibration in the background, saving through `set_camera_info`. App:
+`intrinsics_calibration_view.dart` (state, board form with the measured square size, coverage bars, result with
+Save / Discard) in the Intrinsics step; `CameraInstancePreviewPanel` takes a builder for the selected camera's
+content instead of a settings switch. Helpers of `camera_preview_api.py` used by both modules are public now.
+
+**Why:** Calibrating a camera needed a terminal (`run_cameracalibrator.sh`) and the user had to know which cameras
+need it.
+
+**Decisions and rejected alternatives:**
+- Generic need check from `camera_info` and the `camera_info_url` parameter, the conventions every ROS camera
+  driver follows, instead of per-driver lists (`FACTORY_INTRINSICS_CAMERA_NAMES`); it needs the camera running,
+  so the profile cards keep their file-based check for now.
+- The library inside the backend instead of starting `cameracalibrator`: its window would open on the PAR
+  machine's screen, outside the app and out of reach from a phone later. The library is the same code, so the
+  coverage rules and the result are the same.
+- The driver stores the result itself (`set_camera_info`), so the file lands where the driver reads it. A driver
+  without that service (e.g. the Azure Kinect's) cannot be calibrated from the app; the app says so.
+- The calibration runs in the background, because it can take long with many views of large images; progress
+  requests never wait for it.
+- The square size has no default: it sets the calibration's scale and must be measured on the print.
+- Special cases: only `file://` calibration URLs are resolved; `camera_calibration` is not declared as a
+  dependency of anything yet (it was only used by the script), the backend names the install command when it
+  is missing.
+
+## 2026-11-07 — Setup wizard: preview start without 500, protected factory calibrations, settings layout
+
+**What:**
+- `camera_preview_api.py`: a publisher of `/camera/image_raw` whose node ROS does not know yet (it reports
+  `_NODE_NAMESPACE_UNKNOWN_` right after a camera starts) counts as "camera still starting" (503) instead of being
+  passed on as a node name; listing a node's topics that fails because the node left meanwhile is a 503 too.
+- `launch_helpers.CAMERA_DRIVER_REMAPPINGS['webcam']`: `v4l2_camera` creates `set_camera_info` at the root, like
+  the Blackfly driver, so the remap now starts from `/set_camera_info`.
+- `par_framework_core/package.xml`: `camera_calibration` declared as an exec dependency.
+- `intrinsics_api.py`: starting and saving a calibration are refused (409) for a camera that brings its own
+  calibration, one without `camera_info` and one without `set_camera_info`; the app offers no calibration for
+  them either.
+- App: changeable settings first, read-only ones below "Fixed by the driver"; integer settings with at most 12
+  values and `v4l2_camera`'s menus get a dropdown; the settings scroll in an area of their own (as high as a
+  feed next to it, a fixed height below it), so the feeds stay in place.
+
+**Why:** The app asked for the feeds right after the start and got a 500 from the half-known node. The webcam's
+calibration could not be stored (neither from the app nor with `run_cameracalibrator.sh`, whose
+`--no-service-check` hid it). A calibration stored through `set_camera_info` would make a driver use the file
+instead of the camera's own calibration from then on, which must never happen by accident.
+
+**Decisions and rejected alternatives:**
+- The protection is checked in the backend at start and again right before saving, not only in the app: a phone
+  or browser client later must not be able to bypass it.
+- Dropdowns for small integer ranges are generic; reading menu labels from `additional_constraints` follows
+  `v4l2_camera`'s format and is marked as a special case, other text stays a hint next to a number field.
+- Fixed heights for the settings area instead of filling the window: the wizard's steps sit in the stepper's
+  scroll view, which gives its content no height to fill.
+
+## 2026-11-07 — Setup wizard: delete profiles
+
+**What:** `DELETE /api/profiles/{name}` (`profiles_api.py`) moves the profile file and its extrinsics folder
+(`calibration/extrinsics/<name>/`) into `config/profiles/.deleted/<name>_<date>_<time>/`. The start screen's profile
+menu has "Delete <profile> …" for the shown profile, with a confirmation dialog that says where the files go.
+
+**Why:** Profiles could only be removed by hand in the config folder.
+
+**Decisions and rejected alternatives:**
+- Moved, not deleted for good: both folders are gitignored, so nothing could be recovered, and measured camera
+  poses and projector calibrations take real work to redo. Rejected: deleting the files, deleting only the
+  profile file (would leave orphaned extrinsics that a new profile of the same name would silently pick up).
+- Lens calibrations stay: they belong to the camera unit, not to the profile.
+- Only names of listed profiles are accepted, so a request cannot move other files (e.g. `../x`).
+
+## 2026-11-07 — PAR apps in the ament index; one app on the projector
+
+**What:**
+- Apps register in the ament index under the resource type `par_framework_apps`: the marker file's content is the
+  app's entry (display name, description, `executable` or `launch_file`, `required_launch_switches`,
+  `used_calibrations`). Blueprint and format: `templates/par_app/` (README, entry, `setup.py`, `package.xml`, a
+  launch file that also starts a web frontend with `ExecuteProcess`).
+- `launch_helpers.get_par_app_package_names()` / `read_par_app_entry()` list and check the entries, used by
+  `par.launch.py` and the setup wizard backend alike.
+- `par_launch.projector_app` (`none`, `rendering_manager` or a PAR app's package; launch argument
+  `projector_app:=`) replaces the booleans `demo_app` and `rendering_manager`; `par_launch.projector_display_id`
+  (argument `projector_display_id:=`) replaces the `display_id` of `demo_app_node` and the `rendering_manager`
+  section. `par.launch.py` starts the chosen PAR app generically (its executable as a node with `display_id`, or
+  its launch file with `params_file`, `profile`, `display_id`) and switches on the nodes it requires. The old
+  switches stop the launch with the replacement in the message; the two local profiles using them were changed.
+- Backend: `GET /api/apps` (`apps_api.py`) lists the apps that can own the projector; the profile cards take the
+  app from `projector_app` and list the nodes the app requires.
+- `demo_app` is the first registered app (in its own repo); the rendering manager's README uses the new argument.
+
+**Why:** The wizard is to choose the app of a profile, generically: a new app must show up without a change to the
+wizard or core. Two booleans also allowed two apps on one projector, which only logged a warning.
+
+**Decisions and rejected alternatives:**
+- The ament index is ROS 2's mechanism for packages announcing resources to tools (used by `rclcpp_components`,
+  pluginlib, `rosidl_interfaces`), searchable from Python and C++ without crawling. Rejected: an `<export>` tag in
+  `package.xml` (every manifest must be found and parsed), setuptools entry points (Python packages only), a list in
+  the wizard or core (a change per app).
+- Installed vs. running dependencies: `package.xml` keeps what must be installed; the entry names the shared
+  framework nodes that must run, which `par.launch.py` starts once. An app's own launch file starts only what the
+  app owns (its nodes, a frontend or backend server), so shared nodes never run twice.
+- Unknown keys in an entry are an error, not ignored: a misspelt `required_launch_switches` would otherwise start
+  the app without its nodes.
+- A required switch wins over `switch:=false` (marked as a simplification).
+- One string instead of booleans makes two projector owners impossible to choose. The old keys fail loudly instead
+  of being ignored, so a profile does not silently start without its app.
+- The rendering manager stays a special case in `par.launch.py` and the backend until it has its own launch file.
+
+## 2026-11-07 — Setup wizard: preview no longer stopped while the camera starts; start screen design
+
+**What:**
+- Backend: asking for the feeds (`GET /api/camera-preview/feeds`) now counts as watching the preview, like a frame
+  request, so the watchdog keeps a starting camera running.
+- App: a feed keeps asking for frames after a failed request (retry every second, error shown until frames come
+  back) instead of giving up for good.
+- Start screen: no title bar (the window title names the app); the projector light is a pale white instead of
+  yellow (`projectorLightColor`); the table has an apron and two front legs down to the window's bottom edge, with
+  the connection bar between the legs (`computeTableHeightBelowTabletopLogicalPx` replaces
+  `computeTableFrontFaceHeightLogicalPx`).
+
+**Why:** The preview failed often, especially on the calibration step. After a camera restart ROS reports the new
+driver node several seconds after the driver runs, during which the app only asks for the feeds. The watchdog,
+which stopped a camera after a few seconds without a frame request, could stop it before the app asked for a single
+frame. One failed frame request (e.g. a timeout while the machine is busy calibrating) also ended that feed's polling,
+after which the watchdog stopped the camera too.
+
+**Decisions and rejected alternatives:**
+- Feeding the watchdog from the feeds request, instead of a longer watchdog timeout: the timeout would also keep a
+  forgotten camera running longer, and a slower camera would still hit it.
+- Only the front legs are drawn: in this view from slightly above the front, the back legs would stand behind the
+  tabletop. Apron and legs use a colour between the background and the tabletop, so they stand out against the dark
+  background.
+
+## 2026-11-07 — Setup wizard: save camera settings into the profile
+
+**What:**
+- Backend: the preview session remembers the profile the camera was started with and which settings were changed
+  on its driver. `POST /api/camera-preview/settings/save-to-profile` reads their current values from the driver (in
+  the parameter's own type) and writes them with `profiles_api.write_node_settings_into_profile` into
+  `config/profiles/<name>.yaml`. `GET /api/camera-preview/settings` also returns `profile_name` and
+  `unsaved_setting_names`.
+- The writer rewrites the profile with ruamel.yaml's round trip (new dependency in the backend's
+  `requirements.txt`): only values that differ from `par_setup.yaml` are kept (a value equal to it removes its key,
+  an emptied section is removed), into the section that already names the node (with or without leading `/`), else
+  a new section under the node's full name with a "Saved by the setup wizard" comment. Written to a hidden file
+  next to it and moved into place in one step.
+- App: the settings panel shows how many changes are not saved and a "Save to profile" button; without a saved
+  profile (new profile in the wizard) it says the changes apply to the running camera only.
+
+**Why:** Settings changed in the wizard were lost when the camera stopped.
+
+**Decisions and rejected alternatives (decided by Vitus):**
+- Rewrite the profile itself. Rejected: a separate wizard file loaded on top of it, which would silently override
+  hand edits of the same setting.
+- ruamel.yaml instead of PyYAML: PyYAML drops every comment of a rewritten file, and the profiles carry the reasons
+  for their values as comments. All existing profiles and `par_setup.yaml` load and dump byte-identical.
+- The backend tracks the changed settings and reads their values from the driver, instead of the app sending
+  values: the driver's types are exact (`5.0` for a double, which ROS needs in the file), and a value the driver
+  refused is never saved.
+- Saving is an explicit button, not every change, so trying values does not rewrite the profile each time.
+
+## 2026-11-07 — Setup wizard: Finish creates the profile
+
+**What:**
+- Backend: `POST /api/profiles` creates `config/profiles/<name>.yaml` with `par_launch.camera`,
+  `par_launch.projector_display_id` and the display name as a comment, with exclusive create (`open(..., 'x')`), so
+  an existing profile is never overwritten. It refuses names `profile:=` would reject and a profile without a
+  camera. Setting changes made in the wizard are then written into it (`write_node_settings_into_profile`).
+- Backend: changes made while a camera runs without a profile are kept per camera and driver node when that camera
+  stops (the wizard stops it between steps), and taken by the profile creation for its camera.
+  `DELETE /api/camera-preview/new-profile-settings` forgets them; the wizard calls it when it opens. The save
+  endpoint uses the values the driver accepted, recorded at the change, instead of reading them again.
+- App: Finish creates the profile (button shows "Saving …", errors stay in the wizard), returns its name to the
+  start screen, which selects and shows it.
+
+**Why:** Finish closed the wizard without saving anything, so a new profile was lost.
+
+**Decisions and rejected alternatives:**
+- Create the file only at Finish, not after the first step: an abandoned wizard would otherwise leave half a
+  profile behind.
+- Keep the wizard's setting changes in the backend instead of the app: the backend already knows which changes the
+  driver accepted, with their exact types, also after the camera stopped. Changes kept for another camera are
+  dropped at creation, since the profile does not run that camera.
+- Simplification: the profile gets the first camera of the Hardware step, since the framework launches one camera
+  at a time.

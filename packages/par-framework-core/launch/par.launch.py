@@ -23,8 +23,11 @@ camera_info_<camera>_<serial>.yaml), shared by all parameter files and profiles.
 debug:=true turns on the debug windows of every started node that has one, e.g. for testing
 gestures: camera:=kinect hand_landmarks:=true gesture_detector:=true debug:=true.
 
-rendering_manager:=true starts the rendering manager (a Wayland compositor) fullscreen on the
-projector and its ROS bridge, which shows one app on every detected page.
+par_launch.projector_app (or projector_app:=<name>) chooses the one app that owns the projector,
+on par_launch.projector_display_id: none, an installed PAR app (a package registered in the ament
+index under par_framework_apps, see templates/par_app/; the framework nodes it requires are
+started too), or rendering_manager, the Wayland compositor whose ROS bridge shows one app on every
+detected page.
 
 capture_camera:=true also starts a second Blackfly S as /capture_camera/blackfly in software
 trigger mode, for single high-resolution frames on request (see /capture_camera/blackfly in
@@ -36,21 +39,26 @@ import os
 from ament_index_python.packages import get_package_share_directory
 from ament_index_python.resources import has_resource
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, ExecuteProcess, LogInfo, OpaqueFunction
+from launch.actions import (DeclareLaunchArgument, ExecuteProcess, IncludeLaunchDescription,
+                            LogInfo, OpaqueFunction)
+from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from par_framework_core.launch_helpers import (create_camera_nodes, create_capture_camera_node,
                                                create_profile_launch_argument,
                                                create_projection_calibration_server_node,
                                                get_chosen_camera, get_params_file_paths,
-                                               read_launch_section, read_merged_parameters)
+                                               get_profile_name, PROJECTOR_APP_NONE,
+                                               read_launch_section, read_par_app_entry,
+                                               RENDERING_MANAGER_APP_NAME)
 
 PACKAGE_NAME = 'par_framework_core'
 # The node switches of par_launch, each also a launch argument that overrides it for one run
 DETECTORS = ('object_detector', 'fiducials_detector', 'hand_landmarks', 'page_locator',
              'gesture_detector')
-LAUNCH_SWITCHES = DETECTORS + ('projection_mask', 'demo_app', 'rendering_manager', 'rviz',
-                               'capture_camera')
+LAUNCH_SWITCHES = DETECTORS + ('projection_mask', 'rviz', 'capture_camera')
+# Former switches, replaced by projector_app; set anyway, they would be silently ignored
+REPLACED_APP_SWITCH_NAMES = ('demo_app', 'rendering_manager')
 # Per camera: parameter overrides for each detector. Every camera
 # publishes on the same /camera/... topics (launch_helpers.CAMERA_DRIVER_REMAPPINGS); the overrides
 # cover what the cameras offer differently.
@@ -75,8 +83,6 @@ RVIZ_CONFIG_FILE_NAME = 'par_framework.rviz'
 # (scripts/local_build.sh)
 RENDERING_MANAGER_BRIDGE_PACKAGE_NAME = 'rendering_manager_bridge'
 RENDERING_MANAGER_BINARY_RELATIVE_PATH = os.path.join('target', 'release', 'rendering_manager')
-# Its section in the parameter files, read here: the program is no ROS node
-RENDERING_MANAGER_PARAMETERS_KEY = 'rendering_manager'
 # A fixed Wayland socket name, so the bridge knows the control socket
 # $XDG_RUNTIME_DIR/<name>.control; a second rendering manager with this name fails to start
 # instead of taking another socket the bridge would not find. Apps get <name>-<app id>. Snap apps
@@ -96,7 +102,8 @@ def get_rendering_manager_binary_path():
     return os.path.join(repo_path, RENDERING_MANAGER_BINARY_RELATIVE_PATH)
 
 
-def create_rendering_manager_actions(context, params_file_paths):
+# Co-authored by Claude Code: the display comes from par_launch.projector_display_id
+def create_rendering_manager_actions(params_file_paths, projector_display_id):
     """Create the rendering manager, fullscreen on the projector, and its ROS bridge."""
     if not has_resource('packages', RENDERING_MANAGER_BRIDGE_PACKAGE_NAME):
         return [LogInfo(msg='[par.launch]: rendering_manager is not installed: add '
@@ -114,13 +121,9 @@ def create_rendering_manager_actions(context, params_file_paths):
                            'session terminal')
 
     rendering_manager_command = [binary_path, '--socket-name', RENDERING_MANAGER_SOCKET_NAME]
-    rendering_manager_section = read_merged_parameters(context).get(
-        RENDERING_MANAGER_PARAMETERS_KEY, {})
-    rendering_manager_parameters = rendering_manager_section.get('ros__parameters', {})
-    display_id = rendering_manager_parameters.get('display_id')
     # Without a display_id the desktop picks the display
-    if display_id is not None:
-        rendering_manager_command += ['--display-id', str(display_id)]
+    if projector_display_id is not None:
+        rendering_manager_command += ['--display-id', str(projector_display_id)]
     control_socket_path = os.path.join(runtime_folder_path,
                                        f'{RENDERING_MANAGER_SOCKET_NAME}.control')
     bridge_parameters = list(params_file_paths)
@@ -138,7 +141,82 @@ def create_rendering_manager_actions(context, params_file_paths):
     ]
 
 
-# Co-authored by Claude Code: starts the capture camera
+# Written by Claude Code
+def get_projector_app_name(context, launch_section):
+    """Return the projector_app launch argument, else par_launch.projector_app (default none)."""
+    for replaced_switch_name in REPLACED_APP_SWITCH_NAMES:
+        is_in_parameter_files = replaced_switch_name in launch_section
+        is_launch_argument = replaced_switch_name in context.launch_configurations
+        if is_in_parameter_files or is_launch_argument:
+            raise RuntimeError(f'[par.launch]: {replaced_switch_name} is replaced by '
+                               f'projector_app, which chooses the one app on the projector: '
+                               f'write par_launch.projector_app: {replaced_switch_name} (or '
+                               f'{PROJECTOR_APP_NONE}) instead of '
+                               f'par_launch.{replaced_switch_name} in the profile, or pass '
+                               f'projector_app:={replaced_switch_name}')
+    projector_app_name = LaunchConfiguration('projector_app').perform(context)
+    if not projector_app_name:
+        projector_app_name = str(launch_section.get('projector_app', PROJECTOR_APP_NONE))
+    return projector_app_name
+
+
+# Written by Claude Code
+def get_projector_display_id(context, launch_section):
+    """Return the projector's display (SDL/pygame index), None when nothing sets it."""
+    projector_display_id_text = LaunchConfiguration('projector_display_id').perform(context)
+    if not projector_display_id_text:
+        projector_display_id = launch_section.get('projector_display_id')
+        # A profile is written by hand; YAML reads true as a bool, which is an int in Python
+        is_display_number = isinstance(projector_display_id, int) and not isinstance(
+            projector_display_id, bool)
+        if projector_display_id is not None and not is_display_number:
+            raise RuntimeError(f'[par.launch]: par_launch.projector_display_id: '
+                               f'{projector_display_id!r}: use the display number, 0 for the '
+                               f'primary display')
+        return projector_display_id
+    try:
+        return int(projector_display_id_text)
+    except ValueError:
+        raise RuntimeError(f'[par.launch]: projector_display_id:={projector_display_id_text}: use '
+                           f'the display number, 0 for the primary display')
+
+
+# Written by Claude Code
+def create_par_app_actions(context, app_package_name, par_app_entry, params_file_paths,
+                           projector_display_id, debug_override):
+    """Start a PAR app from its ament index entry: its executable as a node, or its launch file."""
+    if par_app_entry['executable'] is not None:
+        app_node_parameters = list(params_file_paths)
+        # Convention for apps that draw on the projector: the display is their display_id
+        if projector_display_id is not None:
+            app_node_parameters.append({'display_id': projector_display_id})
+        if debug_override is not None:
+            app_node_parameters.append({'debug': debug_override})
+        # No name: the node keeps the one it gives itself, which its parameter sections use
+        return [Node(package=app_package_name,
+                     executable=par_app_entry['executable'],
+                     output='screen',
+                     emulate_tty=True,
+                     parameters=app_node_parameters)]
+
+    launch_file_path = os.path.join(get_package_share_directory(app_package_name), 'launch',
+                                    par_app_entry['launch_file'])
+    if not os.path.isfile(launch_file_path):
+        raise RuntimeError(f'[par.launch]: the PAR app {app_package_name} names the launch file '
+                           f'{launch_file_path}, which is not installed: install launch/ in its '
+                           f'setup.py data_files (templates/par_app/) and run '
+                           f'./scripts/local_build.sh')
+    # The arguments every app launch file declares (templates/par_app/launch/)
+    app_launch_arguments = {
+        'params_file': LaunchConfiguration('params_file').perform(context),
+        'profile': get_profile_name(context),
+        'display_id': '' if projector_display_id is None else str(projector_display_id),
+    }
+    return [IncludeLaunchDescription(PythonLaunchDescriptionSource(launch_file_path),
+                                     launch_arguments=app_launch_arguments.items())]
+
+
+# Co-authored by Claude Code: starts the capture camera and the projector app
 def launch_setup(context):
     params_file_paths = get_params_file_paths(context)
     launch_section = read_launch_section(context)
@@ -154,7 +232,26 @@ def launch_setup(context):
                                f'false, or leave it out to keep the value from the params_file')
         return argument_value == 'true'
 
+    # Read before the switches: the framework nodes a PAR app requires are switched on for it
+    projector_app_name = get_projector_app_name(context, launch_section)
+    projector_display_id = get_projector_display_id(context, launch_section)
+    par_app_entry = None
+    required_launch_switch_names = []
+    is_par_app = projector_app_name not in (PROJECTOR_APP_NONE, RENDERING_MANAGER_APP_NAME)
+    if is_par_app:
+        par_app_entry = read_par_app_entry(projector_app_name)
+        required_launch_switch_names = par_app_entry['required_launch_switches']
+        unknown_switch_names = sorted(set(required_launch_switch_names) - set(LAUNCH_SWITCHES))
+        if unknown_switch_names:
+            raise RuntimeError(f'[par.launch]: the PAR app {projector_app_name} requires unknown '
+                               f'launch switches {unknown_switch_names}; known: '
+                               f'{list(LAUNCH_SWITCHES)}')
+
     def is_enabled(switch):
+        # Simplification: the app's requirement wins over switch:=false. Upgrade: refuse the
+        # combination with a message, if starting an app without its nodes turns out to be useful
+        if switch in required_launch_switch_names:
+            return True
         switch_value = read_true_false_argument(switch)
         if switch_value is None:
             return launch_section.get(switch, False)
@@ -213,23 +310,13 @@ def launch_setup(context):
                                               'config/nodes.list and run '
                                               './scripts/local_build.sh'))
 
-    # The demo application is its own repo as well
-    if is_enabled('demo_app'):
-        if has_resource('packages', 'demo_app'):
-            launch_actions.append(create_framework_node('demo_app'))
-        else:
-            launch_actions.append(LogInfo(msg='[par.launch]: demo_app is not installed: add '
-                                              'ros2-par-framework-demo-application to '
-                                              'config/nodes.list and run '
-                                              './scripts/local_build.sh'))
-
-    if is_enabled('rendering_manager'):
-        # Both open a fullscreen window on the projector, and only one can be on top
-        if is_enabled('demo_app'):
-            launch_actions.append(LogInfo(msg='[par.launch]: demo_app and rendering_manager both '
-                                              'draw on the projector; start only one of them, '
-                                              'e.g. demo_app:=false'))
-        launch_actions += create_rendering_manager_actions(context, params_file_paths)
+    # One app owns the projector: a fullscreen window can only have one on top
+    if is_par_app:
+        launch_actions += create_par_app_actions(context, projector_app_name, par_app_entry,
+                                                 params_file_paths, projector_display_id,
+                                                 debug_override)
+    elif projector_app_name == RENDERING_MANAGER_APP_NAME:
+        launch_actions += create_rendering_manager_actions(params_file_paths, projector_display_id)
 
     if is_enabled('rviz'):
         launch_actions.append(create_framework_node('rviz_bridge'))
@@ -272,6 +359,19 @@ def generate_launch_description():
             default_value='false',
             description='true: start only the camera and its mount transform.'),
         *switch_arguments,
+        DeclareLaunchArgument(
+            'projector_app',
+            default_value='',
+            description=f'The app on the projector: {PROJECTOR_APP_NONE}, '
+                        f'{RENDERING_MANAGER_APP_NAME} or the package of an installed PAR app '
+                        f'(ament_index par_framework_apps). Empty uses par_launch.projector_app '
+                        f'from params_file.'),
+        DeclareLaunchArgument(
+            'projector_display_id',
+            default_value='',
+            description='Display of the projector, counted like SDL/pygame (0 = primary), passed '
+                        'to the projector app as display_id. Empty uses '
+                        'par_launch.projector_display_id from params_file.'),
         DeclareLaunchArgument(
             'debug',
             default_value='',

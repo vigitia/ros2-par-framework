@@ -1,18 +1,23 @@
 // Written by Claude Code
 //
-// Start screen of the PAR setup wizard: one question, which hardware setup (profile) to use. Every profile is a
-// card listing its cameras (with how far each is calibrated), sensor nodes and apps; clicking a card opens that
-// profile, the one used last time is framed, and a last card starts a new profile. The backend connection is shown
-// at the bottom.
+// Start screen of the PAR setup wizard: the hardware setup (profile) opened last time, as one centered card
+// listing its cameras (with how far each is calibrated), sensor nodes and apps; clicking the card opens that
+// profile. The card stands on a dark table at the bottom, the surface a PAR setup projects onto. Profiles are
+// switched rarely, so the other profiles and "New profile" sit in a menu in the bottom left corner, on the table's
+// front face next to the backend connection.
 
 import 'package:flutter/material.dart';
 
 import '../projector_background.dart';
 import '../setup_wizard_backend_client.dart';
+import '../tabletop_shape.dart';
 import 'new_profile_wizard_screen.dart';
 import 'profile_hub_screen.dart';
 
 const double profileCardWidth = 320;
+
+/// Where the card stands on the tabletop: 0 at its front edge, 1 at its back edge.
+const double cardStandingDepthFraction = 0.5;
 
 class SetupWizardStartScreen extends StatefulWidget {
   const SetupWizardStartScreen({super.key, required this.backendClient});
@@ -29,8 +34,9 @@ class _SetupWizardStartScreenState extends State<SetupWizardStartScreen> {
   SetupWizardBackendStatus? _backendStatus;
   List<ProfileSummary> _profileSummaries = [];
 
-  /// Framed on the start screen; null when no profile was opened yet or it no longer exists.
-  String? _lastUsedProfileName;
+  /// The profile whose card is shown: the one opened last time, or the one picked in the profile menu since. Null
+  /// only when there is no profile at all.
+  String? _shownProfileName;
 
   @override
   void initState() {
@@ -49,7 +55,7 @@ class _SetupWizardStartScreenState extends State<SetupWizardStartScreen> {
       setState(() {
         _backendStatus = backendStatus;
         _profileSummaries = profileList.profileSummaries;
-        _lastUsedProfileName = profileList.lastSelectedProfileName;
+        _shownProfileName = _chooseShownProfileName(profileList);
         _isLoadingFromBackend = false;
       });
     } catch (error) {
@@ -61,7 +67,92 @@ class _SetupWizardStartScreenState extends State<SetupWizardStartScreen> {
     }
   }
 
+  /// The last opened profile when it still exists, otherwise the first one; null without profiles.
+  String? _chooseShownProfileName(ProfileList profileList) {
+    final String? lastSelectedProfileName = profileList.lastSelectedProfileName;
+    for (final ProfileSummary profileSummary in profileList.profileSummaries) {
+      if (profileSummary.profileName == lastSelectedProfileName) {
+        return lastSelectedProfileName;
+      }
+    }
+    if (profileList.profileSummaries.isEmpty) {
+      return null;
+    }
+    return profileList.profileSummaries.first.profileName;
+  }
+
+  ProfileSummary? _getShownProfileSummary() {
+    for (final ProfileSummary profileSummary in _profileSummaries) {
+      if (profileSummary.profileName == _shownProfileName) {
+        return profileSummary;
+      }
+    }
+    return null;
+  }
+
+  /// Opens the wizard; a profile it created becomes the shown one, also for the next start.
+  Future<void> _openNewProfileWizard() async {
+    final String? createdProfileName = await Navigator.of(context).push<String>(
+      MaterialPageRoute<String>(
+        builder: (BuildContext context) => NewProfileWizardScreen(backendClient: widget.backendClient),
+      ),
+    );
+    if (!mounted || createdProfileName == null) {
+      return;
+    }
+    try {
+      await widget.backendClient.setLastSelectedProfile(createdProfileName);
+    } catch (error) {
+      // The profile exists anyway; it is only not preselected next time.
+    }
+    setState(() {
+      _shownProfileName = createdProfileName;
+    });
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Created profile $createdProfileName.')));
+    }
+    await _loadFromBackend();
+  }
+
   /// Remembers the profile as the last used one, then opens its hub.
+  /// Asks first, since deleting removes the profile from the app; the backend keeps its files in a folder from
+  /// which they can be restored by hand.
+  Future<void> _confirmAndDeleteProfile(String profileName) async {
+    final bool? isDeletionConfirmed = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext dialogContext) => AlertDialog(
+        title: Text('Delete the profile $profileName?'),
+        content: const Text(
+          'The profile and its camera poses and projector calibration are moved to config/profiles/.deleted/ and '
+          'disappear from the app. They can be restored by hand from there. The cameras\' lens calibrations stay.',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(dialogContext).pop(false), child: const Text('Cancel')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Theme.of(dialogContext).colorScheme.error),
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (isDeletionConfirmed != true || !mounted) {
+      return;
+    }
+    String resultText;
+    try {
+      final String deletedProfileFolderPath = await widget.backendClient.deleteProfile(profileName);
+      resultText = 'Deleted $profileName. Its files are in $deletedProfileFolderPath';
+    } catch (error) {
+      resultText = 'Could not delete $profileName: $error';
+    }
+    if (!mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(resultText)));
+    await _loadFromBackend();
+  }
+
   Future<void> _openProfile(String profileName) async {
     try {
       await widget.backendClient.setLastSelectedProfile(profileName);
@@ -74,7 +165,7 @@ class _SetupWizardStartScreenState extends State<SetupWizardStartScreen> {
       return;
     }
     setState(() {
-      _lastUsedProfileName = profileName;
+      _shownProfileName = profileName;
     });
     _openScreen(ProfileHubScreen(backendClient: widget.backendClient, profileName: profileName));
   }
@@ -88,24 +179,30 @@ class _SetupWizardStartScreenState extends State<SetupWizardStartScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // No title bar: the projector hangs at the window's top edge, and the window's own title names the app.
     return Scaffold(
-      // Transparent, so the projector hangs at the window's top edge behind the title.
-      appBar: AppBar(
-        title: const Text('ROS 2 PAR Framework'),
-        backgroundColor: Colors.transparent,
-        scrolledUnderElevation: 0,
-      ),
-      // The body, and with it the projector and its light, reaches behind the title bar and the connection bar,
-      // from the window's top edge to its bottom edge.
-      extendBodyBehindAppBar: true,
+      // The body, and with it the table, reaches behind the connection bar down to the window's bottom edge.
       extendBody: true,
       // A Builder, so the body reads the bar heights the Scaffold reports below itself (MediaQuery padding); the
       // State's own context sits above the Scaffold and would see none.
       body: ProjectorBackground(
-        child: Builder(builder: (BuildContext bodyContext) => _buildProfileChoice(bodyContext)),
+        child: Builder(builder: (BuildContext bodyContext) => _buildProfileChoiceOnTable(bodyContext)),
       ),
       // At the bottom, so it is always clear which machine the UI controls (matters once phones connect too).
       bottomNavigationBar: _buildBackendConnectionBar(),
+    );
+  }
+
+  /// The profile choice above the table's front edge, so the card stands on the tabletop.
+  Widget _buildProfileChoiceOnTable(BuildContext context) {
+    // Room the system needs at the top (e.g. a phone's status bar); none in a desktop window.
+    final double systemTopInsetLogicalPx = MediaQuery.paddingOf(context).top;
+    final double cardBottomAboveWindowBottomLogicalPx = computeTableHeightBelowTabletopLogicalPx(context) +
+        tabletopSurfaceDepthLogicalPx * cardStandingDepthFraction;
+
+    return Padding(
+      padding: EdgeInsets.only(top: systemTopInsetLogicalPx, bottom: cardBottomAboveWindowBottomLogicalPx),
+      child: _buildProfileChoice(context),
     );
   }
 
@@ -117,24 +214,21 @@ class _SetupWizardStartScreenState extends State<SetupWizardStartScreen> {
       return const Center(child: Text('No connection to the backend, see below.'));
     }
 
-    final List<Widget> cards = [];
-    for (final ProfileSummary profileSummary in _profileSummaries) {
-      cards.add(_buildProfileCard(context, profileSummary));
+    // Without any profile, the only useful step is creating one.
+    final ProfileSummary? shownProfileSummary = _getShownProfileSummary();
+    final Widget shownCard;
+    if (shownProfileSummary == null) {
+      shownCard = _buildNewProfileCard(context);
+    } else {
+      shownCard = _buildProfileCard(context, shownProfileSummary);
     }
-    cards.add(_buildNewProfileCard(context));
 
-    // With extendBodyBehindAppBar and extendBody, the Scaffold reports the title bar's and the connection bar's
-    // heights as top and bottom padding: keep the content clear of both.
-    final EdgeInsets barPadding = MediaQuery.paddingOf(context);
-    return SingleChildScrollView(
-      padding: EdgeInsets.fromLTRB(24, 24 + barPadding.top, 24, 24 + barPadding.bottom),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text('Which hardware setup?', style: Theme.of(context).textTheme.headlineSmall),
-          const SizedBox(height: 16),
-          Wrap(spacing: 16, runSpacing: 16, children: cards),
-        ],
+    // The card's bottom edge rests on the table; the scroll view keeps it reachable in a window lower than the card.
+    return Align(
+      alignment: Alignment.bottomCenter,
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
+        child: shownCard,
       ),
     );
   }
@@ -158,7 +252,6 @@ class _SetupWizardStartScreenState extends State<SetupWizardStartScreen> {
 
     return _buildClickableCard(
       context: context,
-      isLastUsed: profileSummary.profileName == _lastUsedProfileName,
       onCardTapped: () => _openProfile(profileSummary.profileName),
       cardContent: Column(crossAxisAlignment: CrossAxisAlignment.start, children: cardRows),
     );
@@ -167,8 +260,7 @@ class _SetupWizardStartScreenState extends State<SetupWizardStartScreen> {
   Widget _buildNewProfileCard(BuildContext context) {
     return _buildClickableCard(
       context: context,
-      isLastUsed: false,
-      onCardTapped: () => _openScreen(NewProfileWizardScreen(backendClient: widget.backendClient)),
+      onCardTapped: _openNewProfileWizard,
       cardContent: Row(
         children: [
           const Icon(Icons.add),
@@ -179,20 +271,13 @@ class _SetupWizardStartScreenState extends State<SetupWizardStartScreen> {
     );
   }
 
-  /// A card that runs onCardTapped when clicked, framed when it is the profile used last time.
+  /// A framed card that runs onCardTapped when clicked.
   Widget _buildClickableCard({
     required BuildContext context,
-    required bool isLastUsed,
     required VoidCallback onCardTapped,
     required Widget cardContent,
   }) {
-    final ColorScheme colorScheme = Theme.of(context).colorScheme;
-    final BorderSide cardBorder;
-    if (isLastUsed) {
-      cardBorder = BorderSide(color: colorScheme.primary, width: 2);
-    } else {
-      cardBorder = BorderSide(color: colorScheme.outlineVariant);
-    }
+    final BorderSide cardBorder = BorderSide(color: Theme.of(context).colorScheme.primary, width: 2);
 
     return SizedBox(
       width: profileCardWidth,
@@ -296,6 +381,62 @@ class _SetupWizardStartScreenState extends State<SetupWizardStartScreen> {
     );
   }
 
+  /// A button naming the shown profile; its menu switches the shown card to another profile or starts a new one.
+  /// Picking a profile only shows its card, clicking the card opens it.
+  Widget _buildProfileMenu() {
+    final List<Widget> menuEntries = [];
+    for (final ProfileSummary profileSummary in _profileSummaries) {
+      final String profileName = profileSummary.profileName;
+      // An empty box instead of the check keeps every name at the same indent.
+      final Widget leadingIcon;
+      if (profileName == _shownProfileName) {
+        leadingIcon = const Icon(Icons.check);
+      } else {
+        leadingIcon = const SizedBox(width: 24);
+      }
+      menuEntries.add(MenuItemButton(
+        leadingIcon: leadingIcon,
+        onPressed: () => setState(() => _shownProfileName = profileName),
+        child: Text(profileName),
+      ));
+    }
+    if (menuEntries.isNotEmpty) {
+      menuEntries.add(const Divider(height: 1));
+    }
+    menuEntries.add(MenuItemButton(
+      leadingIcon: const Icon(Icons.add),
+      onPressed: _openNewProfileWizard,
+      child: const Text('New profile'),
+    ));
+    final String? shownProfileName = _shownProfileName;
+    if (shownProfileName != null) {
+      final Color deleteColor = Theme.of(context).colorScheme.error;
+      menuEntries.add(MenuItemButton(
+        leadingIcon: Icon(Icons.delete_outline, color: deleteColor),
+        onPressed: () => _confirmAndDeleteProfile(shownProfileName),
+        child: Text('Delete $shownProfileName …', style: TextStyle(color: deleteColor)),
+      ));
+    }
+
+    final String buttonText = _shownProfileName ?? 'No profile yet';
+    return MenuAnchor(
+      menuChildren: menuEntries,
+      builder: (BuildContext context, MenuController menuController, Widget? child) {
+        return OutlinedButton.icon(
+          onPressed: () {
+            if (menuController.isOpen) {
+              menuController.close();
+            } else {
+              menuController.open();
+            }
+          },
+          icon: const Icon(Icons.swap_horiz),
+          label: Text(buttonText),
+        );
+      },
+    );
+  }
+
   Widget _buildBackendConnectionBar() {
     final String backendBaseUrl = widget.backendClient.backendBaseUrl;
     final Widget connectionText;
@@ -312,13 +453,21 @@ class _SetupWizardStartScreenState extends State<SetupWizardStartScreen> {
       connectionText = Text('Connected to ${_backendStatus!.machineName} ($backendBaseUrl)');
     }
 
-    final List<Widget> barChildren = [Expanded(child: connectionText)];
+    final List<Widget> barChildren = [];
+    // Profiles exist only once the backend answered.
+    if (_backendStatus != null) {
+      barChildren.add(_buildProfileMenu());
+      barChildren.add(const SizedBox(width: 16));
+    }
+    barChildren.add(Expanded(child: connectionText));
     if (retryButton != null) {
       barChildren.add(retryButton);
     }
+    // Between the table's legs, which stand behind the bar
+    const double barSidePaddingLogicalPx = tableFrontLegsOuterExtentLogicalPx + 12;
     return SafeArea(
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: barSidePaddingLogicalPx, vertical: 8),
         child: Row(children: barChildren),
       ),
     );

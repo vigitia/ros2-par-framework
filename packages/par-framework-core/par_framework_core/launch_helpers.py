@@ -1,6 +1,6 @@
 # Co-authored by Claude Code: written by Claude Code, since edited by hand; Claude Code also added
 # the setup profiles (profile launch argument, merged parameter files, per-profile extrinsics,
-# per-unit Brio intrinsics)
+# per-unit Brio intrinsics) and the PAR app entries in the ament index
 """
 Start functions shared by the launch files of par_framework_core.
 
@@ -14,6 +14,7 @@ import os
 import re
 
 from ament_index_python.packages import get_package_share_directory
+from ament_index_python.resources import get_resource, get_resources
 from launch.actions import DeclareLaunchArgument, LogInfo
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
@@ -31,6 +32,12 @@ DEFAULT_TOPIC_NAME_CAMERA_DEPTH = '/camera/depth_registered/image_raw'
 # name does not say "registered"; /camera/ir_registered/image_raw would be the consistent
 # alternative. Infrared on another grid (e.g. a depth camera's) is not mapped onto this name.
 DEFAULT_TOPIC_NAME_CAMERA_IR = '/camera/ir/image_raw'
+# A depth camera's infrared and depth on its own pixel grid, unregistered, with its intrinsics.
+# The depth sensor measures depth with this infrared, so both are aligned pixel by pixel; its pose
+# relative to the colour camera comes from TF. Co-authored by Claude Code
+DEFAULT_TOPIC_NAME_DEPTH_SENSOR_IR = '/camera/depth_sensor/ir/image_raw'
+DEFAULT_TOPIC_NAME_DEPTH_SENSOR_DEPTH = '/camera/depth_sensor/depth/image_raw'
+DEFAULT_TOPIC_NAME_DEPTH_SENSOR_CAMERA_INFO = '/camera/depth_sensor/camera_info'
 # Raw events (event_camera_msgs/EventPacket), only from an event camera
 DEFAULT_TOPIC_NAME_CAMERA_EVENTS = '/camera/events'
 
@@ -56,6 +63,10 @@ CAMERA_DRIVER_REMAPPINGS = {
         # Infrared transformed onto the colour image's grid by the driver (its ir/image_raw is on
         # the depth grid)
         ('/ir_to_rgb/image_raw', DEFAULT_TOPIC_NAME_CAMERA_IR),
+        # The depth sensor's own infrared and depth, e.g. for hand_landmarks with use_ir
+        ('/ir/image_raw', DEFAULT_TOPIC_NAME_DEPTH_SENSOR_IR),
+        ('/depth/image_raw', DEFAULT_TOPIC_NAME_DEPTH_SENSOR_DEPTH),
+        ('/depth/camera_info', DEFAULT_TOPIC_NAME_DEPTH_SENSOR_CAMERA_INFO),
     ],
     # Realsense driver from GitHub. aligned_depth_to_color is its
     # depth on the colour image's pixel grid, published with align_depth.enable in params_file
@@ -64,11 +75,12 @@ CAMERA_DRIVER_REMAPPINGS = {
         ('/camera/realsense/color/camera_info', DEFAULT_TOPIC_NAME_CAMERA_INFO),
         ('/camera/realsense/aligned_depth_to_color/image_raw', DEFAULT_TOPIC_NAME_CAMERA_DEPTH),
     ],
-    # Generic v4l2_camera driver from GitHub
+    # Generic v4l2_camera driver from GitHub. Like the Blackfly's, its calibration service ignores
+    # the node's namespace and is created at the root. Co-authored by Claude Code
     'webcam': [
         ('/camera/webcam/image_raw', DEFAULT_TOPIC_NAME_CAMERA_IMAGE),
         ('/camera/webcam/camera_info', DEFAULT_TOPIC_NAME_CAMERA_INFO),
-        ('/camera/webcam/set_camera_info', DEFAULT_SERVICE_NAME_CAMERA_SET_INFO),
+        ('/set_camera_info', DEFAULT_SERVICE_NAME_CAMERA_SET_INFO),
     ],
     # FLIR Blackfly S through the released spinnaker_camera_driver. Its calibration service
     # ignores the node's namespace and is created at the root
@@ -117,6 +129,24 @@ CU40_NODE_PARAMETERS_KEY = '/camera/cu40/see3cam_cu40_node'
 POSE_TRANSLATION_KEYS = [f'translation.{axis}' for axis in 'xyz']
 POSE_ROTATION_KEYS = [f'rotation.{axis}' for axis in 'xyzw']
 CAMERA_POSE_KEYS = POSE_TRANSLATION_KEYS + POSE_ROTATION_KEYS
+
+# PAR apps register in the ament index under this resource type: an installed marker file
+# share/ament_index/resource_index/par_framework_apps/<package> whose content is the app's entry,
+# a YAML mapping (blueprint and format: templates/par_app/ of ros2-par-framework)
+PAR_APP_RESOURCE_TYPE = 'par_framework_apps'
+PAR_APP_ENTRY_TEXT_KEYS = ('display_name', 'description')
+PAR_APP_ENTRY_START_KEYS = ('executable', 'launch_file')
+PAR_APP_ENTRY_LIST_KEYS = ('required_launch_switches', 'used_calibrations')
+# executable and launch_file: a name in the app's package, no path and no leading dot (not '..')
+PAR_APP_START_NAME_PATTERN = re.compile(r'[A-Za-z0-9_-][A-Za-z0-9_.-]*')
+# What used_calibrations may name, so a misspelt name fails instead of never being reported missing
+PAR_APP_CALIBRATION_NAMES = ('camera_intrinsics', 'camera_pose', 'projection_mapping',
+                             'projector_center')
+# par_launch.projector_app chooses the one app on the projector: none, the rendering manager or a
+# PAR app's package. The rendering manager has no entry in the index yet, since it has no launch
+# file of its own; par.launch.py starts it by its own code until it has.
+PROJECTOR_APP_NONE = 'none'
+RENDERING_MANAGER_APP_NAME = 'rendering_manager'
 
 
 # Co-authored by Claude Code: names of the function, its parameter and its variables
@@ -608,3 +638,77 @@ def create_projection_calibration_server_node(context, camera):
             'projection_mapping_file': get_path_in_config_folder(mapping_relative_path),
         }],
     )]
+
+
+# Written by Claude Code
+def get_par_app_package_names():
+    """Return the packages that registered a PAR app in the ament index, sorted."""
+    return sorted(get_resources(PAR_APP_RESOURCE_TYPE))
+
+
+# Written by Claude Code
+def read_par_app_entry(app_package_name):
+    """
+    Return the checked entry of an installed PAR app, a dict with every key of the format.
+
+    executable or launch_file is set, the other one is None; the lists are empty when left out.
+    Raises RuntimeError naming the fix when the app is not installed or its entry is malformed.
+    """
+    try:
+        entry_text, _ = get_resource(PAR_APP_RESOURCE_TYPE, app_package_name)
+    except LookupError:
+        installed_apps_text = ', '.join(get_par_app_package_names()) or 'none'
+        raise RuntimeError(f'[launch_helpers]: {app_package_name!r} is no installed PAR app '
+                           f'(installed: {installed_apps_text}): add its repo to '
+                           f'config/nodes.list and run ./scripts/local_build.sh')
+    error_start_text = (f'[launch_helpers]: the PAR app entry of {app_package_name} '
+                        f'(share/ament_index/resource_index/{PAR_APP_RESOURCE_TYPE}/'
+                        f'{app_package_name})')
+    # The entry comes from another repo: every key is checked, so a typo fails here, at start,
+    # instead of e.g. silently not starting a node the app needs
+    try:
+        entry = yaml.safe_load(entry_text)
+    except yaml.YAMLError as error:
+        raise RuntimeError(f'{error_start_text} is no valid YAML: {error}')
+    if not isinstance(entry, dict):
+        raise RuntimeError(f'{error_start_text} must be a YAML mapping, see templates/par_app/')
+
+    known_keys = PAR_APP_ENTRY_TEXT_KEYS + PAR_APP_ENTRY_START_KEYS + PAR_APP_ENTRY_LIST_KEYS
+    unknown_keys = sorted(set(entry) - set(known_keys))
+    if unknown_keys:
+        raise RuntimeError(f'{error_start_text} has unknown keys {unknown_keys}; known: '
+                           f'{list(known_keys)}')
+    for text_key in PAR_APP_ENTRY_TEXT_KEYS:
+        if not isinstance(entry.get(text_key), str):
+            raise RuntimeError(f'{error_start_text} needs {text_key} as text')
+
+    given_start_keys = [start_key for start_key in PAR_APP_ENTRY_START_KEYS if start_key in entry]
+    if len(given_start_keys) != 1:
+        raise RuntimeError(f'{error_start_text} needs exactly one of executable and launch_file')
+    start_value = entry[given_start_keys[0]]
+    # A file or program name in the package, never a path that could point elsewhere
+    if not isinstance(start_value, str) or not PAR_APP_START_NAME_PATTERN.fullmatch(start_value):
+        raise RuntimeError(f'{error_start_text}: {given_start_keys[0]} must be a plain name '
+                           f'without a path, e.g. example_app or example_app.launch.py')
+
+    for list_key in PAR_APP_ENTRY_LIST_KEYS:
+        list_value = entry.get(list_key, [])
+        is_list_of_texts = isinstance(list_value, list) and all(
+            isinstance(list_item, str) for list_item in list_value)
+        if not is_list_of_texts:
+            raise RuntimeError(f'{error_start_text}: {list_key} must be a list of names')
+    unknown_calibration_names = sorted(
+        set(entry.get('used_calibrations', [])) - set(PAR_APP_CALIBRATION_NAMES))
+    if unknown_calibration_names:
+        raise RuntimeError(f'{error_start_text}: unknown used_calibrations '
+                           f'{unknown_calibration_names}; known: '
+                           f'{list(PAR_APP_CALIBRATION_NAMES)}')
+
+    checked_entry = {}
+    for text_key in PAR_APP_ENTRY_TEXT_KEYS:
+        checked_entry[text_key] = entry[text_key]
+    for start_key in PAR_APP_ENTRY_START_KEYS:
+        checked_entry[start_key] = entry.get(start_key)
+    for list_key in PAR_APP_ENTRY_LIST_KEYS:
+        checked_entry[list_key] = list(entry.get(list_key, []))
+    return checked_entry
