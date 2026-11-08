@@ -1,0 +1,22 @@
+# Written by Claude Code
+# The app's entry in the ament index (resource type par_framework_apps). The file name must be the
+# package name. par.launch.py and the setup wizard read it through ament_index_python; the format is
+# checked by par_framework_core.launch_helpers.read_projector_app_entry (see README.md).
+
+# Shown in the setup wizard
+display_name: Example app
+description: One sentence on what the app shows on the table.
+
+# How par.launch.py starts the app, exactly one of the two:
+#   executable: a console_scripts entry point of this package, started as one node
+#   launch_file: a launch file in share/<package>/launch/, for an app with more than one process
+launch_file: example_app.launch.py
+
+# Framework nodes that must run next to the app: par_launch switches of par.launch.py. par.launch.py
+# starts them once for everyone; the app's own launch file never starts them itself.
+required_launch_switches: [fiducials_detector, page_locator]
+
+# Calibrations the app uses. The wizard shows which ones the profile still lacks; the app starts
+# without them anyway and must work uncalibrated (camera pixels), as every framework node does.
+# Known names: camera_intrinsics, camera_pose, projection_mapping, projector_center
+used_calibrations: [camera_intrinsics, camera_pose, projection_mapping]

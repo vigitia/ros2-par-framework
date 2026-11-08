@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<!-- Written by Claude Code -->
+<package format="3">
+  <name>example_app</name>
+  <version>0.0.0</version>
+  <description>One sentence on what the app shows on the table.</description>
+  <maintainer email="vitus.maierhoefer@gmail.com">vitus</maintainer>
+  <!-- The manifest needs one license tag; the placeholder ros2 pkg create writes -->
+  <license>TODO: License declaration</license>
+
+  <!-- What the app needs installed; what must run next to it is required_launch_switches in
+       resource/par_framework_apps/example_app -->
+  <depend>rclpy</depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <!-- launch_helpers.get_params_file_paths, for par_setup.yaml and the profile -->
+  <exec_depend>par_framework_core</exec_depend>
+  <exec_depend>par_framework_interfaces</exec_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>
