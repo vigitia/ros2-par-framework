@@ -2,14 +2,19 @@
 //
 // Live preview of one camera: starts it through the backend, shows every feed its driver publishes (e.g. colour,
 // depth and infrared of a depth camera), and stops it again when the view goes away. Used by the wizard's
-// per-camera steps and by a profile's overview.
+// per-camera steps and by a profile's overview. Can frame the area the focus is measured in (FocusAssistView) on the
+// camera image.
 
-import 'dart:typed_data';
-
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'camera_preview_api.dart';
+import 'focus_api.dart';
 import 'setup_wizard_backend_client.dart';
+
+/// The framework's neutral camera image topic (launch_helpers.DEFAULT_TOPIC_NAME_CAMERA_IMAGE), the feed the focus
+/// is measured on.
+const String cameraImageTopicName = '/camera/image_raw';
 
 /// Pause between two frame requests of a feed: about 10 frames per second.
 const Duration cameraPreviewFramePollInterval = Duration(milliseconds: 100);
@@ -28,7 +33,13 @@ const double feedTileSpacingLogicalPx = 12;
 const double feedTileAspectRatio = 4 / 3;
 
 class CameraPreviewView extends StatefulWidget {
-  const CameraPreviewView({super.key, required this.backendClient, required this.cameraName, this.profileName});
+  const CameraPreviewView({
+    super.key,
+    required this.backendClient,
+    required this.cameraName,
+    this.profileName,
+    this.focusMeasuredArea,
+  });
 
   final SetupWizardBackendClient backendClient;
 
@@ -37,6 +48,9 @@ class CameraPreviewView extends StatefulWidget {
 
   /// Starts the camera with this saved profile's settings; null for par_setup.yaml's (a profile not saved yet).
   final String? profileName;
+
+  /// Where the focus is measured, framed on the camera image while set; null frames nothing.
+  final ValueListenable<FocusMeasuredArea?>? focusMeasuredArea;
 
   @override
   State<CameraPreviewView> createState() => _CameraPreviewViewState();
@@ -145,7 +159,7 @@ class _CameraPreviewViewState extends State<CameraPreviewView> {
       return;
     }
     setState(() {
-      _previewErrorText = _removeExceptionPrefix(error);
+      _previewErrorText = describeBackendErrorForUser(error);
     });
   }
 
@@ -200,10 +214,11 @@ class _CameraPreviewViewState extends State<CameraPreviewView> {
             child: Align(
               alignment: Alignment.topLeft,
               // Keyed by topic, so a feed keeps its polling loop when the list around it changes.
-              child: _CameraFeedImage(
+              child: CameraFeedImage(
                 key: ValueKey<String>(feedTopicName),
                 backendClient: widget.backendClient,
                 feedTopicName: feedTopicName,
+                focusMeasuredArea: feedTopicName == cameraImageTopicName ? widget.focusMeasuredArea : null,
               ),
             ),
           ),
@@ -224,27 +239,27 @@ Widget _buildWaitingRow(String waitingText) {
   );
 }
 
-String _removeExceptionPrefix(Object error) {
-  String errorText = error.toString();
-  const String exceptionPrefix = 'Exception: ';
-  if (errorText.startsWith(exceptionPrefix)) {
-    errorText = errorText.substring(exceptionPrefix.length);
-  }
-  return errorText;
-}
 
 /// The latest frame of one feed, fetched again and again while shown.
-class _CameraFeedImage extends StatefulWidget {
-  const _CameraFeedImage({super.key, required this.backendClient, required this.feedTopicName});
+class CameraFeedImage extends StatefulWidget {
+  const CameraFeedImage({
+    super.key,
+    required this.backendClient,
+    required this.feedTopicName,
+    this.focusMeasuredArea,
+  });
 
   final SetupWizardBackendClient backendClient;
   final String feedTopicName;
 
+  /// Where the focus is measured in this feed's frames, framed on the image while set.
+  final ValueListenable<FocusMeasuredArea?>? focusMeasuredArea;
+
   @override
-  State<_CameraFeedImage> createState() => _CameraFeedImageState();
+  State<CameraFeedImage> createState() => _CameraFeedImageState();
 }
 
-class _CameraFeedImageState extends State<_CameraFeedImage> {
+class _CameraFeedImageState extends State<CameraFeedImage> {
   Uint8List? _latestFrameJpegBytes;
   String? _feedErrorText;
 
@@ -269,7 +284,7 @@ class _CameraFeedImageState extends State<_CameraFeedImage> {
           return;
         }
         setState(() {
-          _feedErrorText = _removeExceptionPrefix(error);
+          _feedErrorText = describeBackendErrorForUser(error);
         });
         await Future<void>.delayed(cameraPreviewFrameRetryInterval);
         continue;
@@ -299,6 +314,87 @@ class _CameraFeedImageState extends State<_CameraFeedImage> {
     }
     // gaplessPlayback keeps the previous frame on screen while the next one is decoded, so the image does not
     // flicker.
-    return Image.memory(latestFrameJpegBytes, gaplessPlayback: true, fit: BoxFit.contain);
+    final Widget frameImage = Image.memory(latestFrameJpegBytes, gaplessPlayback: true, fit: BoxFit.contain);
+    final ValueListenable<FocusMeasuredArea?>? focusMeasuredArea = widget.focusMeasuredArea;
+    if (focusMeasuredArea == null) {
+      return frameImage;
+    }
+    return ValueListenableBuilder<FocusMeasuredArea?>(
+      valueListenable: focusMeasuredArea,
+      builder: (BuildContext context, FocusMeasuredArea? measuredArea, Widget? child) {
+        if (measuredArea == null) {
+          return frameImage;
+        }
+        // The preview JPEG is the frame scaled down, so a box of the frame's shape lines the area up with the image.
+        return AspectRatio(
+          aspectRatio: measuredArea.frameWidthPx / measuredArea.frameHeightPx,
+          child: CustomPaint(
+            foregroundPainter: _FocusMeasuredAreaPainter(
+              measuredArea: measuredArea,
+              frameColor: Theme.of(context).colorScheme.tertiary,
+            ),
+            child: Image.memory(latestFrameJpegBytes, gaplessPlayback: true, fit: BoxFit.fill),
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// Draws the square the focus is measured in as a dashed frame onto the camera image.
+class _FocusMeasuredAreaPainter extends CustomPainter {
+  _FocusMeasuredAreaPainter({required this.measuredArea, required this.frameColor});
+
+  final FocusMeasuredArea measuredArea;
+  final Color frameColor;
+
+  static const double dashLengthLogicalPx = 8;
+  static const double frameLineWidthLogicalPx = 2;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final double scaleX = size.width / measuredArea.frameWidthPx;
+    final double scaleY = size.height / measuredArea.frameHeightPx;
+    final Rect areaRect = Rect.fromLTWH(
+      measuredArea.cropLeftPx * scaleX,
+      measuredArea.cropTopPx * scaleY,
+      measuredArea.cropSidePx * scaleX,
+      measuredArea.cropSidePx * scaleY,
+    );
+    final Paint framePaint = Paint()
+      ..color = frameColor
+      ..strokeWidth = frameLineWidthLogicalPx
+      ..style = PaintingStyle.stroke;
+    final List<List<Offset>> edges = [
+      [areaRect.topLeft, areaRect.topRight],
+      [areaRect.topRight, areaRect.bottomRight],
+      [areaRect.bottomRight, areaRect.bottomLeft],
+      [areaRect.bottomLeft, areaRect.topLeft],
+    ];
+    for (final List<Offset> edge in edges) {
+      _drawDashedLine(canvas, edge[0], edge[1], framePaint);
+    }
+  }
+
+  void _drawDashedLine(Canvas canvas, Offset start, Offset end, Paint linePaint) {
+    final double lineLengthLogicalPx = (end - start).distance;
+    if (lineLengthLogicalPx == 0) {
+      return;
+    }
+    final Offset direction = (end - start) / lineLengthLogicalPx;
+    double dashStartLogicalPx = 0;
+    while (dashStartLogicalPx < lineLengthLogicalPx) {
+      double dashEndLogicalPx = dashStartLogicalPx + dashLengthLogicalPx;
+      if (dashEndLogicalPx > lineLengthLogicalPx) {
+        dashEndLogicalPx = lineLengthLogicalPx;
+      }
+      canvas.drawLine(start + direction * dashStartLogicalPx, start + direction * dashEndLogicalPx, linePaint);
+      dashStartLogicalPx += 2 * dashLengthLogicalPx;
+    }
+  }
+
+  @override
+  bool shouldRepaint(_FocusMeasuredAreaPainter oldDelegate) {
+    return oldDelegate.measuredArea != measuredArea || oldDelegate.frameColor != frameColor;
   }
 }

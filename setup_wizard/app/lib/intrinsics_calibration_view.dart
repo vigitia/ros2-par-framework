@@ -6,7 +6,8 @@
 // be replaced by accident. While it collects views, the live image with the detected board replaces the preview and bars show
 // how much of the needed variety (left-right, top-bottom, distance, tilt) the views cover; "Calibrate" unlocks once
 // there are enough. The result is saved by the driver itself (set_camera_info). The preview stays mounted
-// underneath, so the camera keeps running.
+// underneath, so the camera keeps running. With a profile, the camera starts with it and the driver stores the
+// calibration in that profile's intrinsics folder.
 
 import 'dart:async';
 import 'dart:typed_data';
@@ -29,7 +30,7 @@ const Duration intrinsicsStateRetryInterval = Duration(seconds: 1);
 /// Below this width the controls go under the image instead of next to it.
 const double intrinsicsSideBySideMinimumWidthLogicalPx = 900;
 
-/// cameracalibrator's default board, which run_cameracalibrator.sh uses too.
+/// Inner corners the board fields start with, until the user enters those of their own printed board.
 const int defaultBoardInnerCornerColumns = 8;
 const int defaultBoardInnerCornerRows = 6;
 
@@ -42,12 +43,21 @@ const Map<String, String> poseParameterLabelByName = {
 };
 
 class IntrinsicsCalibrationView extends StatefulWidget {
-  const IntrinsicsCalibrationView({super.key, required this.backendClient, required this.cameraName});
+  const IntrinsicsCalibrationView({
+    super.key,
+    required this.backendClient,
+    required this.cameraName,
+    this.profileName,
+  });
 
   final SetupWizardBackendClient backendClient;
 
   /// A name from launch_helpers.CAMERA_DRIVER_REMAPPINGS.
   final String cameraName;
+
+  /// The saved profile the camera starts with, which decides where its calibration file is; null for the shared
+  /// intrinsics folder of launches without a profile.
+  final String? profileName;
 
   @override
   State<IntrinsicsCalibrationView> createState() => _IntrinsicsCalibrationViewState();
@@ -86,7 +96,7 @@ class _IntrinsicsCalibrationViewState extends State<IntrinsicsCalibrationView> {
   @override
   void didUpdateWidget(IntrinsicsCalibrationView oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.cameraName != widget.cameraName) {
+    if (oldWidget.cameraName != widget.cameraName || oldWidget.profileName != widget.profileName) {
       _endCalibrationQuietly();
       _viewGeneration += 1;
       setState(() {
@@ -133,7 +143,7 @@ class _IntrinsicsCalibrationViewState extends State<IntrinsicsCalibrationView> {
           return;
         }
         setState(() {
-          _intrinsicsStateErrorText = _removeExceptionPrefix(error);
+          _intrinsicsStateErrorText = describeBackendErrorForUser(error);
         });
       }
       await Future<void>.delayed(intrinsicsStateRetryInterval);
@@ -183,7 +193,7 @@ class _IntrinsicsCalibrationViewState extends State<IntrinsicsCalibrationView> {
     } catch (error) {
       if (_isStillCurrent(viewGeneration)) {
         setState(() {
-          _calibrationActionErrorText = _removeExceptionPrefix(error);
+          _calibrationActionErrorText = describeBackendErrorForUser(error);
           _isRequestPending = false;
         });
       }
@@ -227,7 +237,7 @@ class _IntrinsicsCalibrationViewState extends State<IntrinsicsCalibrationView> {
         if (_isStillCurrent(viewGeneration)) {
           setState(() {
             _isCalibrationRunning = false;
-            _calibrationActionErrorText = _removeExceptionPrefix(error);
+            _calibrationActionErrorText = describeBackendErrorForUser(error);
           });
         }
         return;
@@ -246,7 +256,7 @@ class _IntrinsicsCalibrationViewState extends State<IntrinsicsCalibrationView> {
     } catch (error) {
       if (mounted) {
         setState(() {
-          _calibrationActionErrorText = _removeExceptionPrefix(error);
+          _calibrationActionErrorText = describeBackendErrorForUser(error);
         });
       }
     }
@@ -313,6 +323,7 @@ class _IntrinsicsCalibrationViewState extends State<IntrinsicsCalibrationView> {
       key: _cameraPreviewViewKey,
       backendClient: widget.backendClient,
       cameraName: widget.cameraName,
+      profileName: widget.profileName,
     );
     final List<Widget> imageLayers = [Offstage(offstage: _isCalibrationRunning, child: previewView)];
     if (_isCalibrationRunning) {
@@ -547,8 +558,4 @@ class _IntrinsicsCalibrationViewState extends State<IntrinsicsCalibrationView> {
     ));
     return calibratedRows;
   }
-}
-
-String _removeExceptionPrefix(Object error) {
-  return error.toString().replaceFirst('Exception: ', '');
 }

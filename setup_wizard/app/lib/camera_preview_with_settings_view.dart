@@ -1,13 +1,16 @@
 // Written by Claude Code
 //
-// One camera's live feeds with, if wanted, its settings next to them (below them in narrow windows). The settings
-// scroll in an area of their own, so the feeds stay in place while the user goes through them. Shared by the
-// wizard's per-camera steps and a profile's overview.
+// One camera's live feeds with, if wanted, its settings next to them (below them in narrow windows), and the focus
+// help below the feeds, which frames its measured area on the camera image. The settings scroll in an area of their
+// own, so the feeds stay in place while the user goes through them. Shared by the wizard's per-camera steps and a
+// profile's overview.
 
 import 'package:flutter/material.dart';
 
 import 'camera_preview_view.dart';
 import 'camera_settings_view.dart';
+import 'focus_api.dart';
+import 'focus_assist_view.dart';
 import 'setup_wizard_backend_client.dart';
 
 /// Below this width the settings go under the feeds instead of next to them.
@@ -48,15 +51,38 @@ class _CameraPreviewWithSettingsViewState extends State<CameraPreviewWithSetting
   // camera keeps running.
   final GlobalKey _cameraPreviewViewKey = GlobalKey();
   final GlobalKey _cameraSettingsViewKey = GlobalKey();
+  final GlobalKey _focusAssistViewKey = GlobalKey();
+
+  /// Where the focus help measures, from FocusAssistView to the frame drawn on the camera image.
+  final ValueNotifier<FocusMeasuredArea?> _focusMeasuredAreaNotifier = ValueNotifier<FocusMeasuredArea?>(null);
+
+  @override
+  void dispose() {
+    _focusMeasuredAreaNotifier.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     // One view for every camera: switching cameras updates it (didUpdateWidget) instead of disposing it.
-    final Widget previewView = CameraPreviewView(
+    final Widget cameraPreviewView = CameraPreviewView(
       key: _cameraPreviewViewKey,
       backendClient: widget.backendClient,
       cameraName: widget.cameraName,
       profileName: widget.profileName,
+      focusMeasuredArea: _focusMeasuredAreaNotifier,
+    );
+    final Widget previewView = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        cameraPreviewView,
+        const SizedBox(height: 16),
+        FocusAssistView(
+          key: _focusAssistViewKey,
+          backendClient: widget.backendClient,
+          measuredAreaNotifier: _focusMeasuredAreaNotifier,
+        ),
+      ],
     );
     if (!widget.isSettingsListShown) {
       return previewView;

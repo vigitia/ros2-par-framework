@@ -2,12 +2,15 @@
 //
 // New-profile step "Intrinsics": the cameras' lens calibration, one camera after the other. Each shows where its
 // intrinsics come from now and, where the driver can store one, a calibration with a checkerboard (see
-// IntrinsicsCalibrationView). Optional: the framework also runs uncalibrated, so Next stays allowed.
+// IntrinsicsCalibrationView). The chosen projector shows black meanwhile, so its light does not disturb the board.
+// Runs on the saved profile, whose intrinsics folder the calibration is stored in. Optional: the framework also runs
+// uncalibrated, so Next stays allowed.
 
 import 'package:flutter/material.dart';
 
 import '../camera_instance_preview_panel.dart';
 import '../intrinsics_calibration_view.dart';
+import '../projector_blackout_holder.dart';
 import '../setup_wizard_backend_client.dart';
 import 'new_profile_wizard_screen.dart';
 
@@ -38,12 +41,18 @@ class IntrinsicsCalibrationStep extends StatelessWidget {
       children: [
         const Text('Calibrate the lens of each camera that needs it, one after the other.'),
         const SizedBox(height: 12),
+        ProjectorBlackoutHolder(
+          backendClient: backendClient,
+          projectorDisplayId: newProfileDraft.projectorDisplayIds.firstOrNull,
+        ),
         CameraInstancePreviewPanel(
           backendClient: backendClient,
           cameraInstances: newProfileDraft.cameraInstances,
           buildSelectedCameraContent: (CameraInstanceDraft selectedInstance) => IntrinsicsCalibrationView(
             backendClient: backendClient,
             cameraName: selectedInstance.cameraType,
+            // The wizard saved the profile when leaving the Projector step
+            profileName: newProfileDraft.profileName,
           ),
         ),
       ],

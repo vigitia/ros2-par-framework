@@ -17,9 +17,14 @@ import apps_api
 import camera_preview_api
 import cameras_api
 import displays_api
+import extrinsics_api
 from fastapi import FastAPI
+import focus_api
 import intrinsics_api
 import profiles_api
+import projector_blackout_api
+import run_api
+import sensor_nodes_api
 import uvicorn
 
 # Localhost only: nothing protects the backend yet, so other machines in the network must not
@@ -34,9 +39,14 @@ setup_wizard_backend_app = FastAPI(title='PAR setup wizard backend')
 setup_wizard_backend_app.include_router(profiles_api.profiles_router)
 setup_wizard_backend_app.include_router(cameras_api.cameras_router)
 setup_wizard_backend_app.include_router(camera_preview_api.camera_preview_router)
+setup_wizard_backend_app.include_router(focus_api.focus_router)
 setup_wizard_backend_app.include_router(displays_api.displays_router)
 setup_wizard_backend_app.include_router(intrinsics_api.intrinsics_router)
+setup_wizard_backend_app.include_router(extrinsics_api.extrinsics_router)
 setup_wizard_backend_app.include_router(apps_api.apps_router)
+setup_wizard_backend_app.include_router(projector_blackout_api.projector_blackout_router)
+setup_wizard_backend_app.include_router(sensor_nodes_api.sensor_nodes_router)
+setup_wizard_backend_app.include_router(run_api.run_router)
 
 
 @setup_wizard_backend_app.get('/api/status')

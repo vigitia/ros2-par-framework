@@ -4,7 +4,8 @@
 // listing its cameras (with how far each is calibrated), sensor nodes and apps; clicking the card opens that
 // profile. The card stands on a dark table at the bottom, the surface a PAR setup projects onto. Profiles are
 // switched rarely, so the other profiles and "New profile" sit in a menu in the bottom left corner, on the table's
-// front face next to the backend connection.
+// front face. The backend connection is mentioned only when it fails: then a plain message with a Retry button
+// replaces the card.
 
 import 'package:flutter/material.dart';
 
@@ -30,7 +31,6 @@ class SetupWizardStartScreen extends StatefulWidget {
 
 class _SetupWizardStartScreenState extends State<SetupWizardStartScreen> {
   bool _isLoadingFromBackend = true;
-  String? _backendErrorText;
   SetupWizardBackendStatus? _backendStatus;
   List<ProfileSummary> _profileSummaries = [];
 
@@ -47,7 +47,6 @@ class _SetupWizardStartScreenState extends State<SetupWizardStartScreen> {
   Future<void> _loadFromBackend() async {
     setState(() {
       _isLoadingFromBackend = true;
-      _backendErrorText = null;
     });
     try {
       final SetupWizardBackendStatus backendStatus = await widget.backendClient.fetchBackendStatus();
@@ -59,9 +58,10 @@ class _SetupWizardStartScreenState extends State<SetupWizardStartScreen> {
         _isLoadingFromBackend = false;
       });
     } catch (error) {
+      // The screen shows a plain message; the technical reason is only for whoever looks at the console.
+      debugPrint('[SetupWizardStartScreen]: backend not reachable at ${widget.backendClient.backendBaseUrl}: $error');
       setState(() {
         _backendStatus = null;
-        _backendErrorText = error.toString();
         _isLoadingFromBackend = false;
       });
     }
@@ -144,7 +144,7 @@ class _SetupWizardStartScreenState extends State<SetupWizardStartScreen> {
       final String deletedProfileFolderPath = await widget.backendClient.deleteProfile(profileName);
       resultText = 'Deleted $profileName. Its files are in $deletedProfileFolderPath';
     } catch (error) {
-      resultText = 'Could not delete $profileName: $error';
+      resultText = 'Could not delete $profileName. ${describeBackendErrorForUser(error)}';
     }
     if (!mounted) {
       return;
@@ -159,7 +159,7 @@ class _SetupWizardStartScreenState extends State<SetupWizardStartScreen> {
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not save the selection: $error')),
+          SnackBar(content: Text('Could not remember the selection. ${describeBackendErrorForUser(error)}')),
         );
       }
       return;
@@ -188,8 +188,7 @@ class _SetupWizardStartScreenState extends State<SetupWizardStartScreen> {
       body: ProjectorBackground(
         child: Builder(builder: (BuildContext bodyContext) => _buildProfileChoiceOnTable(bodyContext)),
       ),
-      // At the bottom, so it is always clear which machine the UI controls (matters once phones connect too).
-      bottomNavigationBar: _buildBackendConnectionBar(),
+      bottomNavigationBar: _buildProfileMenuBar(),
     );
   }
 
@@ -211,7 +210,7 @@ class _SetupWizardStartScreenState extends State<SetupWizardStartScreen> {
       return const Center(child: CircularProgressIndicator());
     }
     if (_backendStatus == null) {
-      return const Center(child: Text('No connection to the backend, see below.'));
+      return _buildConnectionFailedMessage(context);
     }
 
     // Without any profile, the only useful step is creating one.
@@ -233,6 +232,34 @@ class _SetupWizardStartScreenState extends State<SetupWizardStartScreen> {
     );
   }
 
+  /// Shown instead of the card while the PAR machine does not answer.
+  Widget _buildConnectionFailedMessage(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.cloud_off, size: 48),
+            const SizedBox(height: 12),
+            Text('Cannot reach the PAR machine', style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 8),
+            const Text(
+              'Make sure the PAR machine is switched on and its setup service is running, then try again.',
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              onPressed: _loadFromBackend,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Try again'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildProfileCard(BuildContext context, ProfileSummary profileSummary) {
     final List<Widget> cardRows = [
       Text(profileSummary.profileName, style: Theme.of(context).textTheme.titleMedium),
@@ -240,8 +267,9 @@ class _SetupWizardStartScreenState extends State<SetupWizardStartScreen> {
     ];
     final String? profileErrorText = profileSummary.profileErrorText;
     if (profileErrorText != null) {
+      debugPrint('[SetupWizardStartScreen]: cannot read profile ${profileSummary.profileName}: $profileErrorText');
       cardRows.add(Text(
-        'Cannot read this profile: $profileErrorText',
+        'This profile\'s file cannot be read. It may contain a mistake from editing it by hand.',
         style: TextStyle(color: Theme.of(context).colorScheme.error),
       ));
     } else {
@@ -437,38 +465,18 @@ class _SetupWizardStartScreenState extends State<SetupWizardStartScreen> {
     );
   }
 
-  Widget _buildBackendConnectionBar() {
-    final String backendBaseUrl = widget.backendClient.backendBaseUrl;
-    final Widget connectionText;
-    Widget? retryButton;
-    if (_isLoadingFromBackend) {
-      connectionText = Text('Connecting to $backendBaseUrl …');
-    } else if (_backendStatus == null) {
-      connectionText = Text(
-        'Backend not reachable at $backendBaseUrl ($_backendErrorText). Start it from the repository root, '
-        'with the workspace sourced: .venv/bin/python setup_wizard/backend/setup_wizard_backend.py',
-      );
-      retryButton = TextButton(onPressed: _loadFromBackend, child: const Text('Retry'));
-    } else {
-      connectionText = Text('Connected to ${_backendStatus!.machineName} ($backendBaseUrl)');
-    }
-
-    final List<Widget> barChildren = [];
-    // Profiles exist only once the backend answered.
-    if (_backendStatus != null) {
-      barChildren.add(_buildProfileMenu());
-      barChildren.add(const SizedBox(width: 16));
-    }
-    barChildren.add(Expanded(child: connectionText));
-    if (retryButton != null) {
-      barChildren.add(retryButton);
+  /// The profile menu once the backend answered; nothing before, since a failed connection is explained in the
+  /// middle of the screen.
+  Widget _buildProfileMenuBar() {
+    if (_backendStatus == null) {
+      return const SizedBox.shrink();
     }
     // Between the table's legs, which stand behind the bar
     const double barSidePaddingLogicalPx = tableFrontLegsOuterExtentLogicalPx + 12;
     return SafeArea(
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: barSidePaddingLogicalPx, vertical: 8),
-        child: Row(children: barChildren),
+        child: Row(children: [_buildProfileMenu()]),
       ),
     );
   }

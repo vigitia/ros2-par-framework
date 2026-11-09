@@ -1,16 +1,19 @@
 // Written by Claude Code
 //
-// Step-by-step wizard for a new hardware setup (profile): hardware, camera image, projector, intrinsics. Each step
-// lives in its own file and only talks to this shell through NewProfileDraft and onCanContinueChanged, so the
-// steps can be built independently. The projector is chosen before the calibrations, since they project onto it.
-// The steps after intrinsics (camera pose, projector to camera, camera to sensor node mapping) are decided on the
-// card "Setup Wizard" but not built yet.
+// Step-by-step wizard for a new hardware setup (profile): hardware, camera image, projector, intrinsics, camera
+// pose, projector calibration. Each step lives in its own file and only talks to this shell through NewProfileDraft
+// and onCanContinueChanged, so the steps can be built independently. The projector is chosen before the
+// calibrations, since they project onto it. The profile is created when leaving the Projector step, because every
+// calibration after it (intrinsics, camera pose, projector calibration) is stored per profile. The step after them
+// (camera to sensor node mapping) is decided on the card "Setup Wizard" but not built yet.
 
 import 'package:flutter/material.dart';
 
 import '../camera_preview_api.dart';
 import '../setup_wizard_backend_client.dart';
+import '../extrinsics_calibration_view.dart';
 import 'camera_image_step.dart';
+import 'extrinsics_calibration_step.dart';
 import 'intrinsics_calibration_step.dart';
 import 'new_profile_hardware_step.dart';
 import 'projector_display_step.dart';
@@ -91,7 +94,10 @@ class NewProfileWizardScreen extends StatefulWidget {
 }
 
 class _NewProfileWizardScreenState extends State<NewProfileWizardScreen> {
-  static const int stepCount = 4;
+  static const int stepCount = 6;
+
+  /// Leaving this step (Projector) creates the profile; the calibrations after it store into the saved profile.
+  static const int profileCreatingStepIndex = 2;
 
   final NewProfileDraft _newProfileDraft = NewProfileDraft();
   int _currentStepIndex = 0;
@@ -100,11 +106,14 @@ class _NewProfileWizardScreenState extends State<NewProfileWizardScreen> {
   /// onCanContinueChanged (not during build: e.g. from initState through WidgetsBinding.addPostFrameCallback).
   final List<bool> _canContinueByStepIndex = List<bool>.filled(stepCount, true);
 
-  /// True while Finish waits for the backend to create the profile.
+  /// True while the backend creates the profile.
   bool _isCreatingProfile = false;
 
-  /// Why creating the profile failed; shown next to Finish.
+  /// Why creating the profile failed; shown below the step's buttons.
   String? _createProfileErrorText;
+
+  /// The saved profile's name once it is created; null before.
+  String? _createdProfileName;
 
   @override
   void initState() {
@@ -124,21 +133,27 @@ class _NewProfileWizardScreenState extends State<NewProfileWizardScreen> {
     });
   }
 
-  void _goToNextStep() {
+  Future<void> _goToNextStep() async {
     if (!_canContinueByStepIndex[_currentStepIndex]) {
       return;
     }
     if (_currentStepIndex == stepCount - 1) {
-      _createProfileAndClose();
+      Navigator.of(context).pop(_createdProfileName);
       return;
+    }
+    if (_currentStepIndex == profileCreatingStepIndex && _createdProfileName == null) {
+      final bool isProfileCreated = await _createProfile();
+      if (!isProfileCreated || !mounted) {
+        return;
+      }
     }
     setState(() {
       _currentStepIndex += 1;
     });
   }
 
-  /// Creates the profile from the draft and returns its name to the start screen; stays open on an error.
-  Future<void> _createProfileAndClose() async {
+  /// Creates the profile from the draft; returns false and shows why when that fails.
+  Future<bool> _createProfile() async {
     final String? profileName = _newProfileDraft.profileName;
     final String profileDisplayName = _newProfileDraft.profileDisplayName ?? '';
     final List<CameraInstanceDraft> cameraInstances = _newProfileDraft.cameraInstances;
@@ -146,7 +161,7 @@ class _NewProfileWizardScreenState extends State<NewProfileWizardScreen> {
       setState(() {
         _createProfileErrorText = 'Add a camera in the Hardware step first.';
       });
-      return;
+      return false;
     }
     // Simplification: the framework launches one camera at a time, so the profile gets the first one. Upgrade:
     // send every camera instance once launch_helpers starts several (card "Setup Wizard").
@@ -169,24 +184,38 @@ class _NewProfileWizardScreenState extends State<NewProfileWizardScreen> {
         projectorDisplayId: projectorDisplayId,
       );
     } catch (error) {
-      createProfileErrorText = error.toString().replaceFirst('Exception: ', '');
+      createProfileErrorText = describeBackendErrorForUser(error);
     }
     if (!mounted) {
-      return;
+      return false;
     }
     if (createProfileErrorText != null) {
       setState(() {
         _isCreatingProfile = false;
         _createProfileErrorText = 'Could not create the profile: $createProfileErrorText';
       });
-      return;
+      return false;
     }
-    Navigator.of(context).pop(profileName);
+    setState(() {
+      _isCreatingProfile = false;
+      _createdProfileName = profileName;
+    });
+    return true;
+  }
+
+  /// Whether Back may leave the current step: not back into the steps the saved profile was created from.
+  bool _canGoBackFrom(int stepIndex) {
+    // Simplification: a saved profile is not updated from the earlier steps, so they are closed once it exists.
+    // Upgrade: write hardware and projector changes into the saved profile (POST /api/profiles only creates).
+    return _createdProfileName == null || stepIndex > profileCreatingStepIndex + 1;
   }
 
   void _goToPreviousStep() {
     if (_currentStepIndex == 0) {
       Navigator.of(context).pop();
+      return;
+    }
+    if (!_canGoBackFrom(_currentStepIndex)) {
       return;
     }
     setState(() {
@@ -259,8 +288,47 @@ class _NewProfileWizardScreenState extends State<NewProfileWizardScreen> {
           ),
         ),
       ),
+      Step(
+        title: const Text('Camera pose'),
+        state: _getStepState(4),
+        isActive: _currentStepIndex >= 4,
+        content: _buildOnlyWhenCurrentStep(
+          4,
+          ExtrinsicsCalibrationStep(
+            backendClient: widget.backendClient,
+            newProfileDraft: _newProfileDraft,
+            calibrationTopic: ExtrinsicsCalibrationTopic.cameraPose,
+          ),
+        ),
+      ),
+      Step(
+        title: const Text('Projector calibration'),
+        state: _getStepState(5),
+        isActive: _currentStepIndex >= 5,
+        content: _buildOnlyWhenCurrentStep(
+          5,
+          ExtrinsicsCalibrationStep(
+            backendClient: widget.backendClient,
+            newProfileDraft: _newProfileDraft,
+            calibrationTopic: ExtrinsicsCalibrationTopic.projectorMapping,
+          ),
+        ),
+      ),
     ];
 
+    // Once the profile is saved, leaving the wizard in any way hands it to the start screen, which shows it
+    return PopScope<String>(
+      canPop: _createdProfileName == null,
+      onPopInvokedWithResult: (bool didPop, String? popResult) {
+        if (!didPop) {
+          Navigator.of(context).pop(_createdProfileName);
+        }
+      },
+      child: _buildWizardScaffold(context, wizardSteps),
+    );
+  }
+
+  Widget _buildWizardScaffold(BuildContext context, List<Step> wizardSteps) {
     return Scaffold(
       appBar: AppBar(title: const Text('New profile')),
       body: Stepper(
@@ -293,26 +361,49 @@ class _NewProfileWizardScreenState extends State<NewProfileWizardScreen> {
   }
 
   Widget _buildStepControls(BuildContext context, ControlsDetails controlsDetails) {
-    final bool isLastStep = controlsDetails.stepIndex == stepCount - 1;
-    final bool canContinue = _canContinueByStepIndex[controlsDetails.stepIndex];
-    final String nextButtonText = isLastStep ? 'Finish' : 'Next';
-    final String backButtonText = controlsDetails.stepIndex == 0 ? 'Cancel' : 'Back';
+    final int stepIndex = controlsDetails.stepIndex;
+    final bool isLastStep = stepIndex == stepCount - 1;
+    final bool canContinue = _canContinueByStepIndex[stepIndex];
+    final bool isProfileCreatingStep = stepIndex == profileCreatingStepIndex && _createdProfileName == null;
+    String nextButtonText = 'Next';
+    if (isLastStep) {
+      nextButtonText = 'Finish';
+    } else if (isProfileCreatingStep) {
+      nextButtonText = 'Save profile and continue';
+    }
+    if (_isCreatingProfile) {
+      nextButtonText = 'Saving …';
+    }
+    final String backButtonText = stepIndex == 0 ? 'Cancel' : 'Back';
 
     VoidCallback? onNextPressed;
     if (canContinue && !_isCreatingProfile) {
       onNextPressed = controlsDetails.onStepContinue;
     }
+    VoidCallback? onBackPressed;
+    if (_canGoBackFrom(stepIndex)) {
+      onBackPressed = controlsDetails.onStepCancel;
+    }
     final List<Widget> controlRows = [
       Row(
         children: [
-          FilledButton(onPressed: onNextPressed, child: Text(_isCreatingProfile ? 'Saving …' : nextButtonText)),
+          FilledButton(onPressed: onNextPressed, child: Text(nextButtonText)),
           const SizedBox(width: 12),
-          TextButton(onPressed: controlsDetails.onStepCancel, child: Text(backButtonText)),
+          TextButton(onPressed: onBackPressed, child: Text(backButtonText)),
         ],
       ),
     ];
+    if (onBackPressed == null) {
+      controlRows.add(Padding(
+        padding: const EdgeInsets.only(top: 8),
+        child: Text(
+          'The profile is saved, so the steps before cannot be changed here any more.',
+          style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
+        ),
+      ));
+    }
     final String? createProfileErrorText = _createProfileErrorText;
-    if (isLastStep && createProfileErrorText != null) {
+    if (stepIndex == profileCreatingStepIndex && createProfileErrorText != null) {
       controlRows.add(Padding(
         padding: const EdgeInsets.only(top: 8),
         child: Text(createProfileErrorText, style: TextStyle(color: Theme.of(context).colorScheme.error)),

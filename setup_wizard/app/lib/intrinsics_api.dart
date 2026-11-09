@@ -9,7 +9,6 @@ import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 
-import 'camera_preview_api.dart';
 import 'setup_wizard_backend_client.dart';
 
 /// Saving waits for the driver to write its calibration file.
@@ -94,7 +93,7 @@ extension IntrinsicsApi on SetupWizardBackendClient {
 
   void _throwOnError(http.Response response) {
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw Exception(readBackendErrorDetail(response));
+      throw BackendRequestException.fromResponse(response);
     }
   }
 }

@@ -42,7 +42,7 @@ extension CameraPreviewApi on SetupWizardBackendClient {
       return null;
     }
     if (response.statusCode != 200) {
-      throw Exception(readBackendErrorDetail(response));
+      throw BackendRequestException.fromResponse(response);
     }
     final Map<String, dynamic> feedsJson = jsonDecode(response.body) as Map<String, dynamic>;
     final List<String> feedTopicNames = [];
@@ -62,7 +62,7 @@ extension CameraPreviewApi on SetupWizardBackendClient {
       return null;
     }
     if (response.statusCode != 200) {
-      throw Exception(readBackendErrorDetail(response));
+      throw BackendRequestException.fromResponse(response);
     }
     return response.bodyBytes;
   }
@@ -124,26 +124,10 @@ extension CameraPreviewApi on SetupWizardBackendClient {
     final http.StreamedResponse streamedResponse = await request.send().timeout(cameraPreviewStartStopTimeout);
     final http.Response response = await http.Response.fromStream(streamedResponse);
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw Exception(readBackendErrorDetail(response));
+      throw BackendRequestException.fromResponse(response);
     }
     return response;
   }
-}
-
-/// The backend's "detail" text of an error answer, or the whole body when it has none.
-String readBackendErrorDetail(http.Response response) {
-  try {
-    final Map<String, dynamic> errorJson = jsonDecode(response.body) as Map<String, dynamic>;
-    final Object? errorDetail = errorJson['detail'];
-    if (errorDetail is String) {
-      return errorDetail;
-    }
-  } on FormatException {
-    // Not JSON: fall through to the raw body
-  } on TypeError {
-    // JSON, but not an object with a detail
-  }
-  return 'Backend answered ${response.statusCode}: ${response.body}';
 }
 
 /// The running camera's settings, and where and which changes can still be saved.

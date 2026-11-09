@@ -69,7 +69,7 @@ class _ProjectorDisplayStepState extends State<ProjectorDisplayStep> {
         return;
       }
       setState(() {
-        _displaysErrorText = error.toString();
+        _displaysErrorText = describeBackendErrorForUser(error);
         _isLoadingDisplays = false;
       });
     }

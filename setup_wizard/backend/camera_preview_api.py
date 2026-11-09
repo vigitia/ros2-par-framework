@@ -11,6 +11,7 @@ so any driver that follows the ROS 2 conventions works without code here:
   keeps only the latest frame, which the app fetches as JPEG.
 - Its settings are its parameters, read and changed through the ROS 2 parameter services, except
   those ROS 2 itself adds to every node and image publisher.
+A calibration launch that starts the camera itself runs the same way (start_camera_launch).
 Only one camera at a time, because the neutral /camera/... topics exist once. A watchdog stops
 the camera once the app has stopped fetching frames, however the preview was left (screen closed,
 app quit or crashed).
@@ -48,6 +49,8 @@ PREVIEW_MAXIMUM_WIDTH_PX = 960
 PREVIEW_JPEG_QUALITY_PERCENT = 80
 # How long the camera's launch may take to end after SIGINT, and again after SIGTERM.
 CAMERA_PROCESS_STOP_TIMEOUT_S = 10.0
+# The preview's launch file in par_framework_core, started with camera_only:=true
+CAMERA_PREVIEW_LAUNCH_FILE_NAME = 'par.launch.py'
 # The launch's output, read back when the camera process ends early (e.g. camera not connected).
 CAMERA_PROCESS_LOG_PATH = os.path.join(tempfile.gettempdir(),
                                        'par_setup_wizard_camera_preview.log')
@@ -142,8 +145,8 @@ class CameraFrameReceiver(Node):
         for endpoint_info in self.get_publishers_info_by_topic(DEFAULT_TOPIC_NAME_CAMERA_IMAGE):
             full_node_name = None
             if endpoint_info.node_namespace.startswith('/'):
-                full_node_name = _join_node_name(endpoint_info.node_namespace,
-                                                 endpoint_info.node_name)
+                full_node_name = join_node_name(endpoint_info.node_namespace,
+                                                endpoint_info.node_name)
             node_name_by_publisher_gid[tuple(endpoint_info.endpoint_gid)] = full_node_name
         return node_name_by_publisher_gid
 
@@ -318,9 +321,24 @@ class CameraPreviewStopRequest(BaseModel):
 @camera_preview_router.post('/api/camera-preview/start')
 def start_camera_preview(request: CameraPreviewStartRequest) -> CameraPreviewStartResponse:
     """Start the camera for the preview, stopping the camera of an earlier preview first."""
-    _check_camera_is_installed(request.camera_name)
-    if request.profile_name is not None:
-        profiles_api.check_profile_exists(request.profile_name)
+    preview_id = start_camera_launch(request.camera_name, request.profile_name,
+                                     CAMERA_PREVIEW_LAUNCH_FILE_NAME,
+                                     [f'camera:={request.camera_name}', 'camera_only:=true'])
+    return CameraPreviewStartResponse(preview_id=preview_id)
+
+
+def start_camera_launch(camera_name, profile_name, launch_file_name, launch_arguments):
+    """
+    Start a launch file of par_framework_core that starts the camera, as the preview's camera.
+
+    Stops the camera of an earlier preview first. Besides the preview's own launch, a calibration
+    launch that starts the camera itself runs this way, so its frames, settings, stop and
+    watchdog work as for a preview. launch_arguments: ['name:=value', ...]; profile:= is added
+    for a saved profile. Returns the new preview id.
+    """
+    _check_camera_is_installed(camera_name)
+    if profile_name is not None:
+        profiles_api.check_profile_exists(profile_name)
     ros2_executable_path = shutil.which('ros2')
     if ros2_executable_path is None:
         raise HTTPException(status_code=500,
@@ -341,21 +359,20 @@ def start_camera_preview(request: CameraPreviewStartRequest) -> CameraPreviewSta
         # Forget stopped publishers that have left the graph
         session.stopped_camera_publisher_gids &= current_publisher_gids
         camera_launch_command = [ros2_executable_path, 'launch', 'par_framework_core',
-                                 'par.launch.py', f'camera:={request.camera_name}',
-                                 'camera_only:=true']
-        if request.profile_name is not None:
-            camera_launch_command.append(f'profile:={request.profile_name}')
+                                 launch_file_name, *launch_arguments]
+        if profile_name is not None:
+            camera_launch_command.append(f'profile:={profile_name}')
         with open(CAMERA_PROCESS_LOG_PATH, 'w') as camera_process_log_file:
             # Its own process group, so stopping reaches the launch and every node it started.
             session.camera_process = subprocess.Popen(
                 camera_launch_command, stdout=camera_process_log_file,
                 stderr=subprocess.STDOUT, start_new_session=True)
-        session.camera_name = request.camera_name
-        session.profile_name = request.profile_name
+        session.camera_name = camera_name
+        session.profile_name = profile_name
         session.last_preview_request_monotonic_s = time.monotonic()
         session.started_preview_count += 1
         session.running_preview_id = session.started_preview_count
-        return CameraPreviewStartResponse(preview_id=session.running_preview_id)
+        return session.running_preview_id
 
 
 @camera_preview_router.post('/api/camera-preview/stop')
@@ -424,7 +441,7 @@ def get_camera_preview_settings() -> CameraSettingsResponse:
     """Return the previewed camera's settings, read live from its driver node."""
     session = get_camera_preview_session()
     driver_node_name, parameter_client = get_driver_parameter_client(session)
-    settings = _read_camera_settings(parameter_client)
+    settings = read_node_settings(parameter_client)
     with session.session_lock:
         profile_name = session.profile_name
         unsaved_setting_names = sorted(session.unsaved_setting_value_by_name)
@@ -447,7 +464,7 @@ def change_camera_preview_setting(request: CameraSettingChangeRequest) -> None:
         raise HTTPException(status_code=404,
                             detail=f'{driver_node_name} has no setting {request.setting_name!r}')
     parameter_type = Parameter.Type(current_parameter_values[0].type)
-    parameter_value = _convert_setting_value(request.setting_value, parameter_type)
+    parameter_value = convert_setting_value(request.setting_value, parameter_type)
     parameter = Parameter(request.setting_name, parameter_type, parameter_value)
     set_results = wait_for_driver_service_answer(
         parameter_client.set_parameters([parameter])).results
@@ -548,7 +565,7 @@ def _convert_parameter_value_to_plain_python(parameter_value):
     return setting_value
 
 
-def _join_node_name(node_namespace, node_name):
+def join_node_name(node_namespace, node_name):
     if node_namespace.endswith('/'):
         return node_namespace + node_name
     return f'{node_namespace}/{node_name}'
@@ -590,19 +607,25 @@ def get_driver_parameter_client(session):
     with session.session_lock:
         check_camera_process_runs(session)
         driver_node_name = _find_own_camera_driver_node_name(session)
-        parameter_client = session.parameter_client_by_node_name.get(driver_node_name)
+    return driver_node_name, get_node_parameter_client(session, driver_node_name)
+
+
+def get_node_parameter_client(session, full_node_name):
+    """Return a parameter client for a node of the running launch, waiting for its services."""
+    with session.session_lock:
+        parameter_client = session.parameter_client_by_node_name.get(full_node_name)
         if parameter_client is None:
-            parameter_client = AsyncParameterClient(session.frame_receiver, driver_node_name)
-            session.parameter_client_by_node_name[driver_node_name] = parameter_client
-    # Outside the lock: waiting for the driver must not hold up the frames.
+            parameter_client = AsyncParameterClient(session.frame_receiver, full_node_name)
+            session.parameter_client_by_node_name[full_node_name] = parameter_client
+    # Outside the lock: waiting for the node must not hold up the frames.
     if not parameter_client.wait_for_services(timeout_sec=PARAMETER_SERVICE_TIMEOUT_S):
         raise HTTPException(status_code=503,
-                            detail=f'{driver_node_name} does not answer yet; the camera may '
-                                   f'still be starting')
-    return driver_node_name, parameter_client
+                            detail=f'{full_node_name} does not answer yet; it may still be '
+                                   f'starting')
+    return parameter_client
 
 
-def _convert_setting_value(setting_value, parameter_type):
+def convert_setting_value(setting_value, parameter_type):
     """Return the value from the app in the parameter's type; 400 when it does not fit."""
     try:
         if parameter_type == Parameter.Type.BOOL and isinstance(setting_value, bool):
@@ -640,8 +663,8 @@ def _convert_to_integer(value):
     return integer_value
 
 
-def _read_camera_settings(parameter_client):
-    """Return every parameter of the driver node except ROS's own, sorted by name."""
+def read_node_settings(parameter_client):
+    """Return every parameter of the node except ROS's own, sorted by name."""
     all_parameter_names = wait_for_driver_service_answer(
         parameter_client.list_parameters()).result.names
     parameter_names = []
@@ -760,22 +783,35 @@ def _stop_camera_process(session: CameraPreviewSession) -> None:
 
 
 def _read_camera_process_log_tail() -> str:
-    try:
-        with open(CAMERA_PROCESS_LOG_PATH) as camera_process_log_file:
-            log_lines = camera_process_log_file.read().splitlines()
-    except OSError:
+    log_lines = read_camera_process_log_lines()
+    if not log_lines:
         return '(no output)'
     return '\n'.join(log_lines[-CAMERA_PROCESS_LOG_TAIL_LINE_COUNT:])
 
 
-def _convert_image_message_to_preview_frame(image_message):
-    """Return the frame as a uint8 array for OpenCV (gray or BGR), scaled down for the preview."""
+def read_camera_process_log_lines() -> list[str]:
+    """Return the output of the latest camera launch, line by line; [] without any."""
+    try:
+        with open(CAMERA_PROCESS_LOG_PATH) as camera_process_log_file:
+            return camera_process_log_file.read().splitlines()
+    except OSError:
+        return []
+
+
+def convert_image_message_to_frame(image_message):
+    """Return the frame at full size as a uint8 array (gray or BGR); None for other encodings."""
     encoding = image_message.encoding
     if encoding in CHANNEL_COUNT_BY_8_BIT_ENCODING:
-        frame = _read_8_bit_frame(image_message)
-    elif encoding in NUMPY_TYPE_BY_SCALED_ENCODING:
-        frame = _read_scaled_frame(image_message)
-    else:
+        return _read_8_bit_frame(image_message)
+    if encoding in NUMPY_TYPE_BY_SCALED_ENCODING:
+        return _read_scaled_frame(image_message)
+    return None
+
+
+def _convert_image_message_to_preview_frame(image_message):
+    """Return the frame as a uint8 array for OpenCV (gray or BGR), scaled down for the preview."""
+    frame = convert_image_message_to_frame(image_message)
+    if frame is None:
         return None
 
     frame_width_px = image_message.width

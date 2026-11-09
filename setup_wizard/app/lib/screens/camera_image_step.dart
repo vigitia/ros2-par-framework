@@ -1,8 +1,9 @@
 // Written by Claude Code
 //
 // New profile, step 2: the camera image. The user goes through the profile's cameras one by one and sees the live
-// preview of the selected one next to its settings, as its driver reports them (read-only for now). Focus,
-// exposure and gain with projector test light come later. Also to be opened from the profile overview.
+// preview of the selected one next to its settings, as its driver reports them, with the focus help below the
+// preview (sharpness and the enlarged image centre). Exposure and gain with projector test light come later. The
+// profile overview shows the same view.
 
 import 'package:flutter/material.dart';
 
@@ -36,7 +37,7 @@ class CameraImageStep extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text("Check each camera's image and settings, one after the other."),
+        const Text("Focus each camera and check its image and settings, one after the other."),
         const SizedBox(height: 12),
         CameraInstancePreviewPanel(
           backendClient: backendClient,

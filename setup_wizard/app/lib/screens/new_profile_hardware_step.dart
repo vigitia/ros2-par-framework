@@ -111,7 +111,7 @@ class _NewProfileHardwareStepState extends State<NewProfileHardwareStep> {
         return;
       }
       setState(() {
-        _backendErrorText = error.toString();
+        _backendErrorText = describeBackendErrorForUser(error);
         _isLoadingFromBackend = false;
       });
     }

@@ -1,13 +1,14 @@
 // Written by Claude Code
 //
-// Hub area "Overview" of a profile. Built so far: the profile's cameras; clicking one starts it with the profile's
-// settings and shows all its feeds (e.g. colour, depth and infrared of a depth camera) with its settings, which can
-// be changed on the running camera. Still to come: every calibration with its state and a button to (re)do it, and
-// the profile's apps with a Start button.
+// Hub area "Overview" of a profile: the Run button, which starts and stops the profile, and the one app the profile
+// starts on the projector. Still to come: a summary of the profile's calibration state. The cameras have their own
+// area (cameras_screen.dart).
 
 import 'package:flutter/material.dart';
 
-import '../camera_preview_with_settings_view.dart';
+import '../apps_api.dart';
+import '../profile_run_view.dart';
+import '../projector_app_choice_view.dart';
 import '../setup_wizard_backend_client.dart';
 
 class ProfileOverviewScreen extends StatefulWidget {
@@ -24,9 +25,6 @@ class _ProfileOverviewScreenState extends State<ProfileOverviewScreen> {
   bool _isLoadingProfile = true;
   String? _profileErrorText;
   ProfileSummary? _profileSummary;
-
-  /// The camera whose preview runs; null until the user clicks one, so no camera starts unasked.
-  CameraCalibrationSummary? _previewedCamera;
 
   @override
   void initState() {
@@ -53,9 +51,15 @@ class _ProfileOverviewScreenState extends State<ProfileOverviewScreen> {
       setState(() {
         _profileSummary = foundProfileSummary;
         if (foundProfileSummary == null) {
-          _profileErrorText = 'The profile ${widget.profileName} no longer exists.';
+          _profileErrorText = 'This profile does not exist any more. Go back to the start screen.';
         } else {
-          _profileErrorText = foundProfileSummary.profileErrorText;
+          final String? summaryErrorText = foundProfileSummary.profileErrorText;
+          if (summaryErrorText != null) {
+            debugPrint('[ProfileOverviewScreen]: cannot read profile ${widget.profileName}: $summaryErrorText');
+            _profileErrorText = 'This profile\'s file cannot be read. It may contain a mistake from editing it by hand.';
+          } else {
+            _profileErrorText = null;
+          }
         }
         _isLoadingProfile = false;
       });
@@ -64,20 +68,10 @@ class _ProfileOverviewScreenState extends State<ProfileOverviewScreen> {
         return;
       }
       setState(() {
-        _profileErrorText = error.toString();
+        _profileErrorText = describeBackendErrorForUser(error);
         _isLoadingProfile = false;
       });
     }
-  }
-
-  void _togglePreviewedCamera(CameraCalibrationSummary camera) {
-    setState(() {
-      if (identical(_previewedCamera, camera)) {
-        _previewedCamera = null;
-      } else {
-        _previewedCamera = camera;
-      }
-    });
   }
 
   @override
@@ -99,55 +93,22 @@ class _ProfileOverviewScreenState extends State<ProfileOverviewScreen> {
       );
     }
 
-    final TextTheme textTheme = Theme.of(context).textTheme;
-    final List<Widget> overviewRows = [
-      Text('Cameras', style: textTheme.titleMedium),
-      const SizedBox(height: 4),
-      Text(
-        'Click a camera to see its images and settings.',
-        style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
-      ),
-      const SizedBox(height: 8),
-      _buildCameraChoice(profileSummary.cameras),
-    ];
-    final CameraCalibrationSummary? previewedCamera = _previewedCamera;
-    final String? previewCameraName = previewedCamera?.previewCameraName;
-    if (previewCameraName != null) {
-      overviewRows.add(const SizedBox(height: 16));
-      overviewRows.add(CameraPreviewWithSettingsView(
-        backendClient: widget.backendClient,
-        cameraName: previewCameraName,
-        profileName: widget.profileName,
-        isSettingsListShown: true,
-      ));
-    }
+    // ProfileSummary.appNames holds par_launch.projector_app unless it is none
+    final String storedProjectorAppName = profileSummary.appNames.firstOrNull ?? projectorAppNone;
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: overviewRows),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          ProfileRunView(backendClient: widget.backendClient, profileName: widget.profileName),
+          const SizedBox(height: 24),
+          ProjectorAppChoiceView(
+            backendClient: widget.backendClient,
+            profileName: widget.profileName,
+            storedAppName: storedProjectorAppName,
+          ),
+        ],
+      ),
     );
-  }
-
-  Widget _buildCameraChoice(List<CameraCalibrationSummary> cameras) {
-    if (cameras.isEmpty) {
-      return const Text('This profile has no camera.');
-    }
-    final List<Widget> cameraChips = [];
-    for (final CameraCalibrationSummary camera in cameras) {
-      final bool canBePreviewed = camera.previewCameraName != null;
-      Widget cameraChip = ChoiceChip(
-        avatar: const Icon(Icons.videocam_outlined),
-        label: Text(camera.cameraDisplayName),
-        selected: identical(_previewedCamera, camera),
-        onSelected: canBePreviewed ? (bool isSelected) => _togglePreviewedCamera(camera) : null,
-      );
-      if (!canBePreviewed) {
-        cameraChip = Tooltip(
-          message: 'This camera only starts together with the main camera, so it has no preview of its own yet.',
-          child: cameraChip,
-        );
-      }
-      cameraChips.add(cameraChip);
-    }
-    return Wrap(spacing: 8, runSpacing: 8, children: cameraChips);
   }
 }
