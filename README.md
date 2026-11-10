@@ -1,19 +1,21 @@
 # ROS2 Projected Augmented Reality Framework
 
-Readme written together with Claude Code. Comments in the Code indicate where Claude Code was used. 
+> Readme written together with Claude Code. Comments in the Code indicate where Claude Code was used while creating this framework. 
 
 A Framework for people who want to build their own Projected Augmented Reality (PAR) setups. 
-It uses the Robot Operating System 2 (ROS2).
+It is built on the Robot Operating System 2 (ROS2). Most components are fully interchangable ROS 2 packages that make it modular.
 
-This repository contains the core components. Depending on your hardware and use case, additional components are required (see list below).
+This repository contains the frameworks' core components. Depending on your hardware and use case, additional components are required (see list below).
 
-### Hardware requirements
+### Minimum Hardware requirements
 - A Projector
 - A camera (Webcam is fine to get started. Some applications/use cases require a depth camera such as the Azure Kinect or Realsense D435 or even other camera types such as IR, Thermal, etc.)
 
+Certain applications might require special camera types (e.g. Depth, IR, Thermal, ...) or multiple projectors (currently not yet supported).
+
 ### Hardware setup
 
-Camera and pointed at the same physical surface
+Camera and projector pointed at the same surface. Optimal: Camera sees the entire projected image.
 
 ### Quick start on a new computer (without Docker)
 
@@ -43,7 +45,7 @@ Run the calibration process:
 ros2 launch par_framework_core calibration.launch.py
 ```
 
-Launch the framwork
+Launch the framework:
 ```bash
 ros2 launch par_framework_core par.launch.py
 ```
@@ -221,12 +223,13 @@ as the camera saw them. `par_geometry.pixels_to_table` undistorts them with `/ca
 into table coordinates; it needs calibrated intrinsics and the camera pose.
 
 **Intrinsics travel on `camera_info`.** The Brio, the webcam and the Blackfly load theirs from
-`config/calibration/intrinsics/camera_info_<camera>.yaml` (gitignored, one per camera type), which
+`config/calibration/intrinsics/<profile>/camera_info_<camera>.yaml` (gitignored, one per camera type and profile;
+without `profile:=` the shared `config/calibration/intrinsics/`), which
 `scripts/run_cameracalibrator.sh` writes through `/camera/set_camera_info`. A Brio whose `serial` is set has its own
 file, `camera_info_brio_<serial>.yaml`, since every lens differs; set it when several Brios are in use. The
-Blackfly always has its `serial_number` set, so its file is `camera_info_blackfly_<serial_number>.yaml`. Intrinsics
-are shared by all profiles. The Kinect and the RealSense publish
-their factory calibration instead.
+Blackfly always has its `serial_number` set, so its file is `camera_info_blackfly_<serial_number>.yaml`. Each profile
+has its own intrinsics, so recalibrating a camera for one setup (e.g. after refocusing) leaves the others alone.
+The Kinect and the RealSense publish their factory calibration instead.
 
 **The camera pose is a static transform.** `world` → the camera's body frame (`brio_link`, `camera_base`,
 `realsense_link`, `webcam_link`, `blackfly_link`) is published by `/<camera>_tf_publisher`, started with the driver. It uses the
@@ -244,7 +247,7 @@ No consumer changes. In `packages/par-framework-core/`:
 2. `config/par_setup.yaml`: the driver's parameters (colour images in BGR order) and a placeholder pose under
    `/<camera>_tf_publisher`.
 3. `launch/par.launch.py`: the camera in `CAMERA_DETECTOR_PARAMETER_OVERRIDES` if it provides depth or JPEGs. A
-   depth camera also goes into `DEPTH_CAMERAS` in `launch/projection_calibration.launch.py`. The one RViz
+   depth camera also goes into `DEPTH_CAMERA_NAMES` in `launch/projection_calibration.launch.py`. The one RViz
    configuration, `config/rviz/par_framework.rviz`, shows the `/camera/...` topics and needs no change; a topic only
    the new camera publishes goes in there as a disabled display.
 4. A released driver goes into `config/ros_packages.list`, a driver from source into `config/nodes.list`.
@@ -295,7 +298,7 @@ Four coordinate systems, and every value in the framework is in exactly one of t
 | Table, frame `world` | m | z = 0 is the tabletop, z points up, the origin lies below the camera | `Gesture.position`, `/projection_mapping` and the projector centre, the RViz markers |
 | Projector pixels | px | origin top left of the projected image, at the projector's resolution | `/projector/mask`, `/projector/content_mask`, what an app draws |
 
-**`world` is the table.** The tabletop is the plane z = 0 of `world`, in metres, with z pointing away from the
+**`world` is the primary projection surface.** For PAR tabletops this means the tabletop is the plane z = 0 of `world`, in metres, with z pointing away from the
 table. Every node that needs table coordinates uses the frame name `world`; there is no separate table frame. The
 TF tree is `world` → the camera's body frame (the mount transform, see above) → its optical frame (published by
 the driver). The camera pose calibration measures height and tilt; x, y and the rotation about the vertical come

@@ -1,0 +1,7 @@
+# Written by Claude Code
+# Installed into the shared .venv by scripts/local_build.sh. Lower bounds match the worksheets app's backend.
+fastapi>=0.138.1
+uvicorn>=0.49.0
+# Rewrites profiles keeping their comments (profiles_api.write_node_settings_into_profile); on Ubuntu also apt's
+# python3-ruamel.yaml, which pip then takes as installed
+ruamel.yaml>=0.18

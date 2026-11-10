@@ -1,0 +1,21 @@
+# Written by Claude Code
+# Blueprint of a sensor processing node's entry in the ament index (resource type
+# par_framework_sensor_nodes), next to sensor_processing_node.py. Copy it to
+# resource/par_framework_sensor_nodes/<package> in the node's repo (the file name must be the package
+# name) and install it with one line in setup.py's data_files:
+#
+#   ('share/ament_index/resource_index/par_framework_sensor_nodes',
+#       ['resource/par_framework_sensor_nodes/' + package_name]),
+#
+# par.launch.py and the setup wizard find the node through it; the format is checked by
+# par_framework_core.launch_helpers.read_sensor_node_entry. Convention: the package name is the node's
+# par_launch switch, its console_scripts entry point has the same name, and par.launch.py names the
+# node <package>_node (its section in par_setup.yaml).
+
+# Shown in the setup wizard
+display_name: Example detector
+description: One sentence on what the node finds in the camera image and publishes.
+
+# Other sensor nodes whose output this node reads; par.launch.py starts them along with it, and the
+# wizard selects them with it. Leave the list empty when the node reads only the camera.
+required_sensor_nodes: []

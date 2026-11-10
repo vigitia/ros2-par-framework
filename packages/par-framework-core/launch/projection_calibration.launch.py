@@ -2,8 +2,8 @@
 r"""
 Automatic table-to-projector calibration.
 
-The projector shows ArUco markers at known projector pixels (display_id under
-projection_calibrator_node in par_setup.yaml; the resolution is read from that display),
+The projector shows ArUco markers at known projector pixels (on par_launch.projector_display_id,
+or projector_display_id:=<n> for one run; the resolution is read from that display),
 fiducials_detector finds them in the camera image, and projection_calibrator fits the homography
 from the table plane to projector pixels. It is stored by projection_calibration_server_node in
 config/calibration/extrinsics/projection_mapping_<camera>.yaml, and published latched on
@@ -13,8 +13,9 @@ from params_file.
 
 Needs the camera calibration and the camera pose (/<camera>_tf_publisher in par_setup.yaml), and
 a clear table. The camera calibration is config/calibration/intrinsics/camera_info_<camera>.yaml;
-the Kinect and the RealSense publish their factory calibrations. With profile:=<name>, the mapping
-is that setup's own, in config/calibration/extrinsics/<name>/.
+the Kinect and the RealSense publish their factory calibrations. With profile:=<name>, the camera
+calibration and the mapping are that setup's own, in config/calibration/intrinsics/<name>/ and
+config/calibration/extrinsics/<name>/.
 
 projector_center:=true runs the second step instead, which the projection mask needs: hold a flat
 board above the table and move it through the projection. The depth camera locates the markers
@@ -34,11 +35,23 @@ from launch_ros.actions import Node
 from par_framework_core.launch_helpers import (create_camera_nodes,
                                                create_profile_launch_argument,
                                                create_projection_calibration_server_node,
-                                               get_chosen_camera, get_params_file_paths)
+                                               create_projector_display_id_launch_argument,
+                                               get_chosen_camera, get_params_file_paths,
+                                               get_projector_display_id, read_launch_section)
 
 PACKAGE_NAME = 'par_framework_core'
 # Cameras with depth registered to the colour image, which the projector centre step needs
-DEPTH_CAMERAS = ('kinect', 'realsense')
+DEPTH_CAMERA_NAMES = ('kinect', 'realsense')
+# The projected markers are large and lie still, unlike the printed ones a profile may tune
+# fiducials_detector for (small, moving, found by tracking): detection runs with its general
+# settings, whatever the profile sets. The values are those of par_setup.yaml
+FIDUCIALS_DETECTOR_GENERAL_DETECTION_PARAMETERS = {
+    'tracking_window_size_px': 0,
+    'adaptive_thresh_win_size_min_px': 3,
+    'adaptive_thresh_win_size_max_px': 23,
+    'bit_sample_px_per_cell': 4,
+    'bit_ignored_margin_per_cell': 0.13,
+}
 
 
 def launch_setup(context):
@@ -49,7 +62,13 @@ def launch_setup(context):
         raise RuntimeError(f'[projection_calibration.launch]: '
                            f'projector_center:={projector_center_argument}: use true or false')
     is_projector_center_run = projector_center_argument == 'true'
-    if is_projector_center_run and camera not in DEPTH_CAMERAS:
+    projection_calibrator_parameters = [*params_file_paths,
+                                        {'projector_center': is_projector_center_run}]
+    # The same display the projector app gets; without one, the calibrator's own default applies
+    projector_display_id = get_projector_display_id(context, read_launch_section(context))
+    if projector_display_id is not None:
+        projection_calibrator_parameters.append({'display_id': projector_display_id})
+    if is_projector_center_run and camera not in DEPTH_CAMERA_NAMES:
         raise RuntimeError(f'[projection_calibration.launch]: projector_center:=true needs a '
                            f'depth camera, but the camera is {camera}: run it with '
                            f'camera:=kinect or camera:=realsense')
@@ -60,7 +79,9 @@ def launch_setup(context):
         output='screen',
         emulate_tty=True,
         # The projector centre needs the markers in 3D (corners_3d)
-        parameters=[*params_file_paths, {'use_depth': is_projector_center_run}],
+        parameters=[*params_file_paths,
+                    FIDUCIALS_DETECTOR_GENERAL_DETECTION_PARAMETERS,
+                    {'use_depth': is_projector_center_run}],
     )
     projection_calibrator_node = Node(
         package='surface_selector',
@@ -68,7 +89,7 @@ def launch_setup(context):
         name='projection_calibrator_node',
         output='screen',
         emulate_tty=True,
-        parameters=[*params_file_paths, {'projector_center': is_projector_center_run}],
+        parameters=projection_calibrator_parameters,
         # Stored or failed: the camera and the projector are not needed any longer
         on_exit=Shutdown(reason='projection calibration finished'),
     )
@@ -90,6 +111,7 @@ def generate_launch_description():
             default_value=default_params_file_path,
             description='Parameter file describing this physical PAR setup.'),
         create_profile_launch_argument(),
+        create_projector_display_id_launch_argument(),
         DeclareLaunchArgument(
             'camera',
             default_value='',

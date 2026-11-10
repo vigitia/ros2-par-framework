@@ -2860,3 +2860,1496 @@ the calibrator is done.
   already running camera, which would depend on what else was started.
 - The body frame per camera (`<camera>_link`, the Kinect's `camera_base`) is derived in the launch file, matching
   `create_camera_nodes`.
+
+## 2026-11-06 — Setup wizard skeleton: Flutter app and FastAPI backend (`setup_wizard/`)
+
+**What:** New top-level folder `setup_wizard/` with a Flutter desktop project (`app/`, package `par_setup_wizard`,
+Linux only for now, generated with `flutter create --empty`) and a Python backend (`backend/setup_wizard_backend.py`,
+FastAPI served by uvicorn on `127.0.0.1:8800`, one endpoint `GET /api/status`). `backend/requirements.txt` adds
+`fastapi` and `uvicorn`; `scripts/local_build.sh` includes it in its single `pip` call.
+
+**Why:** The setup wizard is rebuilt in Flutter so the same UI can later run on a phone or in a browser. Everything
+that touches the PAR machine (profiles, cameras, displays, launches) goes through a backend on that machine, so the
+desktop app already talks to it the way a phone or browser will.
+
+**Decisions and rejected alternatives:**
+- Outside `packages/`, because colcon scans that folder; the backend is not a ROS package, it will start launches as
+  subprocesses. Rejected: an `ament_python` package under `packages/` (a build step for something no node depends on).
+- FastAPI + uvicorn: WebSockets built in (needed for live sharpness, preview, logs, install progress), typed request
+  validation at the network boundary, generated API docs at `/docs`, and the same stack as the worksheets app's
+  backend. Rejected: Flask (WebSockets only through add-ons, one thread per open connection or a Socket.IO protocol
+  the Dart side would need a special client for; no built-in validation), aiohttp (nothing else in the project uses
+  it), rosbridge (cannot start processes or read files), gRPC (browsers need a proxy), the Flutter app starting
+  Python directly (rules out phone and browser).
+- Installed into the shared `.venv` instead of a separate environment like the worksheets backend, because the
+  backend will import `launch_helpers` from the sourced workspace; lower bounds match worksheets so the one `pip`
+  call stays conflict-free.
+- Bound to `127.0.0.1` only: nothing authenticates requests yet. Port 8800 because the worksheets backend uses 8000.
+- Linux desktop only for now; web and Android are added later with `flutter create --platforms=... .`.
+- The app reaches the backend through the `http` package (Dart team), wrapped in `SetupWizardBackendClient`
+  (`lib/setup_wizard_backend_client.dart`) so screens never build URLs themselves. Rejected: `dart:io`'s
+  `HttpClient`, which does not exist in a browser build. The start screen shows the connection and the machine name
+  at the bottom, with the command to start the backend when it is unreachable.
+
+## 2026-11-06 — Setup wizard: profile list and start screen dropdown
+
+**What:** The backend lists the profiles (`GET /api/profiles`: the names of `config/profiles/*.yaml` and the one
+selected last time) and stores the selection (`PUT /api/profiles/last-selected`) in the hidden file
+`config/profiles/.setup_wizard_last_selected_profile`. The app's start screen (`lib/start_screen.dart`) shows a
+dropdown of the profiles with the last one preselected and "+ New profile" at the end; Continue saves the selection
+and opens a placeholder for the overview or the new-profile screen, which come next.
+
+**Why:** First step of the wizard's flow: a returning user picks their hardware setup, a new user creates one.
+
+**Decisions and rejected alternatives:**
+- The backend reuses `FOLDER_PATH_PROFILES`, `FILE_NAME_PART_PATTERN` and `get_path_in_config_folder` from
+  `launch_helpers`, so it finds exactly the profiles `profile:=` accepts. This needs a sourced workspace to start
+  it. Rejected: deriving `packages/par-framework-core/config/` from the backend's own path (works unsourced, but
+  copies the lookup and misses its `--symlink-install` handling).
+- The last selection lives in the profiles folder, which is gitignored as a whole, because it belongs to the
+  machine, not the repository. A leading dot and no `.yaml` keep it out of the profile list. Rejected: a file in
+  `config/` (would need its own `.gitignore` entry) or remembering it in the app (a phone would not know what the
+  desktop chose).
+- `PUT` accepts only names of existing profiles, since the name ends up in a file path and in `profile:=`;
+  unknown names get 404, malformed requests FastAPI's 422.
+- Without a stored selection the first profile is preselected, without any profile "+ New profile".
+- Running without a profile (`par_setup.yaml` alone) is not offered: a hardware setup is a profile.
+
+## 2026-11-06 — Setup wizard: profile cards, title and dark theme
+
+**What:** The start screen shows every profile as a card with its cameras, sensor nodes and apps instead of a
+dropdown; a click selects a card (highlighted border), the last card starts a new profile. `GET /api/profiles`
+returns one summary per profile for this. The app is titled "ROS 2 PAR Framework" (app bar, `MaterialApp.title`
+and the native window title in `linux/runner/my_application.cc`) and always uses a dark Material 3 theme.
+
+**Why:** Choosing a hardware setup by name alone needs knowing what each name means; the card shows it.
+
+**Decisions and rejected alternatives:**
+- The backend reads a profile's `par_launch` section through `launch_helpers.read_launch_section` with a
+  `LaunchContext` whose `params_file` and `profile` are set as `par.launch.py profile:=<name>` would set them, so
+  the cards show exactly what a launch would run. Rejected: merging the YAML files itself (a second copy of the
+  merge rules) or importing the private `_merge_parameters`.
+- Sorting the switches: `demo_app` and `rendering_manager` are apps; `projection_mask`, `rviz` and `capture_camera`
+  are not shown as nodes; every other switch that is on counts as a sensor node, so a new detector appears without
+  a backend change. The capture camera is listed under cameras. Rejected: an explicit sensor node list copied from
+  `DETECTORS` in `par.launch.py` (two lists to keep in sync). The rendering manager's per-page apps are not shown.
+- A profile whose files cannot be read gets a card with the error instead of failing the whole list.
+- Dark theme always (`themeMode: ThemeMode.dark`), not following the desktop setting, since projection setups
+  usually run in dimmed rooms.
+
+## 2026-11-06 — Setup wizard: projector background on the start screen
+
+**What:** `lib/projector_background.dart` draws a simplified grey projector in top view (body with a few vent lines,
+lens barrel pointing down with light yellow glass), fixed at the top centre with its upper quarter above the
+window's edge, and a faint yellow light cone from the lens that reaches the window's edges. Only the cone follows
+the mouse cursor, by a quarter of the angle and at most 12°. The start screen wraps its content in it and extends
+its body behind the connection bar (`extendBody`), so the light reaches the window's bottom edge.
+
+**Why:** Makes the start screen recognisable as the projection framework's, without an image asset.
+
+**Decisions and rejected alternatives:**
+- Drawn with a `CustomPainter` from a few shapes, so it scales with the window and needs no file. Rejected: an SVG or
+  PNG asset (needs a package such as `flutter_svg` for SVG, or a fixed-resolution image).
+- The projector stays still and only the light moves, and only slightly, so the background does not distract.
+- The cone is drawn longer than the window and clipped to it, so it always ends at the window's edges.
+- The widget wraps the content and tracks the cursor with a translucent `MouseRegion`, because a background behind
+  the content would not receive hover events over the cards. The cursor position goes through a `ValueNotifier`
+  passed as the painter's `repaint`, so a mouse move repaints only the background, not the cards.
+- The cone fades with the distance from the lens, so text over it stays readable; the cards are opaque anyway.
+
+## 2026-11-06 — Setup wizard: camera calibration state on the profile cards
+
+**What:** `GET /api/profiles` reports per camera of a profile the state of its intrinsics (`calibrated`, `factory`,
+`missing`, `unsupported`) and of its pose (`measured`, `placeholder`, `invalid`, `unsupported`). The app combines
+both into three levels and shows them as an icon on the camera chip: green check (everything the camera supports is
+calibrated), amber warning (one of the two), red cross (neither); a tooltip names each state.
+
+**Why:** Shows at a glance which hardware setup is ready and which still needs a calibration step.
+
+**Decisions and rejected alternatives:**
+- Intrinsics and pose together in three levels, chosen over intrinsics only (would hide a missing pose, which every
+  table coordinate depends on) and one icon per calibration including the projection mapping (too busy for a card;
+  belongs on the overview).
+- The intrinsics file name comes from `launch_helpers.get_camera_info_file_name`, with the node section and serial
+  parameter per camera copied from the `create_*_node` functions (marked as a simplification in the backend; a
+  shared function returning a camera's intrinsics path would remove the copy). Kinect and RealSense count as
+  calibrated (factory intrinsics); the event camera's intrinsics and the capture camera's pose are `unsupported`
+  and do not count against the level.
+- The pose is the file `create_mount_tf_publisher` reads (`camera_pose_<camera>.yaml` in the profile's extrinsics
+  folder), checked with `get_invalid_pose_keys`, so a broken file shows as `invalid` instead of as measured.
+- Intrinsics files are only checked for existence, not content (marked as a simplification).
+- Icons differ in shape as well as colour, so the state does not depend on telling green, amber and red apart.
+
+## 2026-11-06 — Setup wizard: profile names and installed cameras in the new-profile wizard
+
+**What:** The wizard's first step (`new_profile_hardware_step.dart`) asks for a friendly profile name (e.g. "Labor
+Neu") and an internal name (e.g. `labor_neu`), derived while typing and editable, and lists the installed cameras as
+checkboxes (none, one or several). New backend module `cameras_api.py` (`GET /api/cameras`: every camera of
+`CAMERA_DRIVER_REMAPPINGS`, its driver packages and whether they are installed) and the app-side
+`lib/cameras_api.dart`. `NewProfileDraft` holds `profileDisplayName`, `profileName` and a list `cameraNames`.
+
+**Why:** The internal name is a file name and the value of `profile:=`, so it must be plain; people should still be
+able to call their setup what they like. A profile can now have several cameras.
+
+**Decisions and rejected alternatives:**
+- The internal name is derived (lowercase, ä/ö/ü → ae/oe/ue, ß → ss, other characters → `_`) until the user edits it
+  by hand; emptying it hands it back to the derivation. Checked against `FILE_NAME_PART_PATTERN` and the existing
+  profiles. Rejected: only one name field (either unreadable names on the cards or unsafe file names).
+- "Installed" means every driver package of the camera is found by `ament_index_python` (`has_resource`), the check
+  `par.launch.py` uses for optional nodes. The camera → package map copies the `create_*_node` functions (marked as
+  a simplification). Not-installed cameras are named in one line instead of being hidden, so it is clear they exist.
+- Rejected: listing only connected cameras; detecting connected units is a separate step (see the card's
+  multi-camera section), and the list now selects camera types, not units.
+- The friendly name is not stored yet: finishing the wizard still saves nothing.
+
+## 2026-11-06 — Setup wizard: profiles open on click, internal profile name hidden
+
+**What:** The start screen has no Continue button any more: clicking a profile card stores it as the last used one
+and opens its hub; clicking "New profile" opens the wizard. The last used profile stays framed. In the wizard's
+first step the internal name field is gone: `createInternalProfileName` generates it from the friendly name
+(umlauts transliterated, other characters → `_`, `profile` when nothing usable is left). A name whose profile
+exists already is refused with a warning under the field; Next stays disabled. Ticking a camera in that step shows
+the live preview of the camera ticked last next to the list (`CameraPreviewView`, below the list in narrow
+windows).
+
+**Why:** One click less per start, and the internal name is a technical detail users should not have to handle.
+
+**Decisions and rejected alternatives:**
+- A taken name is refused instead of made unique with a suffix: two profiles that differ only by `_2` would be
+  hard to tell apart. Names are compared by their internal form, so "Labor Neu" and "labor-neu" collide. Rejected:
+  showing the internal name read-only (still a detail users need not see).
+- The preview shows one camera at a time (the neutral camera topics exist once), the one ticked last, so the user
+  sees which camera is which while choosing.
+- Next waits for the existing profiles to load, so a taken name is always detected.
+- The frame on the last used profile is kept as orientation, although selecting no longer needs it.
+
+## 2026-11-06 — Setup wizard: camera preview stops when nobody watches
+
+**What:** A watchdog thread in `camera_preview_api.py` stops the preview's camera once no frame was requested for
+`PREVIEW_UNWATCHED_TIMEOUT_S` (5 s); the app requests one about every 0.1 s while a preview is shown.
+
+**Why:** The camera kept running after the preview was left. The app's stop request on leaving the screen does not
+cover every case, e.g. a closed window or a crashed app.
+
+**Decisions and rejected alternatives:**
+- In the backend, because only the backend sees every way a preview can end. Rejected: relying on the app's stop
+  alone (never sent when the app quits or crashes), a stop request on window close (desktop only, not for a phone
+  or browser that loses its connection).
+- Five seconds, so a short hiccup in polling does not restart the camera, but an abandoned camera does not keep the
+  device busy for long.
+
+## 2026-11-06 — Setup wizard: settings of the previewed camera
+
+**What:** `GET /api/camera-preview/settings` (in `camera_preview_api.py`) reads the previewed camera's settings
+live from its driver node through the ROS 2 parameter services (`AsyncParameterClient`: `list_parameters`,
+`describe_parameters`, `get_parameters`) and returns name, value, type, description, range and read-only flag.
+`lib/camera_settings_view.dart` lists them read-only under the preview in the wizard's first step and retries
+while the camera is still starting.
+
+**Why:** The user should see which settings a camera offers and their allowed ranges, from one source that always
+matches the installed driver.
+
+**Decisions and rejected alternatives:**
+- Ranges and descriptions come from the drivers' `ParameterDescriptor`s, ROS 2's own mechanism, which our nodes
+  already use. Rejected: the comments in `par_setup.yaml` (written for people, no fixed format, ranges only as
+  prose) and a separate table of ranges (would drift from the drivers).
+- Shown are the parameters with a range plus a few per camera without one (resolution, frame rate); both the
+  driver node names and that list are copied knowledge, marked as simplifications until the camera catalog names
+  the node and the settings to show.
+- One parameter client per driver node, kept for the backend's lifetime, because rclpy offers no way to destroy
+  one on its own. Waiting for the driver happens outside the session lock, so frames keep flowing.
+- Read-only for now; changing values (live through `set_parameters` or by restarting the driver) and storing them
+  in the profile come later.
+
+## 2026-11-06 — Setup wizard: cameras as a cart, preview and settings in the next step
+
+**What:** The wizard's first step lists the installed camera types with − count + instead of checkboxes; every
+added camera becomes an instance named `<type>_<n>` (`NewProfileDraft.cameraInstances`, `CameraInstanceDraft`).
+Preview and settings left that page: the camera image step now goes through the instances one by one with the
+live preview and the settings next to it, the intrinsics step with the preview only, both through the shared
+`lib/camera_instance_preview_panel.dart`.
+
+**Why:** A setup can contain several units of one type (e.g. two Brios), and the first page should stay a quick
+choice of name and hardware.
+
+**Decisions and rejected alternatives:**
+- Instances named `<type>_<n>` with the lowest free number, as decided for the multi-camera model; removing takes
+  the instance added last, like lowering a count in a cart. Editing instance names comes with choosing units.
+- One shared panel for both steps instead of a copy in each; the settings list is switched on per step.
+- Until each instance gets its unit (serial or USB port), the preview starts a camera by type, so every instance
+  of one type shows the same physical camera; the panel says so (marked as a simplification).
+
+## 2026-11-07 — Setup wizard: start screen shows one profile, switching through a menu
+
+**What:** The start screen shows only the profile opened last time, as one card centered on the page (the first
+profile when the last one no longer exists, the "New profile" card when there is none). A menu button in the
+bottom left corner, next to the backend connection, lists all profiles (the shown one checked) and "New profile".
+Picking a profile in the menu only switches the shown card; clicking the card opens the profile, which also
+remembers it as the last opened one.
+
+**Why:** A machine rarely changes its hardware setup, so a grid of all profiles made the common case (open the
+same profile again) compete with a rare one.
+
+**Decisions and rejected alternatives:**
+- Picking a profile in the menu shows its card instead of opening it right away: the card shows the calibration
+  state before the user commits, and opening stays one click on the card. Rejected: opening directly from the
+  menu, which would make the centered card pointless for every profile but the last one.
+- `MenuAnchor` with one `MenuItemButton` per entry instead of a `DropdownButton`: each entry has its own action,
+  so "New profile" needs no sentinel value mixed in with the profile names.
+
+## 2026-11-07 — Setup wizard: camera settings shown generically
+
+**What:** The camera image step shows every parameter of the camera's driver node, except those ROS 2 itself
+adds to nodes and image publishers (`use_sim_time`, `start_type_description_service`, `qos_overrides.*`,
+image_transport's `*.enable_pub_plugins` and plugin parameters such as `image_raw.compressed.jpeg_quality`).
+`EXTRA_SHOWN_SETTING_NAMES_BY_CAMERA` and the rule "only settings with a range" are gone.
+
+**Why:** The wizard is meant to work with any ROS 2 camera driver that follows ROS conventions, without code per
+driver. Showing only ranged parameters hid settings the camera image step needs, e.g. a webcam's
+`auto_exposure` (a menu control without range) and `white_balance_automatic` (a bool): the automatic modes must be
+switched off before manual exposure or white balance take effect.
+
+**Decisions and rejected alternatives:**
+- Filter out what ROS adds rather than pick what a driver adds: the ROS side is the same for every driver, a pick
+  list would have to be written per driver. Rejected: adding the missing names to the per-camera list (one more
+  special case per driver).
+- image_transport plugin parameters are recognised by the plugin names shipped with ROS 2 (marked as a
+  simplification); asking pluginlib for the installed plugins would cover third-party plugins too.
+- Wiring parameters of the driver (device path, frame id, `camera_info_url`, serial) are shown as well: ROS has
+  no convention that separates them from image settings. How to group or hide them is open.
+
+## 2026-11-07 — Setup wizard: table on the start screen
+
+**What:** The start screen's profile card stands on a dark table drawn at the bottom of the window
+(`lib/tabletop_shape.dart`): a tabletop seen slightly from the front, narrower at the back, above a darker front
+face that the connection bar and the profile menu sit on. `ProjectorBackground` takes an optional
+`surfaceUnderLight`, drawn behind the light cone, so the projector's light falls onto the tabletop.
+
+**Why:** The framework projects onto a table; the start screen now shows that scene: projector, light, table,
+and the profile on it.
+
+**Decisions and rejected alternatives:**
+- The table lies under the light cone instead of in front of it: in front, it cut the light off at its back edge
+  like a wall.
+- The front edge spans the whole window, as if the user stood at the table, so the menu in the bottom left corner
+  sits on the table. Rejected: a table narrower than the window, which left the menu next to it on the floor.
+- Drawn from shapes in the theme's colours, like the projector, so it scales with the window and needs no image.
+- Known limit: the light also falls onto the vertical front face, which a real projector from above would not
+  light.
+
+## 2026-11-07 — Setup wizard: camera preview survives resizing and step changes
+
+**What:** Starting a preview returns a `preview_id`; stopping names that id instead of the camera, and the backend
+ignores a stop for any other preview. `CameraPreviewView` remembers its id and also stops a preview whose start
+was answered only after the view had closed. The new-profile wizard builds only the current step's content, and
+`CameraInstancePreviewPanel` keeps preview and settings under `GlobalKey`s. Below a width that grows with the
+number of steps, the wizard's stepper is vertical. A long setting value wraps instead of overflowing.
+
+**Why:** Resizing the window across the panel's side-by-side width disposed the preview and created a new one;
+the new view started the camera, the old one's stop named the same camera, and the backend ended the new preview.
+Flutter's `Stepper` keeps every step's content alive (horizontal: `Visibility(maintainState: true)`, vertical:
+`AnimatedCrossFade`), so the hidden Intrinsics step ran a second preview of the same camera, each start replacing
+the other's camera process. The horizontal stepper header overflowed in narrow windows, and since every driver
+parameter is shown, a file URL overflowed the settings list.
+
+**Decisions and rejected alternatives:**
+- The id protocol fixes the race at its root: any two views previewing one camera (resize, Next, Back) can no
+  longer stop each other. Rejected: only the `GlobalKey`s, which fix the resize but not moving between steps.
+- The `GlobalKey`s are kept on top, so a resize moves the running preview instead of restarting the camera.
+  Switching between vertical and horizontal stepper still rebuilds the step and restarts the preview; that is rare
+  and now safe.
+- Steps restore themselves from `NewProfileDraft` when they come back, so not keeping hidden steps alive loses no
+  input.
+
+## 2026-11-07 — Setup wizard: light ends at the table, brighter rays through the cursor
+
+**What:** The light cone no longer has a fixed opening angle and no longer turns towards the mouse. Its edges run
+from the lens to the tabletop's back corners and cover the whole tabletop to its front edge. While the cursor is
+inside the light, a narrow, blurred wedge of brighter rays runs from the lens through the cursor. The table moved
+into the projector background's painter (`tabletop_shape.dart` now holds its geometry and painting), replacing
+the `surfaceUnderLight` slot.
+
+**Why:** The light should match the table at every window size, as a projector set up for its table does, and the
+cursor reads as something held into the light.
+
+**Decisions and rejected alternatives:**
+- The cone follows from the table's corners instead of an angle: an angle that fits one window size misses the
+  table in another. The vertical front face stays dark, as under a projector shining from above.
+- Table and light in one painter, because the light's shape depends on the table's corners. Rejected: passing the
+  table geometry between two widgets, which keeps two places that must agree.
+- The wedge is clipped to the light and drawn only while the cursor is inside it: rays cannot pass through a
+  cursor that is outside the light.
+
+## 2026-11-07 — Setup wizard: preview restarts reliably, camera feeds and editable settings
+
+**What:**
+- Backend (`camera_preview_api.py`): a start no longer refuses because of the camera it has just stopped. The
+  publishers of `/camera/image_raw` that a stopped preview had (by DDS endpoint GID) are remembered and count
+  neither as another program's camera nor as the next preview's driver.
+- The driver node is found as the node publishing `/camera/image_raw`; `DRIVER_NODE_NAME_BY_CAMERA` is gone.
+  `GET /api/camera-preview/feeds` lists every `sensor_msgs/Image` topic that node publishes, and
+  `GET /api/camera-preview/frame?topic_name=` serves each feed; depth and 16-bit images (`16UC1`, `mono16`,
+  `32FC1`) are stretched to 8-bit gray between their 1st and 99th percentile, 0 and NaN staying black.
+- `PUT /api/camera-preview/settings` sets one setting on the running driver through `set_parameters`; the value is
+  converted to the parameter's current type (whole numbers only for integers), and a refusal returns the
+  driver's reason. Settings carry the descriptor's `additional_constraints`.
+- The start takes an optional `profile_name` (`profile:=`), checked against the saved profiles
+  (`profiles_api.check_profile_exists`, also used by the last-selected endpoint). Profile summaries name the
+  camera type to preview (`preview_camera_name`), None for the capture camera.
+- App: `CameraPreviewView` shows every feed (one large, several in two columns), each polling its own frames.
+  `CameraSettingsView` offers a switch for bools, a slider for numbers with a range (sent on release), a text
+  field otherwise (sent with Enter, lists comma-separated), and shows the driver's refusal under the setting.
+  `CameraPreviewWithSettingsView` (feeds plus settings, side by side or stacked, with the `GlobalKey`s) is shared
+  by the wizard panel and the hub's overview, which now lists the profile's cameras: clicking one starts it with
+  the profile's settings.
+
+**Why:** Moving from the Camera image to the Intrinsics step stopped one preview and started the next; the old
+driver, ended by a signal, stays in the ROS graph until its DDS lease runs out, so the start took it for another
+program's camera and refused. A depth camera has several images worth checking (colour, depth, infrared), and
+settings must be adjustable both while creating a profile and later.
+
+**Decisions and rejected alternatives:**
+- Generic throughout: driver node, feeds and settings come from the ROS graph and the parameter services, so any
+  convention-following driver works. Rejected: per-driver lists of node names and topics.
+- Remembering stopped publishers by GID instead of waiting until they leave the graph: the lease can take
+  seconds; a camera started elsewhere is still refused.
+- Special cases, marked in the code: the event camera's images come from `event_camera_renderer`, so its
+  settings are the renderer's; the capture camera starts only together with the main camera and has no preview
+  of its own; a menu's options are only shown as text, because ROS gives `additional_constraints` no format.
+- Changes apply to the running driver only and are not saved in the profile yet.
+
+## 2026-11-07 — Setup wizard: projector step with the connected displays
+
+**What:** A new-profile step "Projector" between Camera image and Intrinsics lists the connected displays as
+cards (display id, resolution, refresh rate, position on the desktop, connector, make, model and serial from the
+EDID); clicking one stores its id in `NewProfileDraft.projectorDisplayIds` (renamed from the unused
+`projectorDisplayNames`). Next stays disabled until a display is chosen. Backend: `displays_api.py`,
+`GET /api/displays`.
+
+**Why:** The calibrations that follow project onto the projector, so it has to be known before them.
+
+**Decisions and rejected alternatives:**
+- Displays are listed through SDL, because the framework's `display_id` is SDL's display index
+  (`surface_selector` lists displays with pygame, the rendering manager counts the same way); another source
+  could number the displays differently. SDL is loaded with `ctypes` from the system library pygame also uses,
+  so the backend needs no new Python package. Rejected: importing pygame (comes only with the optional
+  calibration repo), xrandr or Mutter's D-Bus interface (other numbering, desktop-specific).
+- Make, model and serial come from the EDID under `/sys/class/drm`, since SDL names only the connector; this part
+  is Linux-specific.
+- One projector for now, the draft holds a list for setups with several.
+
+## 2026-11-07 — Setup wizard: wider cursor rays that light up the tabletop
+
+**What:** The brighter rays through the cursor are drawn as a sweep gradient around the lens (6° to each side,
+fading to both edges), clipped to the light, and once more on the tabletop, where they hit it brighter.
+
+**Why:** The rays were too narrow, and they did not visibly reach the table.
+
+**Decisions and rejected alternatives:** A sweep gradient is bright by angle, so the rays reach exactly as far as
+the light, whatever the window size. Rejected: the blurred wedge, whose length and blur depended on the window
+and the renderer.
+
+## 2026-11-07 — Setup wizard: lens (intrinsic) calibration in the app
+
+**What:** Backend `intrinsics_api.py`: `GET /api/intrinsics/camera-state` tells for the previewed camera where its
+intrinsics come from (no `camera_info` published, all-zero camera matrix = uncalibrated, the file in the driver's
+`camera_info_url` exists, otherwise the camera itself) and whether the driver offers `/camera/set_camera_info`.
+`/api/intrinsics/calibration/{start,progress,frame,calibrate,save,stop}` run ROS's `camera_calibration` library
+(`MonoCalibrator`) on the preview's frames in a worker thread: coverage of left-right, top-bottom, near-far and
+tilt, the number of views, "good enough", the frame with the detected board (rectified once calibrated, with the
+remaining line error), calibration in the background, saving through `set_camera_info`. App:
+`intrinsics_calibration_view.dart` (state, board form with the measured square size, coverage bars, result with
+Save / Discard) in the Intrinsics step; `CameraInstancePreviewPanel` takes a builder for the selected camera's
+content instead of a settings switch. Helpers of `camera_preview_api.py` used by both modules are public now.
+
+**Why:** Calibrating a camera needed a terminal (`run_cameracalibrator.sh`) and the user had to know which cameras
+need it.
+
+**Decisions and rejected alternatives:**
+- Generic need check from `camera_info` and the `camera_info_url` parameter, the conventions every ROS camera
+  driver follows, instead of per-driver lists (`FACTORY_INTRINSICS_CAMERA_NAMES`); it needs the camera running,
+  so the profile cards keep their file-based check for now.
+- The library inside the backend instead of starting `cameracalibrator`: its window would open on the PAR
+  machine's screen, outside the app and out of reach from a phone later. The library is the same code, so the
+  coverage rules and the result are the same.
+- The driver stores the result itself (`set_camera_info`), so the file lands where the driver reads it. A driver
+  without that service (e.g. the Azure Kinect's) cannot be calibrated from the app; the app says so.
+- The calibration runs in the background, because it can take long with many views of large images; progress
+  requests never wait for it.
+- The square size has no default: it sets the calibration's scale and must be measured on the print.
+- Special cases: only `file://` calibration URLs are resolved; `camera_calibration` is not declared as a
+  dependency of anything yet (it was only used by the script), the backend names the install command when it
+  is missing.
+
+## 2026-11-07 — Setup wizard: preview start without 500, protected factory calibrations, settings layout
+
+**What:**
+- `camera_preview_api.py`: a publisher of `/camera/image_raw` whose node ROS does not know yet (it reports
+  `_NODE_NAMESPACE_UNKNOWN_` right after a camera starts) counts as "camera still starting" (503) instead of being
+  passed on as a node name; listing a node's topics that fails because the node left meanwhile is a 503 too.
+- `launch_helpers.CAMERA_DRIVER_REMAPPINGS['webcam']`: `v4l2_camera` creates `set_camera_info` at the root, like
+  the Blackfly driver, so the remap now starts from `/set_camera_info`.
+- `par_framework_core/package.xml`: `camera_calibration` declared as an exec dependency.
+- `intrinsics_api.py`: starting and saving a calibration are refused (409) for a camera that brings its own
+  calibration, one without `camera_info` and one without `set_camera_info`; the app offers no calibration for
+  them either.
+- App: changeable settings first, read-only ones below "Fixed by the driver"; integer settings with at most 12
+  values and `v4l2_camera`'s menus get a dropdown; the settings scroll in an area of their own (as high as a
+  feed next to it, a fixed height below it), so the feeds stay in place.
+
+**Why:** The app asked for the feeds right after the start and got a 500 from the half-known node. The webcam's
+calibration could not be stored (neither from the app nor with `run_cameracalibrator.sh`, whose
+`--no-service-check` hid it). A calibration stored through `set_camera_info` would make a driver use the file
+instead of the camera's own calibration from then on, which must never happen by accident.
+
+**Decisions and rejected alternatives:**
+- The protection is checked in the backend at start and again right before saving, not only in the app: a phone
+  or browser client later must not be able to bypass it.
+- Dropdowns for small integer ranges are generic; reading menu labels from `additional_constraints` follows
+  `v4l2_camera`'s format and is marked as a special case, other text stays a hint next to a number field.
+- Fixed heights for the settings area instead of filling the window: the wizard's steps sit in the stepper's
+  scroll view, which gives its content no height to fill.
+
+## 2026-11-07 — Setup wizard: delete profiles
+
+**What:** `DELETE /api/profiles/{name}` (`profiles_api.py`) moves the profile file and its extrinsics folder
+(`calibration/extrinsics/<name>/`) into `config/profiles/.deleted/<name>_<date>_<time>/`. The start screen's profile
+menu has "Delete <profile> …" for the shown profile, with a confirmation dialog that says where the files go.
+
+**Why:** Profiles could only be removed by hand in the config folder.
+
+**Decisions and rejected alternatives:**
+- Moved, not deleted for good: both folders are gitignored, so nothing could be recovered, and measured camera
+  poses and projector calibrations take real work to redo. Rejected: deleting the files, deleting only the
+  profile file (would leave orphaned extrinsics that a new profile of the same name would silently pick up).
+- Lens calibrations stay: they belong to the camera unit, not to the profile.
+- Only names of listed profiles are accepted, so a request cannot move other files (e.g. `../x`).
+
+## 2026-11-07 — PAR apps in the ament index; one app on the projector
+
+**What:**
+- Apps register in the ament index under the resource type `par_framework_apps`: the marker file's content is the
+  app's entry (display name, description, `executable` or `launch_file`, `required_launch_switches`,
+  `used_calibrations`). Blueprint and format: `templates/par_app/` (README, entry, `setup.py`, `package.xml`, a
+  launch file that also starts a web frontend with `ExecuteProcess`).
+- `launch_helpers.get_par_app_package_names()` / `read_par_app_entry()` list and check the entries, used by
+  `par.launch.py` and the setup wizard backend alike.
+- `par_launch.projector_app` (`none`, `rendering_manager` or a PAR app's package; launch argument
+  `projector_app:=`) replaces the booleans `demo_app` and `rendering_manager`; `par_launch.projector_display_id`
+  (argument `projector_display_id:=`) replaces the `display_id` of `demo_app_node` and the `rendering_manager`
+  section. `par.launch.py` starts the chosen PAR app generically (its executable as a node with `display_id`, or
+  its launch file with `params_file`, `profile`, `display_id`) and switches on the nodes it requires. The old
+  switches stop the launch with the replacement in the message; the two local profiles using them were changed.
+- Backend: `GET /api/apps` (`apps_api.py`) lists the apps that can own the projector; the profile cards take the
+  app from `projector_app` and list the nodes the app requires.
+- `demo_app` is the first registered app (in its own repo); the rendering manager's README uses the new argument.
+
+**Why:** The wizard is to choose the app of a profile, generically: a new app must show up without a change to the
+wizard or core. Two booleans also allowed two apps on one projector, which only logged a warning.
+
+**Decisions and rejected alternatives:**
+- The ament index is ROS 2's mechanism for packages announcing resources to tools (used by `rclcpp_components`,
+  pluginlib, `rosidl_interfaces`), searchable from Python and C++ without crawling. Rejected: an `<export>` tag in
+  `package.xml` (every manifest must be found and parsed), setuptools entry points (Python packages only), a list in
+  the wizard or core (a change per app).
+- Installed vs. running dependencies: `package.xml` keeps what must be installed; the entry names the shared
+  framework nodes that must run, which `par.launch.py` starts once. An app's own launch file starts only what the
+  app owns (its nodes, a frontend or backend server), so shared nodes never run twice.
+- Unknown keys in an entry are an error, not ignored: a misspelt `required_launch_switches` would otherwise start
+  the app without its nodes.
+- A required switch wins over `switch:=false` (marked as a simplification).
+- One string instead of booleans makes two projector owners impossible to choose. The old keys fail loudly instead
+  of being ignored, so a profile does not silently start without its app.
+- The rendering manager stays a special case in `par.launch.py` and the backend until it has its own launch file.
+
+## 2026-11-07 — Setup wizard: preview no longer stopped while the camera starts; start screen design
+
+**What:**
+- Backend: asking for the feeds (`GET /api/camera-preview/feeds`) now counts as watching the preview, like a frame
+  request, so the watchdog keeps a starting camera running.
+- App: a feed keeps asking for frames after a failed request (retry every second, error shown until frames come
+  back) instead of giving up for good.
+- Start screen: no title bar (the window title names the app); the projector light is a pale white instead of
+  yellow (`projectorLightColor`); the table has an apron and two front legs down to the window's bottom edge, with
+  the connection bar between the legs (`computeTableHeightBelowTabletopLogicalPx` replaces
+  `computeTableFrontFaceHeightLogicalPx`).
+
+**Why:** The preview failed often, especially on the calibration step. After a camera restart ROS reports the new
+driver node several seconds after the driver runs, during which the app only asks for the feeds. The watchdog,
+which stopped a camera after a few seconds without a frame request, could stop it before the app asked for a single
+frame. One failed frame request (e.g. a timeout while the machine is busy calibrating) also ended that feed's polling,
+after which the watchdog stopped the camera too.
+
+**Decisions and rejected alternatives:**
+- Feeding the watchdog from the feeds request, instead of a longer watchdog timeout: the timeout would also keep a
+  forgotten camera running longer, and a slower camera would still hit it.
+- Only the front legs are drawn: in this view from slightly above the front, the back legs would stand behind the
+  tabletop. Apron and legs use a colour between the background and the tabletop, so they stand out against the dark
+  background.
+
+## 2026-11-07 — Setup wizard: save camera settings into the profile
+
+**What:**
+- Backend: the preview session remembers the profile the camera was started with and which settings were changed
+  on its driver. `POST /api/camera-preview/settings/save-to-profile` reads their current values from the driver (in
+  the parameter's own type) and writes them with `profiles_api.write_node_settings_into_profile` into
+  `config/profiles/<name>.yaml`. `GET /api/camera-preview/settings` also returns `profile_name` and
+  `unsaved_setting_names`.
+- The writer rewrites the profile with ruamel.yaml's round trip (new dependency in the backend's
+  `requirements.txt`): only values that differ from `par_setup.yaml` are kept (a value equal to it removes its key,
+  an emptied section is removed), into the section that already names the node (with or without leading `/`), else
+  a new section under the node's full name with a "Saved by the setup wizard" comment. Written to a hidden file
+  next to it and moved into place in one step.
+- App: the settings panel shows how many changes are not saved and a "Save to profile" button; without a saved
+  profile (new profile in the wizard) it says the changes apply to the running camera only.
+
+**Why:** Settings changed in the wizard were lost when the camera stopped.
+
+**Decisions and rejected alternatives (decided by Vitus):**
+- Rewrite the profile itself. Rejected: a separate wizard file loaded on top of it, which would silently override
+  hand edits of the same setting.
+- ruamel.yaml instead of PyYAML: PyYAML drops every comment of a rewritten file, and the profiles carry the reasons
+  for their values as comments. All existing profiles and `par_setup.yaml` load and dump byte-identical.
+- The backend tracks the changed settings and reads their values from the driver, instead of the app sending
+  values: the driver's types are exact (`5.0` for a double, which ROS needs in the file), and a value the driver
+  refused is never saved.
+- Saving is an explicit button, not every change, so trying values does not rewrite the profile each time.
+
+## 2026-11-07 — Setup wizard: Finish creates the profile
+
+**What:**
+- Backend: `POST /api/profiles` creates `config/profiles/<name>.yaml` with `par_launch.camera`,
+  `par_launch.projector_display_id` and the display name as a comment, with exclusive create (`open(..., 'x')`), so
+  an existing profile is never overwritten. It refuses names `profile:=` would reject and a profile without a
+  camera. Setting changes made in the wizard are then written into it (`write_node_settings_into_profile`).
+- Backend: changes made while a camera runs without a profile are kept per camera and driver node when that camera
+  stops (the wizard stops it between steps), and taken by the profile creation for its camera.
+  `DELETE /api/camera-preview/new-profile-settings` forgets them; the wizard calls it when it opens. The save
+  endpoint uses the values the driver accepted, recorded at the change, instead of reading them again.
+- App: Finish creates the profile (button shows "Saving …", errors stay in the wizard), returns its name to the
+  start screen, which selects and shows it.
+
+**Why:** Finish closed the wizard without saving anything, so a new profile was lost.
+
+**Decisions and rejected alternatives:**
+- Create the file only at Finish, not after the first step: an abandoned wizard would otherwise leave half a
+  profile behind.
+- Keep the wizard's setting changes in the backend instead of the app: the backend already knows which changes the
+  driver accepted, with their exact types, also after the camera stopped. Changes kept for another camera are
+  dropped at creation, since the profile does not run that camera.
+- Simplification: the profile gets the first camera of the Hardware step, since the framework launches one camera
+  at a time.
+
+## 2026-11-08 — Projection calibration on the profile's projector display
+
+**What:**
+- `projection_calibration.launch.py` passes `par_launch.projector_display_id` (or `projector_display_id:=<n>` for
+  one run) to `projection_calibrator_node` as `display_id`. Without either, the calibrator's own default applies.
+- `get_projector_display_id` moved from `par.launch.py` into `launch_helpers`, together with a new
+  `create_projector_display_id_launch_argument`, so both launch files read and validate the display the same way.
+- `par_setup.yaml`: `projection_calibrator_node.display_id` removed; a comment says where it comes from.
+
+**Why:** the setup wizard stores the projector as `par_launch.projector_display_id`, which the projector app gets,
+but the calibrator read its own `display_id`. A profile made in the wizard could show the calibration markers on
+another display than the one its app draws on. This is the first step of running the extrinsic calibration from the
+wizard.
+
+**Decisions and rejected alternatives:**
+- One setting for the projector display instead of one per node: the calibration and the app must use the same
+  projector, so two settings can only disagree. Rejected: having the wizard also write
+  `projection_calibrator_node.display_id` into the profile (two places to keep in sync, and hand-written profiles
+  would still drift).
+- No profile set `projection_calibrator_node.display_id`, so removing it overrides nothing silently.
+- `surface_selector_node` and `projection_mask`'s debug window still have their own `display_id`; left as they are
+  (outside this change).
+
+## 2026-11-08 — Setup wizard: run camera pose and projector calibration from the backend
+
+**What:**
+- New `setup_wizard/backend/extrinsics_api.py`:
+  - `GET /api/extrinsics/state?profile_name=&camera_name=`: the profile's camera pose (measured or placeholder,
+    height, tilt from straight down, the method's quality figures from the file) and projection mapping
+    (reprojection error, projector size, projector centre, whether it is older than the pose), the calibration
+    kinds the camera offers now, and which packages are missing for them.
+  - `POST /api/extrinsics/run/start`: runs `camera_pose_calibration_sheet`, `camera_pose_calibration_kinect` or
+    `projection_calibration` (with or without `projector_center:=true`) unchanged, with the profile.
+  - `GET /api/extrinsics/run/progress`: running, stored, failed or stopped; for failed and stopped the error lines
+    of the launch's output.
+- `camera_preview_api.start_camera_preview` split into `start_camera_launch(camera, profile, launch file,
+  arguments)`, which the calibration uses too; `read_camera_process_log_lines` made public.
+- `profiles_api.create_profile_launch_context` made public (was `_create_profile_launch_context`).
+
+**Why:** first backend part of the extrinsic calibration in the wizard (quick path: the existing per-camera
+launches, unchanged in what they measure).
+
+**Decisions and rejected alternatives:**
+- A calibration launch runs as the preview's camera process. Each calibration launch starts the camera itself, so
+  the app gets its live image, the stop and the watchdog of the preview without new code. Rejected: a second
+  process slot next to the preview (two launches would fight over the camera device and the neutral topics).
+- Success is a result file newer than the run's start, never the exit code: `ros2 launch` exits with 0 also when
+  the node it shuts down for exited with 1. A projector-centre run also needs the centre in that file.
+- The result is read from the files the calibrators write; failures show the launch's error lines as they are
+  (colour codes removed). Rejected: a status topic from the calibrator nodes (changes both nodes and needs a
+  message type), parsing log text (breaks silently when a message is reworded).
+- The final result of a run is kept once the launch has ended, because the preview's watchdog later stops the
+  ended launch too, which would otherwise make a failed run look stopped.
+- The board method is offered to every camera; the depth method only when the previewed camera publishes
+  `/camera/depth_registered/image_raw` and a depth pose launch exists for it. That launch starts the Kinect driver
+  itself, so it is chosen by camera name in `POSE_DEPTH_LAUNCH_FILE_NAME_BY_CAMERA`, marked as a special case.
+- Camera names are checked against `CAMERA_DRIVER_REMAPPINGS` before they become part of a file path.
+- Tilt is the angle between the body frame's x axis (its viewing direction, REP 103) and straight down, computed
+  from the stored quaternion, so it works for every pose file whichever method wrote it.
+
+## 2026-11-08 — Setup wizard: camera pose and projector calibration screens
+
+**What:**
+- `extrinsics_api.dart`: the app's calls to the backend's extrinsics endpoints.
+- `extrinsics_calibration_view.dart`: one camera's camera pose or projector calibration in a saved profile. It
+  shows what is stored (height, tilt, the method's quality figures; mapping error, projector size, centre, a warning
+  when the mapping is older than the pose), the live image, the start controls (board pose with the board's size,
+  "Use depth instead" where offered; projector mapping, projector centre where offered), Stop while it runs, and the
+  result or the launch's error lines.
+- `screens/extrinsics_calibration_step.dart`: the wizard steps "Camera pose" and "Projector calibration", one camera
+  after the other (`CameraInstancePreviewPanel`).
+- `new_profile_wizard_screen.dart`: six steps. Leaving Intrinsics ("Save profile and continue") creates the
+  profile; Finish only closes the wizard. Back into the steps before is closed once the profile exists, and leaving
+  the wizard in any way hands the saved profile to the start screen.
+- `profile_overview_screen.dart`: for the selected camera, a choice between "Image & settings", "Camera pose" and
+  "Projector".
+
+**Why:** the extrinsic calibration (quick path) from the app, in the wizard and as Redo from the Overview.
+
+**Decisions and rejected alternatives:**
+- The profile is created before the calibration steps (decided with Vitus), because camera pose and projector
+  calibration are stored per profile. Rejected: calibrating only from the Overview, a draft extrinsics folder moved
+  at Finish.
+- One view for both calibrations and both places (wizard, Overview), so a Redo behaves exactly like the wizard step.
+- During a run, the preview widget stays: the run's launch replaces the preview's camera in the backend, so the
+  same frame requests show the run's live image. After the run the preview is started again under a new key.
+- The state is fetched again every 2 s while no run goes, because the depth method is offered only once the
+  previewed camera publishes depth.
+- Simplification: Back into the steps before the saved profile is closed, since `POST /api/profiles` only creates.
+  Upgrade: update the saved profile from those steps.
+
+## 2026-11-08 — Setup wizard: projector shows black during calibrations that do not need it
+
+**What:**
+- Backend `projector_blackout_api.py` (`POST /api/projector-blackout/keep`, `POST /api/projector-blackout/stop`)
+  and `projector_blackout_window.py`: a black fullscreen pygame window on the projector's display, in its own
+  process. A display that is not connected is reported, not an error. A projector calibration run ends the window
+  first (`stop_projector_blackout_for_projection`), since it draws its markers on that display.
+- `profiles_api`: the profile summary carries `projector_display_id` (read with `launch_helpers.get_projector_display_id`,
+  so it is validated as a launch does).
+- App `projector_blackout_api.dart`, `projector_blackout_holder.dart`: holds the blackout while shown and says in one
+  line whether the projector is black. Shown in the wizard steps Intrinsics and Camera pose (the draft's projector),
+  and in the Overview's Camera pose section (the profile's projector).
+
+**Why:** projector light on the table disturbs calibrations that only use the camera, e.g. glare on the checkerboard
+or a bright area that makes the board harder to detect. Asked for by Vitus: every calibration step after the
+projector has been chosen that does not need the projector.
+
+**Decisions and rejected alternatives:**
+- Not in the Camera image step, which comes before the projector is chosen and may need the projector light to tune
+  exposure; not in the projector calibration, which needs the display itself.
+- The app asks again every 2 s and a watchdog ends the window 6 s after the last request, like the camera preview,
+  so a black projector cannot stay on after the app quits or crashes. Rejected: start on enter and stop on leave
+  only (a crashed app would leave the projector black).
+- Every request names its holder (one per screen): moving from one step to the next sends the old screen's stop and
+  the new screen's keep at about the same time, and a stop arriving late must not end the next screen's blackout.
+  A new holder on the same display takes the window over without reopening it.
+- A separate process with pygame, as the calibrator's own fullscreen windows: it can be ended at any time without
+  touching the backend's SDL state (`displays_api` uses SDL in the backend process). `SDL_VIDEO_MINIMIZE_ON_FOCUS_LOSS=0`
+  keeps the window up when the user clicks back into the wizard.
+- A window that ends by itself is reported with its output and not reopened on every request.
+
+## 2026-11-08 — Sensor processing nodes from the ament index; selection and settings in the setup wizard
+
+**What:**
+- `launch_helpers`: resource type `par_framework_sensor_nodes` with `get_sensor_node_package_names`,
+  `read_sensor_node_entry` (checks every key, like the PAR app entry) and `add_required_sensor_nodes`; the YAML
+  loading of both entry kinds is shared (`_read_ament_index_entry`). `templates/sensor_processing_node_entry.yaml`
+  is the blueprint, and `templates/sensor_processing_node.py` points to it.
+- `par.launch.py`: the node switches come from the index (`DETECTORS` and the projection mask's own block are gone);
+  a selected node's `required_sensor_nodes` start along with it; a `par_launch` switch that is true for a node no
+  installed package registers is reported with the fix. The six framework nodes register themselves in their repos.
+- Backend `sensor_nodes_api.py`: the installed nodes and the profile's selection (`GET /api/sensor-nodes`,
+  `PUT /api/sensor-nodes/selection`, written as `par_launch` switches with the existing profile writer), a run of
+  the profile's camera with the selected nodes (`POST /api/sensor-nodes/run/start`, `GET .../run/state`), a node's
+  settings (`GET /api/sensor-nodes/settings`), applying them (`POST .../settings/apply`: into the profile, then
+  the run starts again), and a node's latest output message as text (`GET .../output-message`).
+  `camera_preview_api`: `get_node_parameter_client`, `read_node_settings`, `convert_setting_value` and
+  `join_node_name` are public, so both modules use them.
+- App: hub area "Sensor nodes" (`screens/sensor_nodes_screen.dart`, `sensor_nodes_api.dart`). The per-setting
+  controls moved from `camera_settings_view.dart` into `setting_row_view.dart` (`SettingRowView`), which hands a
+  change to its owner: the camera settings send it to the driver at once, the node settings collect it until Apply.
+  `CameraFeedImage` (live frames of one topic) is public for the camera image and the nodes' image outputs.
+
+**Why:** Vitus wants to choose a profile's sensor processing nodes after opening it, and adjust their settings.
+
+**Decisions and rejected alternatives** (decided with Vitus, details on the card "Setup Wizard"):
+- Nodes register in the ament index, like PAR apps; rejected: a shared list in `launch_helpers`.
+- The selection is the profile's `par_launch` switches, which `par.launch.py` already reads; rejected for now: a new
+  per-camera mapping format, "available only" without starting.
+- None of the nodes applies a parameter change while it runs, so Apply saves into the profile and starts the run
+  again. `read_only` parameters are editable there for that reason. Rejected: making every node apply changes live
+  first, a settings form without running the nodes.
+- Outputs are shown generically from the ROS graph: `sensor_msgs/Image` topics as frames, every other topic as its
+  latest message in YAML (`rosidl_runtime_py.message_to_yaml`, long arrays cut), so a third-party node needs no
+  code in the wizard. Rejected: drawing each node's results onto the camera image (per-node code).
+- A run is `par.launch.py` with the profile and `projector_app:=none rviz:=false capture_camera:=false`, as the
+  preview's camera process, so the watchdog and stop work as for a preview.
+- Unknown setting names are checked against the node's parameter list first, because ROS fails a whole
+  describe request when one name is unknown.
+- Simplification: a parameter `par.launch.py` sets itself (e.g. `use_depth` for a depth camera, `debug`) keeps the
+  launch's value whatever the profile says.
+
+## 2026-11-08 — Intrinsics per profile, the camera's serial pinned in the profile
+
+**What:**
+- `launch_helpers`: `get_intrinsics_folder_path` (the profile's `calibration/intrinsics/<profile>/`, without a
+  profile the shared `calibration/intrinsics/`, like the extrinsics) and `get_camera_info_url`, which every camera
+  start (Brio, CU40, webcam, Blackfly, capture camera) now uses instead of building the path itself.
+  `CAMERA_SERIAL_SOURCE_BY_CAMERA` (node section and serial parameter per driver) and
+  `WEBCAM_CAMERA_INFO_FILE_NAME` moved there from the backend, which had a copy marked as a simplification.
+- Backend `profiles_api`: a profile's intrinsics state is read from its own folder; deleting a profile moves its
+  intrinsics folder into `.deleted/` with the extrinsics. Creating a profile writes the camera's serial into it
+  whenever the merged parameters have one, even when it equals `par_setup.yaml`'s
+  (`write_node_settings_into_profile(..., always_written_setting_names=...)`).
+- Wizard: the new profile is created when leaving the Projector step instead of Intrinsics, and the Intrinsics step
+  starts the camera with the profile (`IntrinsicsCalibrationView.profileName`), so the driver stores the
+  calibration in the profile's folder.
+- Docs and comments naming the intrinsics path (`par.launch.py`, the calibration launch files, `par_setup.yaml`,
+  `run_cameracalibrator.sh`, `README.md`, `CLAUDE.md`).
+
+**Why:** Vitus wants every saved intrinsic calibration tied to a profile. Refocusing a camera for one setup changes
+its intrinsics; with one file per camera unit, recalibrating for one setup silently replaced the calibration of
+every other setup using that unit. The serial is pinned because the profile's intrinsics file is named after it: if
+`par_setup.yaml`'s serial changed later, the profile would start another unit with this unit's calibration.
+
+**Decisions and rejected alternatives** (with Vitus):
+- `calibration/intrinsics/<profile>/` next to `calibration/extrinsics/<profile>/`, shared folder for launches
+  without a profile. Rejected: no fallback (a launch without a profile would always run uncalibrated), one
+  `calibration/<profile>/` folder for both (moves every existing extrinsics folder).
+- The existing shared files stay where they are and are not copied into the profiles, so existing profiles show
+  their intrinsics as missing until recalibrated. Copying a calibration from one profile to another, when the user
+  wants it, is a later feature.
+- Special case: ROS has no convention for a camera's serial parameter, so the per-driver table
+  `CAMERA_SERIAL_SOURCE_BY_CAMERA` stays; a driver without an entry gets no serial written.
+- Simplification: the serial comes from the parameter files; a driver started without one opens the first unit it
+  finds, whose serial the wizard does not learn yet (choosing the unit in the Hardware step is still open).
+
+## 2026-11-08 — Setup wizard: focus help with sharpness and the enlarged image centre
+
+**What:** backend `focus_api.py` (`GET /api/focus/state`, `POST /api/focus/reset-peak`, `GET /api/focus/center-crop`)
+measures the previewed camera's `/camera/image_raw`: variance of the Laplacian in a 240 px square at the image
+centre, averaged over the last five frames, with the best value since the preview started or the last reset. Each
+frame enters the average once however often the app asks; a new preview starts a new measurement.
+`camera_preview_api.convert_image_message_to_frame` (full-size conversion, shared with the preview) is public for
+it. App: `focus_api.dart`, `focus_assist_view.dart` (bar with a mark at the best value, "Reset best", the centre
+crop enlarged without smoothing), shown below the feeds in `CameraPreviewWithSettingsView`, so in the wizard's
+Camera image step and the Overview's "Image & settings"; `CameraPreviewView` frames the measured square on the
+camera image.
+
+**Why:** Vitus wants the focus helper (`scripts/focus_preview.py`) in the wizard. Focus comes before the intrinsics,
+since refocusing invalidates them.
+
+**Decisions and rejected alternatives:**
+- The same measure as `scripts/focus_preview.py`, computed in the backend on the full-resolution frame: the preview
+  JPEGs are scaled down and compressed, which removes exactly the fine edges the score measures. Rejected: computing
+  it in the app from the preview frames.
+- The crop is sent as PNG, not JPEG, so its single-pixel edges are not blurred by compression.
+- Score, best mark and enlarged crop (chosen by Vitus); rejected: score and best mark only.
+- Simplification: `compute_sharpness` is duplicated (two lines) because the script is a standalone file outside any
+  importable package; moving both into a shared module is the upgrade once a third user needs them.
+
+## 2026-11-08 — Setup wizard: choose the app on the projector in a profile's Overview
+
+**What:** `PUT /api/profiles/{name}/projector-app` writes `par_launch.projector_app` into the profile (only `none`
+or an installed app from `GET /api/apps` without a broken entry; `none` removes the key, since it is
+`par_setup.yaml`'s value). App: `apps_api.dart`, `projector_app_choice_view.dart` at the top of the Overview, one
+chip per app plus "None"; an app named in the profile but not installed is shown with a warning.
+
+The profile writer now keeps what follows a section's last key (empty lines, the comment before the next section)
+in place when a key is appended to or deleted from the end of a section
+(`_add_key_keeping_comment_after_section`, `_delete_key_keeping_comment_after_section`). Before, an appended
+`projector_app` landed below the next section's "Saved by the setup wizard" comment, and deleting the last key took
+that comment and the empty line with it. A comment on a key's own line still belongs to that key.
+
+**Why:** Vitus wants the app selection stored in the profile; chosen in the Overview only, so new profiles start
+with none.
+
+**Decisions and rejected alternatives:** Overview only (Vitus); rejected: an extra wizard step, editing the rendering
+manager's page apps as well (both later). The choice is stored at once and the Overview is not reloaded, so a
+running camera preview there keeps running.
+
+## 2026-11-08: `run_cameracalibrator.sh` no longer predefines the checkerboard size
+
+**What changed:** the board's inner corners are now the first, required argument
+(`run_cameracalibrator.sh 8x6 0.031`), the square size the second. The `BOARD_SIZE` variable and its `8x6` default
+are gone. A value that is not `<columns>x<rows>` stops the script with a message showing the right form.
+
+**Why:** the default silently applied to whatever board was printed; a different board then calibrated with the wrong
+pattern. The user chooses the board, so the script should not assume one.
+
+**Alternatives considered:** keeping `BOARD_SIZE` but without a default (rejected: an environment variable is easy to
+forget and fails later and less clearly than a missing argument); a `--size` option (rejected: cameracalibrator
+already has `--size`, and a second one would be added, not replace it).
+
+## 2026-11-08: `projection_calibration.launch.py` detects with fiducials_detector's general settings
+
+**What changed:** the launch file passes a fixed set of detection parameters to `fiducials_detector_node` after the
+parameter files (`FIDUCIALS_DETECTOR_GENERAL_DETECTION_PARAMETERS`: no tracking window, threshold windows 3 to 23 px,
+4 px per cell, 0.13 margin), so they win over whatever a profile sets for that node.
+
+**Why:** a profile may tune the detector for small, moving printed markers (a tracking window around known markers,
+one small threshold window). The calibration looks for large projected markers that lie still and are not known yet,
+so with that tuning it found none and ended with "No mapping after 20 s". The values are those of `par_setup.yaml`.
+
+**Alternatives considered:** `ros2 param set` on the running detector (rejected: these parameters are read-only after
+start); editing the profile for the calibration run (rejected: easy to forget to restore, and every profile with a
+tuned detector would hit the same problem); a launch argument to choose (rejected: nothing needs the tuned values
+during calibration).
+
+## 2026-11-09: Setup wizard: lens calibration in an existing profile's Overview
+
+**What changed:** the Overview's section choice for a camera has a fourth segment, "Intrinsics", between
+"Image & settings" and "Camera pose". It shows the same `IntrinsicsCalibrationView` as the new-profile wizard, on the
+saved profile, so the driver stores the calibration in that profile's intrinsics folder. The projector shows black
+during it, as in the wizard.
+
+**Why:** until now the lens of an existing profile could only be calibrated in a terminal
+(`camera_only:=true` + `run_cameracalibrator.sh`); a refocused or remounted lens needs this without recreating the
+profile.
+
+**Alternatives considered:** a separate screen (rejected: the view already takes a profile name, and the segments
+already hold the other per-camera procedures); leaving the projector on (rejected: projected light disturbs board
+detection, as in the wizard step).
+
+## 2026-11-09: Setup wizard: start screen mentions the backend connection only when it fails
+
+**What changed:** the bottom bar of the start screen no longer shows "Connected to … (address)" or "Connecting …"; it
+holds only the profile menu. When the backend cannot be reached, the middle of the screen shows a plain message
+("Cannot reach the PAR machine …") with a "Try again" button instead of the card. The technical reason (address,
+exception) goes to the console log only.
+
+**Why:** a working connection is not news for the user, and exception text and start commands mean nothing to someone
+at a fresh setup.
+
+**Alternatives considered:** keeping the status in a small icon (rejected: still noise while everything works);
+showing the exception behind a "Details" expander (rejected: nobody asked for it, the console log has it).
+
+## 2026-11-09: Setup wizard: Cameras area, app dropdown, adding a camera to a profile
+
+**What changed:**
+- The Overview now holds only the app on the projector, as a dropdown (a profile starts one app, so chips that look
+  like a multi-choice were misleading). An app with a broken entry is listed but disabled.
+- The profile's cameras moved into their own hub area "Cameras", above "Sensor nodes", with the same sections as
+  before (Image & settings, Intrinsics, Camera pose, Projector).
+- "Add camera" in that area lists the installed camera types the profile does not have yet and adds the chosen one
+  (`POST /api/profiles/{name}/cameras`). It is stored as `par_launch.additional_cameras` (a list) in the profile and
+  appears next to the first camera, ready to be previewed, set up and calibrated.
+
+**Why:** calibration data is already named per camera (intrinsics by camera and serial, pose and projection mapping by
+camera), so a profile can hold the calibration of several cameras before the framework can run them together. The
+wizard can therefore prepare a second camera now.
+
+**Decisions and rejected alternatives:** `par.launch.py` ignores `additional_cameras` and starts only
+`par_launch.camera` (marked `Simplification:` in the code), so nothing about launching changed. Rejected: waiting for
+the multi-camera framework (nothing usable meanwhile), making the added camera the launched one (changes what a
+profile starts without being asked). One unit per camera type for now, because files are named by type (and serial);
+two units of one type come with camera instances. Removing a camera from a profile is not built yet.
+
+## 2026-11-09: Several units of one camera type per profile, selected camera, removal, Run
+
+**What changed:**
+- A profile's cameras are now units: a camera type plus, for types that have serial numbers, the unit's serial. The
+  one in `par_launch.camera` (with its serial in the driver's section) is the *selected* camera, the one a run
+  starts; the others are `par_launch.additional_cameras`, entries `<camera>` or `<camera>:<serial>`.
+- Pose, projection-mapping and projection-corners files get the serial in their name
+  (`camera_pose_<camera>_<serial>.yaml`), like the intrinsics already had. `launch_helpers.get_extrinsics_relative_path`
+  is the one place that builds them; the calibration launch, the mount transform, the projection server and the
+  backend all use it. Files without the serial are still used while the profile has one unit of that type, and when a
+  second unit of a type is added, the first unit's old files are renamed to its serial, so nothing is taken over.
+- Backend: add a unit (`POST .../cameras`), select (`PUT .../selected-camera`), remove (`DELETE .../cameras`, its
+  calibrations moved to `config/profiles/.deleted/`), list connected units (`GET /api/cameras/{camera}/units`, from
+  `/dev/v4l/by-id` for the Brio and CU40; other types type the serial), and `run_api.py` (start, state, stop of
+  `par.launch.py profile:=<name>` as a subprocess group).
+- App: the Cameras area shows chips (click = select, delete icon with a confirmation = remove, "Add camera" with the
+  unit choice); sections open on request for the selected camera only. The Overview has Run / Stop.
+- Every error text the app shows is a plain sentence now (`describeBackendErrorForUser`); the technical text goes to
+  the console. Backend sentences are shown only where they are written for users (add, select, remove camera).
+
+**Why:** the serial alone names the intrinsics file, but the pose, the projection mapping and the driver's serial
+setting were per type, so two units of one type would have overwritten each other. Only the selected camera is ever
+started, so the driver always opens the unit the profile names and calibrations land in that unit's files.
+
+**Alternatives considered:** instance names (`brio_1`, `brio_2`) everywhere (rejected for now: it is the full
+multi-camera framework); previewing any unit by passing its serial per run (rejected: another override path next to
+the profile); erasing a removed camera's files (rejected: measured poses take work, the profile deletion already moves
+files); types without a serial parameter (webcam, event) stay one per profile. Known limits: the first
+unit of a type must have its serial set before a second can be added; the capture camera is unchanged; the Blackfly's
+units cannot be listed (typed); settings saved into the profile are per camera type, so two units of one type share
+them; the Brio's `/dev/v4l/by-id` name pattern is taken from the driver's matching and was not seen with a real
+Brio.
+
+## 2026-11-09: One camera ID names every file of a camera unit; no legacy file names
+
+**What changed:** `launch_helpers.get_camera_id(camera, serial)` is the one definition of a unit's identifier:
+`<camera>_<serial>`, or `<camera>` for a camera without serial. The intrinsics file and the camera pose, projection
+mapping and projection corners files all end in it. The fallback that let a unit with a serial still read a file
+without the serial in its name is gone, and so is the rename on adding a second unit of a type. Files from before are
+not read any more: they are renamed by hand (`camera_pose_brio.yaml` of a Brio with serial 123 becomes
+`camera_pose_brio_123.yaml`, likewise `projection_mapping_*` and `projection_corners_*`).
+
+**Why:** with the fallback, two names could mean one camera, and which unit owned an old file depended on how many units
+of the type the profile had at that moment. One name per unit is unambiguous, also on other machines.
+
+**Alternatives considered:** keeping the fallback (rejected: the ambiguity stays); user-chosen camera names
+independent of type and serial (rejected for now: names would run through launch files, transform frames and parameter
+sections, which is the full camera-instance model); a migration script or an automatic rename (rejected: the
+framework is in alpha, so old names get no code at all; a one-time rename by hand is cheaper than carrying a
+compatibility path).
+
+## 2026-11-09: Kinect and RealSense units have serials too
+
+**What changed:** `CAMERA_SERIAL_SOURCE_BY_CAMERA` now lists the Azure Kinect (`sensor_sn` under
+`k4a_ros_device_node`) and the RealSense (`serial_no` under `/camera/realsense`), so several units of these types can
+be in one profile, with their pose and projection files named by the unit's ID. The Kinect's depth pose launch
+(`camera_pose_calibration_kinect.launch.py`) took its file name `camera_pose_kinect.yaml` literally; it now uses the
+same ID-based name as every other camera. The serial of these two is typed in the wizard (no listing yet).
+
+**Why:** the first version of the unit support listed only the cameras that already had a serial in the framework,
+and called the others serial-less, although both drivers take one. The device was only missing from the list.
+
+**Alternatives considered:** listing connected units through the Kinect SDK / RealSense library (rejected for now:
+needs the vendor libraries in the backend, typing the serial is enough). Not checked: whether the event camera's driver
+takes a serial; the webcam's driver (`v4l2_camera`) has none, so it stays one per profile.
+
+## 2026-11-09: Alpha rule: no code for old names; webcam intrinsics name from the camera ID
+
+**What changed:** the constant `WEBCAM_CAMERA_INFO_FILE_NAME` is gone: the webcam's intrinsics file is
+`camera_info_<camera id>.yaml` like every other camera's (`get_camera_info_file_name_of_unit('webcam', '')`, which is
+`camera_info_webcam.yaml`, so no file changes).
+
+**Why:** the framework is in alpha: no extra cases or fallbacks for old implementations, a generic rule first even if it
+breaks old code (ROS 2 conventions always apply). A second name for something the ID rule already produces is such a
+case.
+
+## 2026-11-09: Alpha rule: no check for the old app switches; profile cards list sensor nodes from the index
+
+**What changed:** `par.launch.py` no longer refuses the former `demo_app` / `rendering_manager` switches
+(`REPLACED_APP_SWITCH_NAMES` and its check in `get_projector_app_name` are gone); a leftover switch is now ignored
+like any other key that is not a launch switch. The setup wizard's profile cards (`profiles_api._read_profile_summary`)
+list as sensor nodes the switched-on names that the ament index registers as sensor processing nodes
+(`get_sensor_node_package_names`), instead of every switched-on name minus the hand-kept `HIDDEN_LAUNCH_SWITCH_NAMES`.
+
+**Why:** alpha rule: no code that exists only for old names, and one generic mechanism instead of hand-kept lists. The
+check only served migration; no parameter file still uses the old switches. The card now uses the same source as the
+Sensor nodes area and `par.launch.py`, so a new switch (`rviz`-like) never shows up as a sensor node by mistake, and
+`projection_mask`, which registers as a sensor node, is listed like the others.
+
+**Alternatives considered:** keeping the check as a helpful error (rejected: the rule forbids code for old names; a
+profile still carrying the old key loses nothing but the hint); keeping the hidden list and adding the index (rejected:
+two sources of truth). Known effect: a switched-on node that is not installed no longer appears on the card;
+`par.launch.py` still logs which repo to add when it starts.
+
+Renamed in the same pass, no behaviour change: `OTHER_LAUNCH_SWITCHES` → `NON_SENSOR_NODE_LAUNCH_SWITCH_NAMES`
+(`par.launch.py`), `DEPTH_CAMERAS` → `DEPTH_CAMERA_NAMES` (`projection_calibration.launch.py`, README),
+`switched_on_names` → `switched_on_launch_switch_names` (`profiles_api.py`), so each name says what it holds.
+
+## 2026-11-09: Setup wizard: one page per topic and camera; projector found by its identity
+
+**What changed (new-profile wizard):** every step that works per camera has one page per camera, and the camera
+image has two pages per camera, Focus (preview, focus help, only the focus settings) and Image settings (preview, the
+other settings). The camera selector inside the steps (`CameraInstancePreviewPanel`) is no longer used. Each page shows
+its topic and camera ("Focus: brio_1", "Camera 1 of 2"), and Next names the page that follows ("Next: Image settings:
+brio_1", "Save profile, next: Intrinsics: brio_1"). The shell (`new_profile_wizard_screen.dart`) builds the list of
+pages from the draft (`WizardPage`, `WizardPageTopic`); the stepper still shows the six steps. `CameraSettingsView` and
+`CameraPreviewWithSettingsView` take a title, a filter of shown settings and whether the focus help is shown.
+
+**Why:** with several cameras, one screen showed a camera selector, the feeds, every setting and the focus help at
+once, so it was unclear what to do and when a camera was done. One topic per page gives a clear order (focus before
+the other settings, because focus changes invalidate intrinsics). The pages of one step share their layout, so the
+camera preview keeps running from Focus to Image settings instead of restarting.
+
+**Special case:** ROS has no convention that marks a parameter as the lens focus, so the Focus page recognises focus
+settings by name (`isFocusSettingName`: the name contains "focus", as in `v4l2_camera`'s `focus_absolute`). A driver
+naming it otherwise shows its focus on the Image settings page.
+
+**What changed (projector):** a profile now stores the projector's identity next to `par_launch.projector_display_id`:
+`projector_manufacturer_id`, `projector_model_name`, `projector_serial_text` (from the EDID) and
+`projector_connector_name`. The display detection moved from the wizard backend into
+`par_framework_core/connected_displays.py` (no ROS imports), shared by the backend and the launch files.
+`launch_helpers.get_projector_display_id` finds the display with the stored identity (EDID values first, the
+connector only to tell identical projectors apart, or alone when the display reports no EDID) and uses its current
+index; `projector_display_id:=` still wins for one run; without a stored identity the stored index is used as before.
+Not connected or ambiguous raises an error naming the fix. `par.launch.py` looks the projector up only when an app
+draws on it, so camera-only runs work with the projector off. The wizard backend stores the identity when a profile is
+created and through `PUT /api/profiles/{name}/projector-display`; the profile summary reports the state
+(`connected`, `moved`, `not_connected`, `ambiguous`, `unidentified`, `displays_unreadable`, `not_set`). The Overview
+has a Projector section with a warning when the saved number no longer points to the projector, "Save display N"
+when it moved, and the display cards to choose it again (`projector_display_status_view.dart`,
+`projector_display_choice_view.dart`, shared with the wizard's Projector step).
+
+**Why:** SDL numbers displays in their current order, so plugging a monitor in or out changes the projector's number
+and an app would open fullscreen on the wrong display. The identity does not change with the order, so resolving it
+at every launch fixes the cause instead of only warning about it; the warning and re-selection cover what launching
+cannot fix (projector off, two identical projectors, profiles without an identity).
+
+**Alternatives considered:** only warning and re-selecting in the wizard (rejected by Vitus: launches started from the
+terminal would still use the wrong display); matching by connector first (rejected: the connector changes when the
+cable moves to another port, the EDID does not); the identity as a nested `projector_identity:` mapping (rejected: the
+wizard's profile writer writes flat keys); camera by camera through all steps (rejected by Vitus: the projector would
+be chosen after the intrinsics, so it could not show black during them).
+
+## 2026-11-09: Setup wizard: Run as a floating action button in every area of a profile
+
+**What changed:** Run / Stop (`ProfileRunView`) is an extended floating action button in the bottom right corner of
+the profile hub's `Scaffold`, so every area (Overview, Cameras, Sensor nodes, Store, Running) shows it; the Run
+section of the Overview is gone. The button reads "Run", "Stop", or "Stop <profile>" while another profile runs, and
+shows a progress circle while a start or stop is on its way. What was text below the old button (a run that stopped by
+itself, a failed start or stop, an unreachable backend) is a snack bar, shown once when it happens. The scrolling areas
+leave `runButtonClearanceLogicalPx` free below their content, so the button never covers their end.
+
+**Why:** Vitus wants Run where a primary action is expected in Material design and reachable from every area, e.g.
+right after a calibration in the Cameras area, without going back to the Overview.
+
+**Alternatives considered:** the button in the Overview only (rejected by Vitus); a Run button in the app bar
+(rejected: less visible, and the app bar already holds the profile name).
+
+## 2026-11-09: Setup wizard: Running area removed from the hub for now
+
+**What changed:** the profile hub's navigation rail no longer has the "Running" area, and its placeholder
+(`screens/running_apps_screen.dart`) is deleted.
+
+**Why:** Vitus' choice: the area was an empty placeholder, and Run / Stop now sits in every area as a floating button.
+The placeholder file was deleted as well (Vitus): an unused file only suggests a feature that does not exist; the
+sketch on the card "Setup Wizard" keeps what the area should show when it comes back.
+
+**Alternatives considered:** keeping the placeholder file unused (rejected by Vitus).
+
+## 2026-11-09: Setup wizard: the setup seen from the front in the Overview
+
+**What changed:** the Overview starts with a drawing of the profile's setup seen from the front
+(`setup_side_view.dart`): the table, the projector with the light it throws onto the table, and every camera unit
+with its viewing direction and, where its intrinsics are known, its field of view; heights are labelled. Up is the
+height above the table; left to right follows the projected image's rows, since people read the projected image
+upright from its bottom edge (`front_view_right_direction` in the answer). Without a projection mapping the selected
+camera's image rows stand in, else world x. Both directions use the same scale. Measured poses are solid, placeholder poses
+dashed in the error colour; notes below say what is left out (no intrinsics file, projector centre not measured, no
+projector calibration). The data comes from a new backend endpoint, `GET /api/profiles/{name}/setup-geometry`
+(`setup_geometry_api.py`): per camera unit its position, where its optical axis meets the table and its field of view
+on the table (the image border's rays through `par_geometry.pixels_to_table`), and from the selected camera's
+projection mapping the projection area (`projector_to_table` of the projector image corners) and the projector
+centre, all in metres in world. `profiles_api._read_camera_units` became `read_camera_units`, since the new module
+uses it.
+
+**Why:** Vitus wants the Overview to show the setup as it is, like the RViz view but simplified and flat; the front
+view is the first part (mockup on the card "Setup Wizard"). The backend returns the outlines on the table rather than
+side-view lines, so the top view can be drawn from the same answer later.
+
+**Simplification:** the camera's optical frame is taken as the REP 103 rotation of its body frame
+(`BODY_TO_OPTICAL_ROTATION`, what `create_optical_frame_tf_publisher` publishes). Drivers that publish their own
+frames with a small mount tilt are drawn without it. Upgrade: read the transform from TF while the camera runs.
+
+**Alternatives considered:** computing the geometry in the app (rejected: the files live on the PAR machine, and
+`par_geometry` is the one place for this math); reading TF from a running framework (rejected for now: the Overview
+must also work while nothing runs); drawing a nominal field of view for cameras without intrinsics (rejected: it
+would look measured although it is a guess).
+
+**Front direction (same day):** the first version drew world x as left to right, which in the measured profiles is the
+projected image's short side, so the drawing showed the setup from the side. World's axes come from the pose
+calibration and carry no meaning for where people stand; the projected image does. Rejected: a fixed world axis per
+profile set by the user (one more setting to get wrong), world y (only right by chance for these setups).
+
+## 2026-11-09: Setup wizard: cameras and projector look different in the front view and can be clicked
+
+**What changed:** in the Overview's drawing a camera is a body with a lens barrel pointing along its view, the
+projector a wide housing with vents and its lens at the optical centre, where its light starts. Hovering a device
+rings it and shows the hand cursor; clicking a camera opens the Cameras area with that unit selected and its images
+and settings open (`CamerasScreen.requestedCameraUnit`, set by the hub); clicking the projector scrolls to the
+Overview's Projector section and opens its display cards (`ProjectorDisplayStatusView.displayChoiceOpenRequestCount`).
+The drawing's layout (scale, device positions, label positions) moved into `_SideViewLayout`, which the painter and
+the hover and click handling share, so they always agree on what is where. Camera labels move down until they cover
+neither another label nor an icon. The backend's camera geometry also carries `camera_type` and `serial`, to select
+the unit.
+
+**Why:** Vitus wants cameras and projector told apart at a glance, and the drawing as the way into each device's
+settings.
+
+**Alternatives considered:** Material icons drawn into the canvas (rejected: there is no projector icon, and a camera
+icon cannot turn along its view); a dialog with the device's settings over the Overview (rejected: the camera's
+settings need its running preview, which the Cameras area already manages, one camera at a time); opening a camera
+without selecting it (not possible: only the selected camera is ever started, so the driver opens the unit the profile
+names).
+
+**Projector drawn like the start screen's (same day):** the front view's projector is the start screen's projector
+(grey body with vents, lens barrel pointing down, pale lens glass), at 0.4 of its size, with its light starting from
+both edges of the lens glass in the start screen's lamp colour (`projectorLightColor`). Its drawing moved out of
+`_ProjectorBackgroundPainter` into the top-level `paintDownwardProjector(canvas, lensExitPoint, scale)` in
+`projector_background.dart`, which both call, so the two cannot drift apart. Rejected: a second copy of the shape in
+`setup_side_view.dart` (two places to change for one look).
+
+## 2026-11-10: Setup wizard: missing calibration steps in the Overview, a Projectors area
+
+**What changed:** the Overview lists what the profile still misses under "Calibration": per camera the lens
+calibration (intrinsics `missing`) and the camera pose (`placeholder` or `invalid`), then for the selected camera the
+projector calibration (no projection mapping) and, optional, the projector's position (mapping without projector
+centre). A step that can run has a Calibrate button that opens the Cameras area with that unit selected and the
+matching section open (`CamerasScreen.requestedCameraSection`, a `CameraSectionRequest` of camera type, serial and
+`CameraSection`, passed through the hub; a click on a camera in the drawing uses the same path with the images and
+settings section). A step that cannot run says what it needs: the projector position needs a depth camera, the
+capture camera cannot be opened on its own. The drawing lost its title, legend and explanation notes; the files it
+had to leave out are still shown, in the error colour, below the steps. The Overview now loads the setup geometry
+once and hands it to `SetupSideView`, which no longer fetches it, so drawing and steps read the same state. The
+projector's display choice moved from the Overview into a new hub area, Projectors (`projectors_screen.dart`), above
+Cameras; clicking the projector in the drawing opens it with the display cards open.
+
+**Why:** Vitus wants every missing calibration reachable from the profile's first page, and the drawing without the
+text around it. The projector gets its own area like the cameras.
+
+**Alternatives considered:** running the calibration views inline on the Overview (rejected by Vitus: the Cameras area
+already manages the one running camera, its blackout and section switching); hiding steps that cannot run (rejected
+by Vitus: the user would not learn what is missing, e.g. the projector position in a profile without a depth
+camera); deciding that projector-position step from the camera type (rejected: whether a camera delivers depth is
+known only while it runs, and a list of depth camera names is a special case; marked as `Simplification:`); keeping
+the projector section on the Overview as well (rejected by Vitus).
+
+## 2026-11-10: Setup wizard: one shared loader for a profile's summary
+
+**What changed:** `SetupWizardBackendClient.fetchProfileSummary(profileName)` returns one profile's summary and
+throws `ProfileUnavailableException` (with a sentence for the user) when the profile no longer exists or its files
+cannot be read; `describeBackendErrorForUser` returns that sentence. The Overview, Projectors and Cameras areas call
+it instead of each fetching the list, searching it and building the same two error texts.
+
+**Why:** three copies of the same lookup and error texts would drift apart; one change now covers all hub areas.
+
+**Alternatives considered:** a backend endpoint for one profile (rejected for now: one more route to keep in step with
+the list, and the list request is cheap); a shared widget that also owns the loading state and the error view
+(proposed separately, a larger change).
+
+## 2026-11-10: Setup wizard cleanup: state enums, one camera-section widget, shared loading and process stop
+
+**What changed:**
+- `CameraCalibrationSummary.intrinsicsState` and `poseState` are enums (`IntrinsicsCalibrationState`,
+  `CameraPoseState`, each with `fromBackendName`, like `ProjectorDisplayState`) instead of strings. The start
+  screen's tooltip switches over them exhaustively.
+- `camera_section_view.dart` holds `CameraSection`, `CameraSectionRequest` and `CameraSectionView`: one camera
+  section (images and settings, lens calibration, camera pose, projector calibration) with the rule which of them run
+  under a black projector. The Cameras area and the new-profile pages Intrinsics, Camera pose and Projector
+  calibration use it instead of each wiring `ProjectorBlackoutHolder` and the calibration view themselves. The section
+  content is keyed by section inside the widget, so the blackout stays on when switching between the lens calibration
+  and the camera pose. The new-profile Intrinsics page now also says so when the profile has no name yet, like the
+  Camera pose page.
+- `profile_summary_loading.dart`: the mixin `ProfileSummaryLoading` holds the loading flag, error text and summary
+  of a hub area, `loadProfileSummary`, `getShownProfileSummary` and the spinner or error-with-retry view. Overview,
+  Projectors and Cameras use it.
+- Backend: `process_groups.stop_process_group(process, stop_signals, timeout_per_signal_s)` replaces the three copies
+  of "signal the process group, wait, try the next signal" in `run_api`, `camera_preview_api` and
+  `projector_blackout_api`; `LAUNCH_STOP_SIGNALS` is the Ctrl+C-first order for launches.
+
+**Why:** each rule lived in two or three places that had to be changed together; a typo in a state string failed a
+comparison silently.
+
+**Alternatives considered:** a builder widget for the profile loading (rejected: the Cameras area acts after the first
+load, selecting the requested camera, which a builder makes awkward; a `State` mixin keeps each area's flow, as
+Flutter's own `TickerProviderStateMixin` does); merging the two new-profile calibration pages into one file
+(not done: each keeps its own introduction, and the shared part is now one widget call); a shared module for the two
+three-line `_read_yaml_file` helpers in `extrinsics_api` and `setup_geometry_api` (rejected: a module for three lines
+costs more than the copy, and importing one API module from the other would pull in ROS for the geometry).
+Unknown state names from the backend now raise a `FormatException` instead of showing the raw name; backend and app
+ship together, as for `ProjectorDisplayState`.
+
+## 2026-11-10: Setup wizard: no start screen; the hub opens the last used profile
+
+**What changed:** the start screen (`screens/start_screen.dart`, a profile card on a decorative table) is gone. The
+app starts in the hub (`ProfileHubScreen`, now `home` in `main.dart`), which loads the profile list itself and shows
+the last used profile, else the first. The profile menu (switch, New profile, Delete) became `ProfileSelectorView` at
+the top of the Overview; the hub owns the shown profile, remembers a switch through `setLastSelectedProfile`, runs the
+new-profile wizard and asks before deleting. Switching profiles builds the areas and the Run button afresh (keyed by
+profile name). Without any profile the Overview shows only the selector with a hint, the other rail entries are
+disabled and there is no Run button. When the profile list cannot be loaded (e.g. the backend does not answer), the
+hub shows the reason with Try again instead of the areas. A profile that cannot be read still shows the selector, so
+the user can switch away from it.
+
+**Why:** Vitus no longer wants the first page; the profile is switched rarely, so the work starts on its Overview.
+
+**Alternatives considered:** the selector in the app bar of every area (rejected: Vitus asked for it on the Overview;
+the app bar keeps the profile name); a separate empty screen for "no profile" (rejected: the hub with disabled areas
+keeps one layout for every state).
+
+**Unused code removed (same day):** with the start screen gone, its decorative background went too: the
+`ProjectorBackground` widget with its light-cone painters and `tabletop_shape.dart`. The projector's shape
+(`paintDownwardProjector`) and `projectorLightColor`, which the setup drawing uses, moved to `projector_drawing.dart`.
+Also removed from the backend client: `CameraCalibrationLevel` / `getCalibrationLevel` (the start card's camera
+icons) and `fetchBackendStatus` / `SetupWizardBackendStatus` (the hub detects an unreachable backend from the profile
+list request). The backend's `GET /api/status` stays. Rejected: keeping the background for later (git history has it).
+
+## 2026-11-10: Setup wizard: profile menu in the app bar, Apps area
+
+**What changed:** the profile selector (`ProfileSelectorView`) is a menu button with a hamburger icon in the top right
+corner of the hub's app bar instead of a button at the top of the Overview; its menu is unchanged (switch, New
+profile, Delete). The app bar reads "Profile: <name>" ("Profile: none yet" without profiles). The projector app choice
+(`ProjectorAppChoiceView`) moved from the Overview into a new rail area "Apps" (`screens/apps_screen.dart`), between
+Sensor nodes and Store; the Overview now holds only the setup drawing and the missing calibration steps. Without a
+profile, Apps is disabled like the other areas and the Overview's hint points to the menu at the top right.
+
+**Why:** Vitus wants the profile choice reachable from every area, and the Overview about the setup only.
+
+**Alternatives considered:** a navigation drawer opened by the hamburger icon (rejected: three entries plus the
+profile list fit a dropdown menu, and a drawer would cover the rail); placing Apps after Store (rejected: the
+installed app choice belongs before the store of apps not yet installed).
+
+## 2026-11-10: Setup wizard: Run menu, app settings in the Apps area, no debug banner
+
+**What changed:**
+- **Run is a menu:** pressing Run (`ProfileRunView`) reads the installed apps and the profile's app and opens a menu
+  above the button: "No app" and every installed app, the profile's app checked, a broken entry disabled. A pick is
+  stored as `par_launch.projector_app` (when it changed) and the profile starts; while it runs, the button stops it.
+  The hub then rebuilds the shown area, so the Apps area shows the new choice.
+- **App settings:** the app's ament index entry may list `settings_node_names` (full node names, checked by
+  `launch_helpers.read_par_app_entry`; documented in `templates/par_app/`, set for `demo_app`). The Apps area keeps
+  the app choice and lists every installed app below it; "Edit settings" starts the profile with that app on the
+  projector (`apps_api.py`: `POST /api/apps/settings-run/start`, `GET .../settings-run/state`,
+  `GET /api/apps/settings`, `POST /api/apps/settings/apply`), shows each settings node's parameters, and Apply writes
+  the changes into the profile under the node's full name and starts the app again. Node names from the network
+  must be listed in the app's entry.
+- **Shared with the sensor nodes:** the settings form (`node_settings_editor_view.dart`, used by both areas),
+  checking and converting values for a running node (`camera_preview_api.convert_settings_of_running_node`) and
+  reading a profile's `par_launch` section (`profiles_api.read_profile_launch_section`).
+- **Store** placeholder now describes the plan: a portal for new camera nodes, sensor nodes and apps.
+- `debugShowCheckedModeBanner: false` in `main.dart`.
+
+**Why:** Vitus wants the app chosen where it is started, every installed app's settings in one place, and the Store
+for installing.
+
+**Alternatives considered:**
+- *Run menu:* run the picked app for this run only (`projector_app:=` override) instead of storing it (rejected by
+  Vitus: a terminal launch of the profile should run the same app).
+- *App settings, finding the app's nodes:* detecting them at runtime by comparing the ROS graph with and without the
+  app (rejected by Vitus: two starts per look, and late or shared nodes would be misattributed).
+- *App settings, scope:* only listing apps for now and building the settings later (rejected by Vitus).
+- *Settings form:* a copy of the sensor node card's form (rejected: two copies of the same load, retry and apply
+  logic would drift apart).
+
+## 2026-11-10: Setup wizard: tabs for sensor nodes and apps, settings read once
+
+**What changed:**
+- **Settings read once** (`setup_wizard/backend/node_settings_api.py`): a sensor node's or app's settings are read
+  by starting its nodes alone with `par_setup.yaml` (sensor node: `ros2 run <pkg> <pkg>` named `<pkg>_node`, as
+  `par.launch.py` names it; app: its entry's executable or launch file), reading their parameters through the
+  parameter services, stopping them and caching the result in `~/.cache/par_setup_wizard/node_settings/` until the
+  package's `package.xml` is installed again (or "Read again"). Shown values are the profile's where it sets them,
+  else the cached ones; Save converts to the cached types and writes into the profile without any run
+  (`GET /api/node-settings`, `POST /api/node-settings/save`, `POST /api/node-settings/refresh`). A read is refused
+  while this backend runs a profile, preview or calibration, or while a node of the same name is in the ROS graph.
+  The live settings endpoints of sensor nodes and the app settings run are gone.
+- **Profile's app list:** `par_launch.apps` (default `[]` in `par_setup.yaml`), set with
+  `PUT /api/profiles/{name}/apps`; the projector app must be one of them (`projector-app` refuses others, removing an
+  app resets `projector_app` to none). `ProfileSummary.enabled_app_names`. The Run menu offers only these.
+- **Tabs** (`addable_tabs_view.dart`): Sensor nodes and Apps show one tab per enabled node or app with "Add …" and
+  Disable. A tab's content is built when first shown and kept, so unsaved changes survive switching tabs.
+  Sensor node tabs keep "Try it" (camera with the enabled nodes, this node's outputs; saving restarts it); the Apps
+  area has no projector app choice any more.
+- `NodeSettingsEditorView` saves without a restart and offers "Read again".
+
+**Why:** Vitus asked whether starting an app is needed to edit its settings. Reading is (ROS 2 nodes declare
+parameters only at runtime, no file lists them), but only once; storing never was.
+
+**Alternatives considered:**
+- *Settings source:* keep the live run for editing (rejected by Vitus); read `par_setup.yaml` only (rejected: no
+  types, ranges or descriptions, and parameters missing there would not be editable).
+- *Detecting a running node before a read:* only through the ROS graph (rejected after a test: a backend started a
+  moment ago has not discovered the graph yet and started a second node of the same name next to a running one).
+- *Apps tabs:* one per installed app without enabling (rejected by Vitus in favour of the profile's app list).
+- *Tab content:* Flutter's `TabBarView` (rejected: it disposes hidden tabs, losing unsaved changes).
+
+**Removed (same day, Vitus' OK):** `projector_app_choice_view.dart`, unused once the Run menu chooses the projector
+app.
+
+## 2026-11-10: Setup wizard: projector list and mode warning, Run only on the Overview, Debug node, slow nodes
+
+**What changed:**
+- **Settings read of a slow node:** a node is in the ROS graph as soon as it exists but answers parameter requests
+  only once it spins; `demo_app` first opens its fullscreen window (at least 3 s) and failed the 2 s request with
+  the preview's text "The camera driver did not answer in time", which read like a missing camera. The read now asks
+  again until its overall deadline (`_read_settings_once_answering` in `node_settings_api.py`) and names the node
+  when it really does not answer.
+- **Projector display mode stored:** choosing the projector also stores `projector_width_px`,
+  `projector_height_px` and `projector_refresh_rate_hz` (`connected_displays.get_projector_display_mode`, written next
+  to the identity). The profile summary compares them with the display the projector is found on
+  (`stored_display_mode_text`, `current_display_mode_text`, `is_display_mode_changed`).
+- **Projectors page:** always lists the connected displays with the projector's display selected; warnings for
+  not connected, display id changed, several matching displays, no stored identity, and changed display mode, with
+  "Save display N as it is now" for a changed id or mode. The same warnings (`getProjectorWarningTexts`) head the
+  Overview, with "Open Projectors".
+- **Run** floats only over the Overview. **Sensor nodes** get their own floating "Debug node" button instead of
+  "Try it": it starts the camera with the enabled nodes; the tab in front shows the camera image and its node's
+  outputs.
+
+**Why:** Vitus saw adding an app fail and suspected the missing camera; the log showed the app's own start time.
+He wants the projector page as a plain list with the choice remembered and checked, and Run only where the profile
+is overviewed.
+
+**Alternatives considered:** starting the camera and the framework to read an app's settings (rejected: the app
+would still open its window before answering, and the read would need a camera); a longer single request timeout
+(rejected: no fixed time fits every node, the overall deadline already exists); comparing only the resolution
+(rejected: a changed refresh rate also changes what the projector shows); a warning banner in every area (rejected
+for now: the Overview and the Projectors area are where the projector is looked at).
+
+## 2026-11-10: Setup wizard: one scroll bar per screen
+
+**What changed:** the camera settings next to or below the feeds (`CameraPreviewWithSettingsView`, Cameras area and
+the new-profile camera pages) no longer sit in a fixed-height scroll area with their own scroll bar
+(`_ScrollingSettingsArea` removed); they take the height they need and scroll with the page. A sensor node's latest
+output message (Debug node) likewise shows at its full height instead of in a 200 px scroll box.
+
+**Why:** Vitus wants never more than one scroll bar on one screen.
+
+**Alternatives considered:** keeping the inner area so the feeds stay in view while going through a long settings
+list (rejected: a second scroll bar, and scrolling depends on where the mouse is); a sticky camera image beside the
+settings (not done: more layout code for a case Vitus did not ask for; possible later).
+
+## 2026-11-10: Setup wizard: quieter Projectors page, compact settings rows
+
+**What changed:**
+- **Projectors page:** no heading and no "… is display 2" line; the selected card says it. Text appears only for a
+  problem (no projector chosen, the warnings). Every display card shows the same rows, an unreported detail as "–",
+  each one line high with the name cut to one line (full name as tooltip), so all cards have the same size. The
+  hint "Which display is the projector? Click its card." moved into the new-profile wizard's Projector page.
+- **Settings rows** (`setting_row_view.dart`, used by camera, sensor node and app settings): no type names; a text
+  field accepts only what the setting's type allows while typing (`typedTextPatternByTypeName`), and a wrong entry
+  says what is expected in words ("a whole number"); the value is written out only where no control shows it
+  (read-only settings, next to a slider); name and control share one line from 560 px row width, below that the
+  control goes under the name.
+
+**Why:** Vitus wants the selection itself to carry the information, text only for problems, and settings without
+technical noise in as few lines as the window allows.
+
+**Alternatives considered:** equal card heights through a fixed card height (rejected: a fixed height clips with a
+larger font); rejecting a wrong text only on Enter (rejected: Vitus wants the input to allow only the allowed
+type); keeping the value text next to text fields and dropdowns (rejected: it repeats what the control shows).
+
+## 2026-11-10: Setup wizard: Blackfly intrinsics, settings without Enter, Reset to default
+
+**What changed:**
+- **Blackfly intrinsics:** the Intrinsics tab said the Blackfly uses the calibration from the camera and refused a
+  calibration. The backend looked for the calibration file only under the driver parameter `camera_info_url`, but
+  `spinnaker_camera_driver` calls it `camerainfo_url`; finding no file behind a calibrated camera matrix, it took
+  the calibration for the camera's own. It now asks the framework which file it gives the camera at launch
+  (`profiles_api.get_camera_intrinsics_file_path`, the same rules the profile summary uses, now shared through
+  `_get_camera_intrinsics_file_name`) and falls back to `camera_info_url` only for cameras the framework gives none.
+- **Typing in settings:** no "Press Enter" hint; a valid entry is passed on half a second after the last keystroke
+  (`typedValueReportDelay`), an unfinished one (e.g. only "-") waits and is named when the field is left. The text
+  field keeps its own controller and focus, so the owner's updates do not reset the cursor while typing.
+- **Reset to default:** a reset button next to a setting while its value differs from the default. Camera
+  settings: the default is `par_setup.yaml`'s value for the driver (set on the running driver; "Save to profile"
+  then removes the override); settings `par_setup.yaml` does not list get no button. Sensor node and app settings:
+  the value read without a profile; resetting removes the profile's key on Save (`null` in
+  `POST /api/node-settings/save`). `CameraSetting.has_default_value` / `default_value` carry it.
+
+**Why:** Vitus calibrates the Blackfly himself; only the Azure Kinect brings its own calibration. Entering values
+should not need an extra key, and a changed value should be easy to undo.
+
+**Alternatives considered:** reading `camerainfo_url` as a second parameter name (rejected: a special case per
+driver spelling, while the framework knows the file for every camera it starts); passing each keystroke on at once
+(rejected: a camera driver would reconfigure for every digit typed); one "Reset all" per page (not done: per
+setting undoes one change without losing the others).
+
+## 2026-11-10: Setup wizard: auto-save, top-aligned pages, area bar below the app bar
+
+**What changed:**
+- **Auto-save** (`NodeSettingsEditorView`): every change of a sensor node or app setting (switch, dropdown, slider
+  release, reset, a valid typed entry after the typing pause) is saved into the profile at once; Save, Discard and
+  the pending count are gone, a failed save shows under its setting.
+- **Top-aligned pages:** a spinner, error or note that stands alone on a page sits at its top left
+  (`top_aligned_page_content.dart`) instead of in the middle (profile loading, hub errors, Sensor nodes, Apps,
+  Store).
+- **Area bar:** the areas (Overview, Projectors, Cameras, Sensor nodes, Apps, Store) are a `NavigationBar` in the app
+  bar's `bottom` instead of a navigation rail on the left; without a profile only Overview is enabled.
+
+**Why:** Vitus wants changes kept without an extra click, page content where reading starts, and the full window
+width for the areas.
+
+**Alternatives considered:** a `TabBar` for the areas (rejected: it needs a controller kept in step with the areas
+opened from code and has no disabled tabs); saving only when leaving a tab (rejected: a change could be lost when
+the window closes).
+
+## 2026-11-10: Setup wizard: undrawn devices listed, camera tabs, debug windows, smaller fixes
+
+**What changed:**
+- **Overview:** the drawing shows only cameras with a measured pose (`getDrawnCameras` in `setup_side_view.dart`);
+  the dashed placeholder cameras and the "selected" label are gone. Below it, "Not in the drawing yet" lists each
+  camera and the projector that is missing there with what it still needs and, where it can run, a Calibrate button;
+  "Calibration" keeps the steps that do not decide about the drawing (lens calibrations). Without anything measured,
+  the drawing is left out.
+- **Cameras:** one tab per camera (`AddableTabsView`, as for sensor nodes and apps) instead of chips, the title and
+  its helper text. The tab in front is the profile's main camera: bringing another tab to the front stores it
+  (`PUT …/selected-camera`). Tabs are ordered by name, so they stay in place when the main camera changes. Remove sits
+  in the tab; the main camera first hands its role to another camera. `AddableTabsView` got `onAddPressed` (a dialog
+  instead of the menu) and `onShownTabChanged`, and follows a changed `shownTabTitle`.
+- **Projectors:** "Refresh" instead of "Search again"; the page content takes the full width.
+- **Settings rows** (`setting_row_view.dart`): the name is right-aligned when it shares the line with its control,
+  and rows have more room between them.
+- **Debug node** (`sensor_nodes_api.py`): the run passes `debug:=true` to `par.launch.py`, so every enabled node with
+  a `debug` parameter opens its preview window.
+- **Apps:** the hint that reading the settings starts the app shows only while they are read
+  (`NodeSettingsEditorView`).
+
+**Why:** a placeholder pose says nothing about where a camera is, so drawing it suggests a position nobody
+measured; the list says what is missing instead. A scroll view shrinks to narrow content when its parent does not
+fix its width, which put the scroll bar in the middle of the page. A name far left of its control is hard to match
+to it in a wide window.
+
+**Alternatives considered:** keeping the dashed placeholders and listing them as well (rejected by Vitus: the
+drawing should show measured positions only); camera tabs that only show, with a "Use this camera" button (rejected
+by Vitus: the wizard starts only the main camera, so every tab would need the extra click); debug only for the node
+in front through a new launch argument (rejected by Vitus in favour of the existing `debug:=true` for all enabled
+nodes).
+
+## 2026-11-10: Setup wizard: RViz as an app that runs alongside, clearer names
+
+**What changed:**
+- **RViz in the Apps area:** `GET /api/apps` lists RViz (when `rviz2` and `rviz_bridge` are installed) with the new
+  field `uses_projector: false`. Adding it under Apps stores `par_launch.rviz: true`, the switch `par.launch.py`
+  already starts RViz by; it is not written into `par_launch.apps`, is left out of the Run menu's choice of the app
+  on the projector, and `PUT …/projector-app` refuses it. Its tab shows the description and Disable, no settings.
+- **Names:** `CameraSetting` is `NodeSetting` (backend and app), since it describes any node's parameter; a
+  camera's `is_selected` / `isSelected` is `is_main_camera` / `isMainCamera` (JSON field included); the sensor nodes
+  screen's `_selectedPackageNames` is `_enabledPackageNames`; `profiles_api._suffix` is `_create_serial_suffix`.
+- The run's error text and the remove-camera error no longer say "selected camera".
+
+**Why:** RViz is the tool for looking at a setup while its app runs, so it has to start next to the projector app,
+not instead of it. `par.launch.py` needs no change, because the switch exists. The names said less than the things
+they hold, or used a word the interface no longer shows.
+
+**Alternatives considered:** RViz as a choice in the Run menu like a projector app (rejected by Vitus: RViz and a
+projector app could then never run together); an ament index entry type for desktop tools (not built: RViz is the
+only one, so it stays a marked special case in `apps_api.py`).
+
+## 2026-11-10: Camera unit chosen in the new-profile wizard, `camera_serial:=`, remaining renames
+
+**What changed:**
+- **`camera_serial:=<serial>`** (`launch_helpers.py`, declared in `par.launch.py`): names the unit of `camera:=` to
+  open for one run. `get_camera_serial` returns it before the serial in the parameter files, so the unit's
+  intrinsics and extrinsics file names follow, and `create_camera_serial_override_parameters` hands it to the
+  driver (Brio, CU40, Blackfly, Kinect, RealSense) as text.
+- **New-profile wizard:** adding a camera of a type with serial numbers in the Hardware step asks for the connected
+  unit (`AddCameraDialog`, opened for one type). `CameraInstanceDraft.serial` goes to the previews before the
+  profile exists (`POST /api/camera-preview/start`, field `serial`) and into the new profile
+  (`POST /api/profiles`, field `camera_serial`).
+- **Blackfly units are listed** (`cameras_api.py`): from the USB devices of the vendor under
+  `/sys/bus/usb/devices`, whose serial text is the serial number in hexadecimal.
+- **Names:** `ProjectorApp…` is `InstalledApp…` (the list holds RViz too; JSON field `installed_apps`); storing the
+  main camera is `set_main_camera` / `setProfileMainCamera` on the route `/main-camera`.
+
+**Why:** the preview of a profile that is not saved yet starts with `par_setup.yaml` alone, which names no unit.
+A driver that opens nothing without a serial then shows no image, and a driver that opens the first unit it finds
+may show the wrong one when two are connected. The unit has to be known before the first preview, and the profile
+has to store the same one.
+
+**Alternatives considered:** opening the first connected unit when no serial is set (rejected by Vitus: with two
+units of a type the wizard could not say which one); a serial in `par_setup.yaml` (rejected: it is a value of one
+setup, not a default); a temporary profile file for the preview (rejected: a launch argument is the ROS way to
+override one value for one run and leaves no file behind); listing Blackflys through the Spinnaker SDK (rejected:
+needs its Python bindings, a new dependency, while USB already reports the serial).

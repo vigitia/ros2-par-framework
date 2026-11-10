@@ -1,22 +1,22 @@
 #!/usr/bin/env bash
 # Written by Claude Code
 #
-# Calibrates a camera's intrinsics with cameracalibrator (with the ROS2 package camera_calibration) and the board from
-# utils/checkerboard.png (8x6 inner corners; print it and measure one square):
-#   scripts/run_cameracalibrator.sh <square size in m> [more cameracalibrator options]
-#   scripts/run_cameracalibrator.sh 0.031
+# Calibrates a camera's intrinsics with cameracalibrator (with the ROS2 package camera_calibration) and a printed
+# checkerboard. Pass the board's inner corners (columns x rows) and the side of one square, measured on the print:
+#   scripts/run_cameracalibrator.sh <inner corners, e.g. 8x6> <square size in m> [more cameracalibrator options]
+#   scripts/run_cameracalibrator.sh 8x6 0.031
 
 # Some cameras such as the Azure Kinect do not need this script. Their driver already publishes its factory calibration.
 
 # It works on the framework's camera topics /camera/image_raw and /camera/set_camera_info, which the launch
 # files remap every camera driver onto (launch_helpers.CAMERA_DRIVER_REMAPPINGS).
 # CAMERA_NAMESPACE points it at a camera node outside the framework, e.g.
-#   CAMERA_NAMESPACE=/my_camera scripts/run_cameracalibrator.sh 0.031
-# BOARD_SIZE sets another board's inner corners (cameracalibrator would add a second --size, not replace it), e.g.
-#   BOARD_SIZE=10x6 scripts/run_cameracalibrator.sh 0.019
+#   CAMERA_NAMESPACE=/my_camera scripts/run_cameracalibrator.sh 8x6 0.031
 #
 # COMMIT stores the result through set_camera_info at the node's camera_info_url, which the framework's launch
-# files set to config/calibration/intrinsics/camera_info_<camera>.yaml.
+# files set to config/calibration/intrinsics/<profile>/camera_info_<camera>.yaml (without profile:=, the shared
+# config/calibration/intrinsics/camera_info_<camera>.yaml), so start the camera with the profile it is calibrated
+# for.
 
 # Needs ROS sourced and the camera node running and publishing with qos_reliability:=reliable.
 # The calibrator only copies the publisher's QoS if it discovers the topic at startup, and otherwise subscribes reliably.
@@ -24,17 +24,21 @@
 
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 
-if (( $# < 1 )); then
-    die "usage: $0 <square size in m> [cameracalibrator options]"
+if (( $# < 2 )); then
+    die "usage: $0 <inner corners, e.g. 8x6> <square size in m> [cameracalibrator options]"
 fi
 if ! command_exists ros2; then
     die "ROS is not sourced -- run: source /opt/ros/${ROS_DISTRO}/setup.bash"
 fi
 
-square_size_m="$1"
-shift    # the remaining arguments are passed on to cameracalibrator
+board_size="$1"
+square_size_m="$2"
+shift 2    # the remaining arguments are passed on to cameracalibrator
 camera_namespace="${CAMERA_NAMESPACE:-/camera}"
-board_size="${BOARD_SIZE:-8x6}"
+
+if [[ ! "$board_size" =~ ^[0-9]+x[0-9]+$ ]]; then
+    die "inner corners must look like 8x6 (columns x rows), got '$board_size' -- run: $0 8x6 0.031"
+fi
 
 # Must match the camera node's transport (the framework's terminals export LARGE_DATA), otherwise the two
 # don't see each other at all

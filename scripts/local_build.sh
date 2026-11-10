@@ -9,7 +9,7 @@
 # Steps:
 #   1. clone or update the node repositories of config/nodes.list into src/ (scripts/sync_nodes.sh)
 #   2. install their apt dependencies with rosdep
-#   3. install their PyPI dependencies into .venv
+#   3. install their PyPI dependencies and the setup wizard backend's into .venv
 #   4. build the workspace with colcon
 #   5. build the node repositories' Rust programs with cargo (full builds only)
 
@@ -62,7 +62,7 @@ fi
 # another's. nullglob makes a pattern without matches expand to nothing instead of staying as literal text.
 shopt -s nullglob
 pip_args=()
-for requirements_file in src/*/requirements.txt packages/*/requirements.txt; do
+for requirements_file in src/*/requirements.txt packages/*/requirements.txt setup_wizard/backend/requirements.txt; do
     pip_args+=(-r "$requirements_file")
 done
 if (( ${#pip_args[@]} > 0 )); then
