@@ -16,12 +16,13 @@ const Duration cameraPreviewStartStopTimeout = Duration(seconds: 35);
 
 extension CameraPreviewApi on SetupWizardBackendClient {
   /// Starts cameraName for the preview and returns the preview's id; a preview that runs is stopped first. With
-  /// profileName the camera starts with that saved profile's settings, otherwise with par_setup.yaml's.
-  Future<int> startCameraPreview(String cameraName, {String? profileName}) async {
+  /// profileName the camera starts with that saved profile's settings, otherwise with par_setup.yaml's. serial
+  /// names the unit to open while no profile names it yet; empty opens the unit the parameter files name.
+  Future<int> startCameraPreview(String cameraName, {String? profileName, String serial = ''}) async {
     final http.Response response = await _sendCameraPreviewJson(
       'POST',
       '/api/camera-preview/start',
-      {'camera_name': cameraName, 'profile_name': profileName},
+      {'camera_name': cameraName, 'profile_name': profileName, 'serial': serial},
     );
     final Map<String, dynamic> startJson = jsonDecode(response.body) as Map<String, dynamic>;
     return startJson['preview_id'] as int;
@@ -72,9 +73,9 @@ extension CameraPreviewApi on SetupWizardBackendClient {
   Future<CameraSettingsReport> fetchCameraPreviewSettings() async {
     final Map<String, dynamic> settingsJson =
         await getJson('/api/camera-preview/settings') as Map<String, dynamic>;
-    final List<CameraSetting> cameraSettings = [];
+    final List<NodeSetting> cameraSettings = [];
     for (final dynamic settingJson in settingsJson['settings'] as List<dynamic>) {
-      cameraSettings.add(CameraSetting.fromJson(settingJson as Map<String, dynamic>));
+      cameraSettings.add(NodeSetting.fromJson(settingJson as Map<String, dynamic>));
     }
     return CameraSettingsReport(
       cameraSettings: cameraSettings,
@@ -138,7 +139,7 @@ class CameraSettingsReport {
     required this.unsavedSettingNames,
   });
 
-  final List<CameraSetting> cameraSettings;
+  final List<NodeSetting> cameraSettings;
 
   /// The saved profile the camera was started with; null when it runs without one (e.g. a new profile).
   final String? profileName;
@@ -165,8 +166,8 @@ class CameraSettingsSaveResult {
 }
 
 /// One setting (ROS parameter) of a camera's driver node, with what its descriptor says about it.
-class CameraSetting {
-  const CameraSetting({
+class NodeSetting {
+  const NodeSetting({
     required this.settingName,
     required this.settingValue,
     required this.typeName,
@@ -180,8 +181,8 @@ class CameraSetting {
     this.defaultValue,
   });
 
-  factory CameraSetting.fromJson(Map<String, dynamic> settingJson) {
-    return CameraSetting(
+  factory NodeSetting.fromJson(Map<String, dynamic> settingJson) {
+    return NodeSetting(
       settingName: settingJson['setting_name'] as String,
       settingValue: settingJson['setting_value'],
       typeName: settingJson['type_name'] as String,

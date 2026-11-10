@@ -19,7 +19,7 @@ enum SettingsNodeKind {
 
 extension NodeSettingsApi on SetupWizardBackendClient {
   /// The node's settings with the profile's values; null while the backend reads them for the first time.
-  Future<List<CameraSetting>?> fetchNodeSettings({
+  Future<List<NodeSetting>?> fetchNodeSettings({
     required String profileName,
     required SettingsNodeKind nodeKind,
     required String packageName,
@@ -40,9 +40,9 @@ extension NodeSettingsApi on SetupWizardBackendClient {
       }
       rethrow;
     }
-    final List<CameraSetting> settings = [];
+    final List<NodeSetting> settings = [];
     for (final dynamic settingJson in settingsJson['settings'] as List<dynamic>) {
-      settings.add(CameraSetting.fromJson(settingJson as Map<String, dynamic>));
+      settings.add(NodeSetting.fromJson(settingJson as Map<String, dynamic>));
     }
     return settings;
   }

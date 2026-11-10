@@ -45,7 +45,7 @@ class _CamerasScreenState extends State<CamerasScreen> with ProfileSummaryLoadin
   CameraSection? _shownCameraSection;
 
   /// True while a camera is stored as the main one, e.g. after its tab came to the front.
-  bool _isSelectingCamera = false;
+  bool _isSettingMainCamera = false;
 
   @override
   void initState() {
@@ -71,8 +71,8 @@ class _CamerasScreenState extends State<CamerasScreen> with ProfileSummaryLoadin
     if (requestedCamera == null || requestedCamera.previewCameraName == null) {
       return;
     }
-    if (!requestedCamera.isSelected) {
-      await _selectCamera(requestedCamera);
+    if (!requestedCamera.isMainCamera) {
+      await _setMainCamera(requestedCamera);
     }
     if (!mounted) {
       return;
@@ -87,9 +87,9 @@ class _CamerasScreenState extends State<CamerasScreen> with ProfileSummaryLoadin
     return loadProfileSummary(widget.backendClient, widget.profileName, isSpinnerShown: isSpinnerShown);
   }
 
-  CameraCalibrationSummary? _findSelectedCamera(ProfileSummary profileSummary) {
+  CameraCalibrationSummary? _findMainCamera(ProfileSummary profileSummary) {
     for (final CameraCalibrationSummary camera in profileSummary.cameras) {
-      if (camera.isSelected) {
+      if (camera.isMainCamera) {
         return camera;
       }
     }
@@ -108,14 +108,14 @@ class _CamerasScreenState extends State<CamerasScreen> with ProfileSummaryLoadin
   }
 
   /// Stores the camera as the profile's main camera, the one a run starts; false when that failed.
-  Future<bool> _selectCamera(CameraCalibrationSummary camera) async {
+  Future<bool> _setMainCamera(CameraCalibrationSummary camera) async {
     setState(() {
-      _isSelectingCamera = true;
+      _isSettingMainCamera = true;
     });
     bool isCameraSelected = true;
     try {
       await widget.backendClient
-          .selectProfileCamera(profileName: widget.profileName, cameraName: camera.cameraType, serial: camera.serial);
+          .setProfileMainCamera(profileName: widget.profileName, cameraName: camera.cameraType, serial: camera.serial);
     } catch (error) {
       isCameraSelected = false;
       _showMessage(
@@ -128,7 +128,7 @@ class _CamerasScreenState extends State<CamerasScreen> with ProfileSummaryLoadin
     }
     if (mounted) {
       setState(() {
-        _isSelectingCamera = false;
+        _isSettingMainCamera = false;
       });
     }
     return isCameraSelected;
@@ -137,10 +137,10 @@ class _CamerasScreenState extends State<CamerasScreen> with ProfileSummaryLoadin
   /// The camera whose tab the user brought to the front becomes the main camera.
   void _onCameraTabShown(CameraCalibrationSummary camera) {
     // The capture camera cannot be the main camera; its tab only says so
-    if (camera.previewCameraName == null || camera.isSelected) {
+    if (camera.previewCameraName == null || camera.isMainCamera) {
       return;
     }
-    _selectCamera(camera);
+    _setMainCamera(camera);
   }
 
   Future<void> _addCamera(List<CameraCalibrationSummary> profileCameras) async {
@@ -193,8 +193,8 @@ class _CamerasScreenState extends State<CamerasScreen> with ProfileSummaryLoadin
     if (isRemovalConfirmed != true) {
       return;
     }
-    if (camera.isSelected) {
-      final bool isNextMainCameraSelected = await _selectCamera(nextMainCamera);
+    if (camera.isMainCamera) {
+      final bool isNextMainCameraSelected = await _setMainCamera(nextMainCamera);
       if (!isNextMainCameraSelected) {
         return;
       }
@@ -231,7 +231,7 @@ class _CamerasScreenState extends State<CamerasScreen> with ProfileSummaryLoadin
     return AddableTabsView(
       tabTitles: tabTitles,
       // The main camera's tab is in front when the area opens or the main camera changes
-      shownTabTitle: _findSelectedCamera(profileSummary)?.cameraDisplayName,
+      shownTabTitle: _findMainCamera(profileSummary)?.cameraDisplayName,
       addButtonText: 'Add camera',
       addMenuEntries: const [],
       onAddPressed: () => _addCamera(profileSummary.cameras),
@@ -256,14 +256,14 @@ class _CamerasScreenState extends State<CamerasScreen> with ProfileSummaryLoadin
         'own yet.',
         style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
       ));
-    } else if (!camera.isSelected) {
+    } else if (!camera.isMainCamera) {
       // In front, but not stored as the main camera (yet): its sections would start another unit
-      if (_isSelectingCamera) {
+      if (_isSettingMainCamera) {
         tabRows.add(const LinearProgressIndicator());
       } else {
         tabRows.add(const Text('Could not switch to this camera.'));
         tabRows.add(const SizedBox(height: 8));
-        tabRows.add(OutlinedButton(onPressed: () => _selectCamera(camera), child: const Text('Try again')));
+        tabRows.add(OutlinedButton(onPressed: () => _setMainCamera(camera), child: const Text('Try again')));
       }
     } else {
       tabRows.add(Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -299,7 +299,7 @@ class _CamerasScreenState extends State<CamerasScreen> with ProfileSummaryLoadin
     if (nextMainCamera != null) {
       final CameraCalibrationSummary chosenNextMainCamera = nextMainCamera;
       removeTooltipText = 'Remove this camera and its calibrations from the profile.';
-      if (!_isSelectingCamera) {
+      if (!_isSettingMainCamera) {
         onRemoveClicked = () => _confirmAndRemoveCamera(camera, chosenNextMainCamera);
       }
     }
@@ -350,14 +350,14 @@ class _CamerasScreenState extends State<CamerasScreen> with ProfileSummaryLoadin
   /// The section of the main camera; the key makes another camera start afresh.
   Widget _buildCameraSection(
     CameraSection cameraSection,
-    CameraCalibrationSummary selectedCamera,
+    CameraCalibrationSummary mainCamera,
     ProfileSummary profileSummary,
   ) {
     return CameraSectionView(
-      key: ValueKey<String>('${selectedCamera.cameraType}-${selectedCamera.serial}'),
+      key: ValueKey<String>('${mainCamera.cameraType}-${mainCamera.serial}'),
       backendClient: widget.backendClient,
       profileName: widget.profileName,
-      cameraName: selectedCamera.cameraType,
+      cameraName: mainCamera.cameraType,
       cameraSection: cameraSection,
       projectorDisplayId: profileSummary.projectorDisplayId,
     );

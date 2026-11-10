@@ -172,12 +172,14 @@ class SetupWizardBackendClient {
     required String profileName,
     required String profileDisplayName,
     required String cameraName,
+    required String cameraSerial,
     required int? projectorDisplayId,
   }) async {
     await sendJson('POST', '/api/profiles', {
       'profile_name': profileName,
       'profile_display_name': profileDisplayName,
       'camera_name': cameraName,
+      'camera_serial': cameraSerial,
       'projector_display_id': projectorDisplayId,
     });
   }
@@ -291,7 +293,7 @@ class CameraCalibrationSummary {
     required this.cameraDisplayName,
     required this.cameraType,
     required this.serial,
-    required this.isSelected,
+    required this.isMainCamera,
     required this.previewCameraName,
     required this.intrinsicsState,
     required this.poseState,
@@ -302,7 +304,7 @@ class CameraCalibrationSummary {
       cameraDisplayName: cameraJson['camera_display_name'] as String,
       cameraType: cameraJson['camera_type'] as String,
       serial: cameraJson['serial'] as String,
-      isSelected: cameraJson['is_selected'] as bool,
+      isMainCamera: cameraJson['is_main_camera'] as bool,
       previewCameraName: cameraJson['preview_camera_name'] as String?,
       intrinsicsState: IntrinsicsCalibrationState.fromBackendName(cameraJson['intrinsics_state'] as String),
       poseState: CameraPoseState.fromBackendName(cameraJson['pose_state'] as String),
@@ -318,7 +320,7 @@ class CameraCalibrationSummary {
   final String serial;
 
   /// True for the one camera the next run starts.
-  final bool isSelected;
+  final bool isMainCamera;
 
   /// The camera type to start for a preview (camera:= of par.launch.py); null when the camera cannot be started on
   /// its own for a preview yet.

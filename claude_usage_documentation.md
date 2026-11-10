@@ -4306,3 +4306,50 @@ drawing should show measured positions only); camera tabs that only show, with a
 by Vitus: the wizard starts only the main camera, so every tab would need the extra click); debug only for the node
 in front through a new launch argument (rejected by Vitus in favour of the existing `debug:=true` for all enabled
 nodes).
+
+## 2026-11-10: Setup wizard: RViz as an app that runs alongside, clearer names
+
+**What changed:**
+- **RViz in the Apps area:** `GET /api/apps` lists RViz (when `rviz2` and `rviz_bridge` are installed) with the new
+  field `uses_projector: false`. Adding it under Apps stores `par_launch.rviz: true`, the switch `par.launch.py`
+  already starts RViz by; it is not written into `par_launch.apps`, is left out of the Run menu's choice of the app
+  on the projector, and `PUT …/projector-app` refuses it. Its tab shows the description and Disable, no settings.
+- **Names:** `CameraSetting` is `NodeSetting` (backend and app), since it describes any node's parameter; a
+  camera's `is_selected` / `isSelected` is `is_main_camera` / `isMainCamera` (JSON field included); the sensor nodes
+  screen's `_selectedPackageNames` is `_enabledPackageNames`; `profiles_api._suffix` is `_create_serial_suffix`.
+- The run's error text and the remove-camera error no longer say "selected camera".
+
+**Why:** RViz is the tool for looking at a setup while its app runs, so it has to start next to the projector app,
+not instead of it. `par.launch.py` needs no change, because the switch exists. The names said less than the things
+they hold, or used a word the interface no longer shows.
+
+**Alternatives considered:** RViz as a choice in the Run menu like a projector app (rejected by Vitus: RViz and a
+projector app could then never run together); an ament index entry type for desktop tools (not built: RViz is the
+only one, so it stays a marked special case in `apps_api.py`).
+
+## 2026-11-10: Camera unit chosen in the new-profile wizard, `camera_serial:=`, remaining renames
+
+**What changed:**
+- **`camera_serial:=<serial>`** (`launch_helpers.py`, declared in `par.launch.py`): names the unit of `camera:=` to
+  open for one run. `get_camera_serial` returns it before the serial in the parameter files, so the unit's
+  intrinsics and extrinsics file names follow, and `create_camera_serial_override_parameters` hands it to the
+  driver (Brio, CU40, Blackfly, Kinect, RealSense) as text.
+- **New-profile wizard:** adding a camera of a type with serial numbers in the Hardware step asks for the connected
+  unit (`AddCameraDialog`, opened for one type). `CameraInstanceDraft.serial` goes to the previews before the
+  profile exists (`POST /api/camera-preview/start`, field `serial`) and into the new profile
+  (`POST /api/profiles`, field `camera_serial`).
+- **Blackfly units are listed** (`cameras_api.py`): from the USB devices of the vendor under
+  `/sys/bus/usb/devices`, whose serial text is the serial number in hexadecimal.
+- **Names:** `ProjectorApp…` is `InstalledApp…` (the list holds RViz too; JSON field `installed_apps`); storing the
+  main camera is `set_main_camera` / `setProfileMainCamera` on the route `/main-camera`.
+
+**Why:** the preview of a profile that is not saved yet starts with `par_setup.yaml` alone, which names no unit.
+A driver that opens nothing without a serial then shows no image, and a driver that opens the first unit it finds
+may show the wrong one when two are connected. The unit has to be known before the first preview, and the profile
+has to store the same one.
+
+**Alternatives considered:** opening the first connected unit when no serial is set (rejected by Vitus: with two
+units of a type the wizard could not say which one); a serial in `par_setup.yaml` (rejected: it is a value of one
+setup, not a default); a temporary profile file for the preview (rejected: a launch argument is the ROS way to
+override one value for one run and leaves no file behind); listing Blackflys through the Spinnaker SDK (rejected:
+needs its Python bindings, a new dependency, while USB already reports the serial).

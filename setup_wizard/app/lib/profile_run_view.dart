@@ -2,8 +2,8 @@
 //
 // "Run" for a profile, as the floating action button of the profile's Overview: a menu opens above it to choose the
 // app on the projector among the profile's apps (or none); the choice is stored as the profile's app
-// (par_launch.projector_app) and the profile starts on the PAR machine as the framework (the selected camera, the
-// switched-on sensor nodes and that app). While it runs, the button stops it again. The state is asked for every few
+// (par_launch.projector_app) and the profile starts on the PAR machine as the framework (the profile's main camera,
+// the switched-on sensor nodes and that app). While it runs, the button stops it again. The state is asked for every few
 // seconds, so the button also shows a run that was started earlier, and a run that ends on its own is noticed. Only
 // one profile runs at a time. What would not fit on the button (a run that ended on its own, a failed start or stop)
 // is shown as a snack bar.
@@ -57,7 +57,7 @@ class _ProfileRunViewState extends State<ProfileRunView> {
 
   /// The profile's apps (par_launch.apps) the menu offers, read each time it opens, so a change in the Apps area
   /// shows.
-  List<ProjectorApp> _menuApps = [];
+  List<InstalledApp> _menuApps = [];
   String _storedAppName = projectorAppNone;
   bool _isLoadingAppMenu = false;
 
@@ -119,7 +119,7 @@ class _ProfileRunViewState extends State<ProfileRunView> {
       return;
     }
     _showMessage(
-      'The profile stopped by itself. Check that the selected camera is connected, then run it again.',
+      'The profile stopped by itself. Check that the profile\'s camera is connected, then run it again.',
       isError: true,
     );
   }
@@ -130,15 +130,16 @@ class _ProfileRunViewState extends State<ProfileRunView> {
       _isLoadingAppMenu = true;
     });
     try {
-      final List<ProjectorApp> installedApps = await widget.backendClient.fetchProjectorApps();
+      final List<InstalledApp> installedApps = await widget.backendClient.fetchInstalledApps();
       final ProfileSummary profileSummary = await widget.backendClient.fetchProfileSummary(widget.profileName);
       if (!mounted) {
         return;
       }
-      final List<ProjectorApp> profileApps = [];
+      final List<InstalledApp> profileApps = [];
       for (final String enabledAppName in profileSummary.enabledAppNames) {
-        for (final ProjectorApp installedApp in installedApps) {
-          if (installedApp.appName == enabledAppName) {
+        for (final InstalledApp installedApp in installedApps) {
+          // An app that does not use the projector starts with every run, so it is no choice here
+          if (installedApp.appName == enabledAppName && installedApp.usesProjector) {
             profileApps.add(installedApp);
           }
         }
@@ -181,7 +182,7 @@ class _ProfileRunViewState extends State<ProfileRunView> {
     final List<Widget> menuEntries = [
       _buildAppMenuEntry(projectorAppNone, 'No app (camera and sensor nodes only)', true),
     ];
-    for (final ProjectorApp menuApp in _menuApps) {
+    for (final InstalledApp menuApp in _menuApps) {
       menuEntries.add(_buildAppMenuEntry(menuApp.appName, menuApp.displayName, menuApp.entryErrorText == null));
     }
     if (_menuApps.isEmpty) {

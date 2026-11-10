@@ -11,13 +11,13 @@ const String projectorAppNone = 'none';
 
 extension AppsApi on SetupWizardBackendClient {
   /// Returns the installed apps that can own the projector.
-  Future<List<ProjectorApp>> fetchProjectorApps() async {
+  Future<List<InstalledApp>> fetchInstalledApps() async {
     final Map<String, dynamic> appListJson = await getJson('/api/apps') as Map<String, dynamic>;
-    final List<ProjectorApp> projectorApps = [];
-    for (final dynamic appJson in appListJson['projector_apps'] as List<dynamic>) {
-      projectorApps.add(ProjectorApp.fromJson(appJson as Map<String, dynamic>));
+    final List<InstalledApp> installedApps = [];
+    for (final dynamic appJson in appListJson['installed_apps'] as List<dynamic>) {
+      installedApps.add(InstalledApp.fromJson(appJson as Map<String, dynamic>));
     }
-    return projectorApps;
+    return installedApps;
   }
 
   /// Stores appName (an app's appName, or projectorAppNone) as the app the profile starts on the projector.
@@ -32,29 +32,35 @@ extension AppsApi on SetupWizardBackendClient {
   }
 }
 
-class ProjectorApp {
-  const ProjectorApp({
+class InstalledApp {
+  const InstalledApp({
     required this.appName,
     required this.displayName,
     required this.description,
+    required this.usesProjector,
     required this.settingsNodeNames,
     required this.entryErrorText,
   });
 
-  factory ProjectorApp.fromJson(Map<String, dynamic> appJson) {
-    return ProjectorApp(
+  factory InstalledApp.fromJson(Map<String, dynamic> appJson) {
+    return InstalledApp(
       appName: appJson['app_name'] as String,
       displayName: appJson['display_name'] as String,
       description: appJson['description'] as String,
+      usesProjector: appJson['uses_projector'] as bool,
       settingsNodeNames: (appJson['settings_node_names'] as List<dynamic>).cast<String>(),
       entryErrorText: appJson['entry_error_text'] as String?,
     );
   }
 
-  /// The value of par_launch.projector_app that starts the app: its package name.
+  /// The value of par_launch.projector_app that starts the app: its package name. For an app that does not use the
+  /// projector, the par_launch switch that starts it.
   final String appName;
   final String displayName;
   final String description;
+
+  /// False for an app that runs next to the app on the projector (RViz) instead of being chosen as that app.
+  final bool usesProjector;
 
   /// The app's nodes whose settings the Apps area edits (full node names); empty when the app declares none.
   final List<String> settingsNodeNames;

@@ -63,6 +63,7 @@ class CameraImageStep extends StatelessWidget {
         CameraPreviewWithSettingsView(
           backendClient: backendClient,
           cameraName: cameraName,
+          serial: cameraInstance.serial,
           isSettingsListShown: true,
           isFocusAssistShown: isFocusPage,
           settingsTitleText: settingsTitleText,

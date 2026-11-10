@@ -126,10 +126,10 @@ class _ProfileOverviewScreenState extends State<ProfileOverviewScreen>
     SetupGeometry setupGeometry,
   ) {
     final List<_MissingCalibrationStep> missingSteps = [];
-    CameraCalibrationSummary? selectedCamera;
+    CameraCalibrationSummary? mainCamera;
     for (final CameraCalibrationSummary camera in profileSummary.cameras) {
-      if (camera.isSelected) {
-        selectedCamera = camera;
+      if (camera.isMainCamera) {
+        mainCamera = camera;
       }
       // The capture camera has no preview of its own, so none of the camera sections can open it
       final bool canBeOpened = camera.previewCameraName != null;
@@ -174,7 +174,7 @@ class _ProfileOverviewScreenState extends State<ProfileOverviewScreen>
       }
     }
 
-    if (selectedCamera == null) {
+    if (mainCamera == null) {
       return missingSteps;
     }
     final ProjectorGeometry? projector = setupGeometry.projector;
@@ -185,11 +185,11 @@ class _ProfileOverviewScreenState extends State<ProfileOverviewScreen>
       }
       missingSteps.add(_MissingCalibrationStep(
         titleText: projectorTitleText,
-        missingInDrawingText: 'Its projector calibration with ${selectedCamera.cameraDisplayName} is missing: '
+        missingInDrawingText: 'Its projector calibration with ${mainCamera.cameraDisplayName} is missing: '
             'without it, the wizard does not know where the projected image lies on the table.',
         cameraSectionRequest: (
-          cameraType: selectedCamera.cameraType,
-          serial: selectedCamera.serial,
+          cameraType: mainCamera.cameraType,
+          serial: mainCamera.serial,
           cameraSection: CameraSection.projectorCalibration,
         ),
       ));

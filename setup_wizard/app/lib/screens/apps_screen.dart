@@ -4,7 +4,8 @@
 // ones it does not offer yet. A tab shows what the app is, Disable, and the settings of the nodes its ament index
 // entry names (settings_node_names), read once from the app and saved into the profile without running it
 // (NodeSettingsEditorView). Which of the profile's apps goes on the projector is chosen in the Run menu
-// (profile_run_view.dart); disabling that app leaves the projector without one. The Store area is for apps that are
+// (profile_run_view.dart); disabling that app leaves the projector without one. An app that does not use the
+// projector (RViz) starts with every run of the profile while it has a tab here. The Store area is for apps that are
 // not installed yet.
 
 import 'package:flutter/material.dart';
@@ -29,7 +30,7 @@ class AppsScreen extends StatefulWidget {
 }
 
 class _AppsScreenState extends State<AppsScreen> with ProfileSummaryLoading<AppsScreen> {
-  List<ProjectorApp>? _installedApps;
+  List<InstalledApp>? _installedApps;
   String? _appListErrorText;
   bool _isSavingEnabledApps = false;
   String? _enabledAppsErrorText;
@@ -50,7 +51,7 @@ class _AppsScreenState extends State<AppsScreen> with ProfileSummaryLoading<Apps
 
   Future<void> _loadInstalledApps() async {
     try {
-      final List<ProjectorApp> installedApps = await widget.backendClient.fetchProjectorApps();
+      final List<InstalledApp> installedApps = await widget.backendClient.fetchInstalledApps();
       if (!mounted) {
         return;
       }
@@ -95,8 +96,8 @@ class _AppsScreenState extends State<AppsScreen> with ProfileSummaryLoading<Apps
     }
   }
 
-  ProjectorApp? _findInstalledApp(String appName) {
-    for (final ProjectorApp installedApp in _installedApps ?? <ProjectorApp>[]) {
+  InstalledApp? _findInstalledApp(String appName) {
+    for (final InstalledApp installedApp in _installedApps ?? <InstalledApp>[]) {
       if (installedApp.appName == appName) {
         return installedApp;
       }
@@ -111,7 +112,7 @@ class _AppsScreenState extends State<AppsScreen> with ProfileSummaryLoading<Apps
       return buildProfileLoadStateView(onRetryClicked: _loadProfileAndApps);
     }
     final String? appListErrorText = _appListErrorText;
-    final List<ProjectorApp>? installedApps = _installedApps;
+    final List<InstalledApp>? installedApps = _installedApps;
     if (appListErrorText != null) {
       return TopAlignedPageContent(
         child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -150,9 +151,9 @@ class _AppsScreenState extends State<AppsScreen> with ProfileSummaryLoading<Apps
     );
   }
 
-  List<Widget> _buildAddMenuEntries(List<ProjectorApp> installedApps, List<String> enabledAppNames) {
+  List<Widget> _buildAddMenuEntries(List<InstalledApp> installedApps, List<String> enabledAppNames) {
     final List<Widget> addMenuEntries = [];
-    for (final ProjectorApp installedApp in installedApps) {
+    for (final InstalledApp installedApp in installedApps) {
       if (enabledAppNames.contains(installedApp.appName)) {
         continue;
       }
@@ -169,10 +170,14 @@ class _AppsScreenState extends State<AppsScreen> with ProfileSummaryLoading<Apps
   Widget _buildAppTab(String appName, List<String> enabledAppNames) {
     final ColorScheme colorScheme = Theme.of(context).colorScheme;
     final TextStyle mutedTextStyle = TextStyle(color: colorScheme.onSurfaceVariant);
-    final ProjectorApp? installedApp = _findInstalledApp(appName);
+    final InstalledApp? installedApp = _findInstalledApp(appName);
     String descriptionText = 'Not installed (any more): disable it, or install it again.';
     if (installedApp != null) {
       descriptionText = installedApp.description;
+    }
+    String disableTooltipText = 'The profile no longer offers this app in the Run menu.';
+    if (installedApp != null && !installedApp.usesProjector) {
+      disableTooltipText = 'The profile no longer starts this app.';
     }
     VoidCallback? onDisableClicked;
     if (!_isSavingEnabledApps) {
@@ -186,7 +191,7 @@ class _AppsScreenState extends State<AppsScreen> with ProfileSummaryLoading<Apps
         Expanded(child: Text(descriptionText, style: mutedTextStyle)),
         const SizedBox(width: 12),
         Tooltip(
-          message: 'The profile no longer offers this app in the Run menu.',
+          message: disableTooltipText,
           child: OutlinedButton.icon(
             onPressed: onDisableClicked,
             icon: const Icon(Icons.remove_circle_outline),
@@ -203,6 +208,8 @@ class _AppsScreenState extends State<AppsScreen> with ProfileSummaryLoading<Apps
     final String? entryErrorText = installedApp?.entryErrorText;
     if (entryErrorText != null) {
       tabRows.add(Text('Its entry cannot be used: $entryErrorText', style: TextStyle(color: colorScheme.error)));
+    } else if (installedApp != null && !installedApp.usesProjector) {
+      // Not a PAR app, so it has no entry that could name settings
     } else if (installedApp != null && installedApp.settingsNodeNames.isEmpty) {
       tabRows.add(Text('This app declares no settings (settings_node_names in its entry).', style: mutedTextStyle));
     } else if (installedApp != null) {

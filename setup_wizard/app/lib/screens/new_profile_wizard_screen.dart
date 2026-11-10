@@ -50,8 +50,9 @@ class NewProfileDraft {
     return instanceCount;
   }
 
-  /// Adds a camera of cameraType named `<type>_<n>` with the lowest number not taken, e.g. 'brio_2'.
-  void addCameraInstance(String cameraType) {
+  /// Adds a camera of cameraType named `<type>_<n>` with the lowest number not taken, e.g. 'brio_2'. serial names
+  /// the unit; empty for a camera type without serial numbers.
+  void addCameraInstance(String cameraType, String serial) {
     final Set<String> takenInstanceNames = {};
     for (final CameraInstanceDraft cameraInstance in cameraInstances) {
       takenInstanceNames.add(cameraInstance.instanceName);
@@ -60,7 +61,11 @@ class NewProfileDraft {
     while (takenInstanceNames.contains('${cameraType}_$instanceNumber')) {
       instanceNumber += 1;
     }
-    cameraInstances.add(CameraInstanceDraft(cameraType: cameraType, instanceName: '${cameraType}_$instanceNumber'));
+    cameraInstances.add(CameraInstanceDraft(
+      cameraType: cameraType,
+      serial: serial,
+      instanceName: '${cameraType}_$instanceNumber',
+    ));
   }
 
   /// Removes the camera of cameraType added last, like lowering the count in a shopping cart.
@@ -74,12 +79,15 @@ class NewProfileDraft {
   }
 }
 
-/// One camera of the new profile: which driver (type) and its name within the profile.
+/// One camera of the new profile: which driver (type), which unit of it and its name within the profile.
 class CameraInstanceDraft {
-  CameraInstanceDraft({required this.cameraType, required this.instanceName});
+  CameraInstanceDraft({required this.cameraType, required this.serial, required this.instanceName});
 
   /// A key of launch_helpers.CAMERA_DRIVER_REMAPPINGS, e.g. 'brio'.
   final String cameraType;
+
+  /// The unit's serial number, chosen in the Hardware step; empty for a camera type without serial numbers.
+  final String serial;
 
   /// Unique within the profile, e.g. 'brio_2'; used for namespaces, TF frames and calibration file names.
   /// Suggested as `<type>_<n>` (decision on the card: editable when added, fixed afterwards).
@@ -247,6 +255,7 @@ class _NewProfileWizardScreenState extends State<NewProfileWizardScreen> {
     // Simplification: the framework launches one camera at a time, so the profile gets the first one. Upgrade:
     // send every camera instance once launch_helpers starts several (card "Setup Wizard").
     final String cameraName = cameraInstances.first.cameraType;
+    final String cameraSerial = cameraInstances.first.serial;
     int? projectorDisplayId;
     if (_newProfileDraft.projectorDisplayIds.isNotEmpty) {
       projectorDisplayId = _newProfileDraft.projectorDisplayIds.first;
@@ -262,6 +271,7 @@ class _NewProfileWizardScreenState extends State<NewProfileWizardScreen> {
         profileName: profileName,
         profileDisplayName: profileDisplayName,
         cameraName: cameraName,
+        cameraSerial: cameraSerial,
         projectorDisplayId: projectorDisplayId,
       );
     } catch (error) {
@@ -402,11 +412,15 @@ class _NewProfileWizardScreenState extends State<NewProfileWizardScreen> {
 
   /// A note while the profile has several cameras of this one's type: they cannot be told apart yet.
   String? _getSameTypeNoteText(CameraInstanceDraft cameraInstance) {
+    // With a serial, the preview opens this camera's own unit
+    if (cameraInstance.serial.isNotEmpty) {
+      return null;
+    }
     if (_newProfileDraft.countCameraInstancesOfType(cameraInstance.cameraType) < 2) {
       return null;
     }
-    // Simplification: the preview starts a camera by type with par_setup.yaml's settings, so every instance of a
-    // type opens the same unit. Upgrade: choose the unit (serial or USB port) per instance.
+    // Simplification: a camera type without serial numbers is started by type, so every instance of it opens the
+    // same unit. Upgrade: tell its units apart another way (e.g. by USB port).
     return 'Every ${cameraInstance.cameraType} shows the same camera for now: choosing which unit belongs to which '
         'camera comes later.';
   }

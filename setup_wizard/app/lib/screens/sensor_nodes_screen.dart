@@ -51,7 +51,7 @@ class _SensorNodesScreenState extends State<SensorNodesScreen> {
   String? _listErrorText;
 
   /// The profile's stored selection, with the nodes the selected ones need.
-  Set<String> _selectedPackageNames = {};
+  Set<String> _enabledPackageNames = {};
   bool _isSavingSelection = false;
   String? _selectionErrorText;
 
@@ -95,7 +95,7 @@ class _SensorNodesScreenState extends State<SensorNodesScreen> {
       }
       setState(() {
         _sensorNodeList = sensorNodeList;
-        _selectedPackageNames = selectedPackageNames;
+        _enabledPackageNames = selectedPackageNames;
         _listErrorText = null;
       });
     } catch (error) {
@@ -109,7 +109,7 @@ class _SensorNodesScreenState extends State<SensorNodesScreen> {
 
   /// Enables or disables the node; an enabled one comes to the front as its tab.
   Future<void> _setSensorNodeEnabled(String packageName, bool isEnabled) async {
-    final Set<String> requestedPackageNames = Set<String>.of(_selectedPackageNames);
+    final Set<String> requestedPackageNames = Set<String>.of(_enabledPackageNames);
     if (isEnabled) {
       requestedPackageNames.add(packageName);
     } else {
@@ -131,7 +131,7 @@ class _SensorNodesScreenState extends State<SensorNodesScreen> {
         return;
       }
       setState(() {
-        _selectedPackageNames = storedPackageNames.toSet();
+        _enabledPackageNames = storedPackageNames.toSet();
         _isSavingSelection = false;
       });
     } catch (error) {
@@ -226,7 +226,7 @@ class _SensorNodesScreenState extends State<SensorNodesScreen> {
   List<SensorNodeSummary> _getEnabledSensorNodes(SensorNodeList sensorNodeList) {
     final List<SensorNodeSummary> enabledSensorNodes = [];
     for (final SensorNodeSummary sensorNode in sensorNodeList.sensorNodes) {
-      if (_selectedPackageNames.contains(sensorNode.packageName)) {
+      if (_enabledPackageNames.contains(sensorNode.packageName)) {
         enabledSensorNodes.add(sensorNode);
       }
     }
@@ -315,7 +315,7 @@ class _SensorNodesScreenState extends State<SensorNodesScreen> {
   List<Widget> _buildAddMenuEntries(SensorNodeList sensorNodeList) {
     final List<Widget> addMenuEntries = [];
     for (final SensorNodeSummary sensorNode in sensorNodeList.sensorNodes) {
-      if (_selectedPackageNames.contains(sensorNode.packageName)) {
+      if (_enabledPackageNames.contains(sensorNode.packageName)) {
         continue;
       }
       // A broken entry cannot be started
@@ -332,7 +332,7 @@ class _SensorNodesScreenState extends State<SensorNodesScreen> {
   List<String> _getSelectedNodesNeeding(String packageName) {
     final List<String> needingNodeNames = [];
     for (final SensorNodeSummary sensorNode in _sensorNodeList?.sensorNodes ?? <SensorNodeSummary>[]) {
-      final bool isSelected = _selectedPackageNames.contains(sensorNode.packageName);
+      final bool isSelected = _enabledPackageNames.contains(sensorNode.packageName);
       if (isSelected && sensorNode.requiredSensorNodes.contains(packageName)) {
         needingNodeNames.add(sensorNode.displayName);
       }

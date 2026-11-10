@@ -58,7 +58,7 @@ class CameraGeometry {
     required this.cameraId,
     required this.cameraType,
     required this.serial,
-    required this.isSelected,
+    required this.isMainCamera,
     required this.isPoseMeasured,
     required this.positionM,
     required this.opticalAxisTableHitM,
@@ -70,7 +70,7 @@ class CameraGeometry {
       cameraId: cameraJson['camera_id'] as String,
       cameraType: cameraJson['camera_type'] as String,
       serial: cameraJson['serial'] as String,
-      isSelected: cameraJson['is_selected'] as bool,
+      isMainCamera: cameraJson['is_main_camera'] as bool,
       isPoseMeasured: cameraJson['is_pose_measured'] as bool,
       positionM: WorldPointM.fromJson(cameraJson['position_m'] as List<dynamic>),
       opticalAxisTableHitM: _readOptionalPoint(cameraJson['optical_axis_table_hit_m']),
@@ -86,7 +86,7 @@ class CameraGeometry {
   final String serial;
 
   /// The unit a run of the profile starts.
-  final bool isSelected;
+  final bool isMainCamera;
 
   /// False: the placeholder pose from the parameter files.
   final bool isPoseMeasured;

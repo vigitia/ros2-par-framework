@@ -60,7 +60,7 @@ class SettingDropdownOption {
 class SettingRowView extends StatefulWidget {
   const SettingRowView({
     super.key,
-    required this.cameraSetting,
+    required this.nodeSetting,
     required this.shownValue,
     required this.isEditable,
     required this.onSettingChanged,
@@ -70,7 +70,7 @@ class SettingRowView extends StatefulWidget {
   });
 
   /// The setting with its descriptor, as the node reports it.
-  final CameraSetting cameraSetting;
+  final NodeSetting nodeSetting;
 
   /// The value to show: the node's, or a change the owner has not applied yet.
   final Object? shownValue;
@@ -85,7 +85,7 @@ class SettingRowView extends StatefulWidget {
   /// Why the owner's last change of this setting failed; null otherwise.
   final String? errorText;
 
-  /// Sets the setting back to its default (cameraSetting.defaultValue); null when no default is known.
+  /// Sets the setting back to its default (nodeSetting.defaultValue); null when no default is known.
   final VoidCallback? onResetToDefault;
 
   @override
@@ -136,10 +136,10 @@ class _SettingRowViewState extends State<SettingRowView> {
     if (_valueTextFocusNode.hasFocus) {
       return;
     }
-    final Object? parsedValue = _parseSettingText(widget.cameraSetting.typeName, _valueTextController.text);
+    final Object? parsedValue = _parseSettingText(widget.nodeSetting.typeName, _valueTextController.text);
     if (parsedValue == null) {
       setState(() {
-        _textErrorText = 'Enter ${_describeExpectedInput(widget.cameraSetting.typeName)}.';
+        _textErrorText = 'Enter ${_describeExpectedInput(widget.nodeSetting.typeName)}.';
       });
     }
   }
@@ -165,13 +165,13 @@ class _SettingRowViewState extends State<SettingRowView> {
   Widget build(BuildContext context) {
     final TextTheme textTheme = Theme.of(context).textTheme;
     final Color mutedTextColor = Theme.of(context).colorScheme.onSurfaceVariant;
-    return _buildSettingRow(widget.cameraSetting, textTheme, mutedTextColor);
+    return _buildSettingRow(widget.nodeSetting, textTheme, mutedTextColor);
   }
 
-  Widget _buildSettingRow(CameraSetting cameraSetting, TextTheme textTheme, Color mutedTextColor) {
+  Widget _buildSettingRow(NodeSetting nodeSetting, TextTheme textTheme, Color mutedTextColor) {
     final TextStyle? mutedSmallTextStyle = textTheme.bodySmall?.copyWith(color: mutedTextColor);
     final List<String> detailParts = [];
-    final String? rangeText = _formatRange(cameraSetting);
+    final String? rangeText = _formatRange(nodeSetting);
     if (rangeText != null) {
       detailParts.add(rangeText);
     }
@@ -180,23 +180,23 @@ class _SettingRowViewState extends State<SettingRowView> {
       detailParts.add(lockedText);
     }
 
-    final Widget nameText = Text(cameraSetting.settingName, style: textTheme.bodyMedium);
-    final Widget? settingControl = _buildSettingControl(cameraSetting);
+    final Widget nameText = Text(nodeSetting.settingName, style: textTheme.bodyMedium);
+    final Widget? settingControl = _buildSettingControl(nodeSetting);
     // Without a control, the value is written out next to the name
     Widget? valueText;
     if (settingControl == null) {
       // Wraps instead of overflowing: values can be long, e.g. a file URL, and must stay readable in full.
-      valueText = Text(_formatValue(_getShownValue(cameraSetting)), style: textTheme.titleSmall, textAlign: TextAlign.end);
+      valueText = Text(_formatValue(_getShownValue(nodeSetting)), style: textTheme.titleSmall, textAlign: TextAlign.end);
     }
     final Widget nameAndControl = LayoutBuilder(builder: (BuildContext context, BoxConstraints constraints) {
       Widget valueOrControl = settingControl ?? Align(alignment: Alignment.centerRight, child: valueText);
-      final Widget? resetButton = _buildResetButton(cameraSetting);
+      final Widget? resetButton = _buildResetButton(nodeSetting);
       if (resetButton != null) {
         valueOrControl = Row(children: [Expanded(child: valueOrControl), resetButton]);
       }
       if (constraints.maxWidth >= settingRowOneLineMinimumWidthLogicalPx) {
         final Widget rightAlignedNameText =
-            Text(cameraSetting.settingName, style: textTheme.bodyMedium, textAlign: TextAlign.end);
+            Text(nodeSetting.settingName, style: textTheme.bodyMedium, textAlign: TextAlign.end);
         return Row(children: [
           Expanded(flex: 2, child: rightAlignedNameText),
           const SizedBox(width: 12),
@@ -213,13 +213,13 @@ class _SettingRowViewState extends State<SettingRowView> {
     if (detailParts.isNotEmpty) {
       rowLines.add(Text(detailParts.join(' · '), style: mutedSmallTextStyle));
     }
-    if (cameraSetting.description.isNotEmpty) {
-      rowLines.add(Text(cameraSetting.description, style: mutedSmallTextStyle));
+    if (nodeSetting.description.isNotEmpty) {
+      rowLines.add(Text(nodeSetting.description, style: mutedSmallTextStyle));
     }
     // A menu read into a dropdown already shows its options.
-    final bool isMenuInDropdown = widget.isEditable && _readMenuOptions(cameraSetting) != null;
-    if (cameraSetting.additionalConstraints.isNotEmpty && !isMenuInDropdown) {
-      rowLines.add(Text('Allowed: ${cameraSetting.additionalConstraints}', style: mutedSmallTextStyle));
+    final bool isMenuInDropdown = widget.isEditable && _readMenuOptions(nodeSetting) != null;
+    if (nodeSetting.additionalConstraints.isNotEmpty && !isMenuInDropdown) {
+      rowLines.add(Text('Allowed: ${nodeSetting.additionalConstraints}', style: mutedSmallTextStyle));
     }
     final String? changeErrorText = _textErrorText ?? widget.errorText;
     if (changeErrorText != null) {
@@ -232,16 +232,16 @@ class _SettingRowViewState extends State<SettingRowView> {
   }
 
   /// "Reset to default" while the shown value differs from the default; null otherwise.
-  Widget? _buildResetButton(CameraSetting cameraSetting) {
-    if (!widget.isEditable || widget.onResetToDefault == null || !cameraSetting.hasDefaultValue) {
+  Widget? _buildResetButton(NodeSetting nodeSetting) {
+    if (!widget.isEditable || widget.onResetToDefault == null || !nodeSetting.hasDefaultValue) {
       return null;
     }
-    if (_isSameValue(_getShownValue(cameraSetting), cameraSetting.defaultValue)) {
+    if (_isSameValue(_getShownValue(nodeSetting), nodeSetting.defaultValue)) {
       return null;
     }
     return IconButton(
       onPressed: _resetToDefault,
-      tooltip: 'Reset to default (${_formatValue(cameraSetting.defaultValue)})',
+      tooltip: 'Reset to default (${_formatValue(nodeSetting.defaultValue)})',
       icon: const Icon(Icons.restart_alt),
     );
   }
@@ -266,61 +266,61 @@ class _SettingRowViewState extends State<SettingRowView> {
   }
 
   /// The slider position while dragged, otherwise the value the owner shows.
-  Object? _getShownValue(CameraSetting cameraSetting) {
+  Object? _getShownValue(NodeSetting nodeSetting) {
     final double? draggedSliderValue = _draggedSliderValue;
     if (draggedSliderValue == null) {
       return widget.shownValue;
     }
-    if (cameraSetting.typeName == 'integer') {
+    if (nodeSetting.typeName == 'integer') {
       return draggedSliderValue.round();
     }
     return draggedSliderValue;
   }
 
   /// The control for changing the setting, chosen from its descriptor; null when it cannot be changed.
-  Widget? _buildSettingControl(CameraSetting cameraSetting) {
+  Widget? _buildSettingControl(NodeSetting nodeSetting) {
     if (!widget.isEditable) {
       return null;
     }
     final Object? settingValue = widget.shownValue;
-    if (cameraSetting.typeName == 'bool' && settingValue is bool) {
+    if (nodeSetting.typeName == 'bool' && settingValue is bool) {
       return Align(
         alignment: Alignment.centerLeft,
         child: Switch(
           value: settingValue,
-          onChanged: (bool isOn) => _reportChange(cameraSetting.settingName, isOn),
+          onChanged: (bool isOn) => _reportChange(nodeSetting.settingName, isOn),
         ),
       );
     }
-    final List<SettingDropdownOption>? dropdownOptions = _getDropdownOptions(cameraSetting);
+    final List<SettingDropdownOption>? dropdownOptions = _getDropdownOptions(nodeSetting);
     if (dropdownOptions != null && settingValue is int) {
-      return _buildSettingDropdown(cameraSetting, settingValue, dropdownOptions);
+      return _buildSettingDropdown(nodeSetting, settingValue, dropdownOptions);
     }
-    final bool isNumber = cameraSetting.typeName == 'integer' || cameraSetting.typeName == 'double';
-    final double? minimumValue = cameraSetting.minimumValue;
-    final double? maximumValue = cameraSetting.maximumValue;
+    final bool isNumber = nodeSetting.typeName == 'integer' || nodeSetting.typeName == 'double';
+    final double? minimumValue = nodeSetting.minimumValue;
+    final double? maximumValue = nodeSetting.maximumValue;
     if (isNumber && settingValue is num && minimumValue != null && maximumValue != null && minimumValue < maximumValue) {
-      return _buildSettingSlider(cameraSetting, settingValue.toDouble(), minimumValue, maximumValue);
+      return _buildSettingSlider(nodeSetting, settingValue.toDouble(), minimumValue, maximumValue);
     }
-    return _buildSettingTextField(cameraSetting);
+    return _buildSettingTextField(nodeSetting);
   }
 
   /// The choices of a discrete integer setting: a menu's labelled options, or every value of a small range; null
   /// for a setting that is not discrete.
-  List<SettingDropdownOption>? _getDropdownOptions(CameraSetting cameraSetting) {
-    if (cameraSetting.typeName != 'integer') {
+  List<SettingDropdownOption>? _getDropdownOptions(NodeSetting nodeSetting) {
+    if (nodeSetting.typeName != 'integer') {
       return null;
     }
-    final List<SettingDropdownOption>? menuOptions = _readMenuOptions(cameraSetting);
+    final List<SettingDropdownOption>? menuOptions = _readMenuOptions(nodeSetting);
     if (menuOptions != null) {
       return menuOptions;
     }
-    final double? minimumValue = cameraSetting.minimumValue;
-    final double? maximumValue = cameraSetting.maximumValue;
+    final double? minimumValue = nodeSetting.minimumValue;
+    final double? maximumValue = nodeSetting.maximumValue;
     if (minimumValue == null || maximumValue == null || minimumValue >= maximumValue) {
       return null;
     }
-    double stepValue = cameraSetting.stepValue ?? 1;
+    double stepValue = nodeSetting.stepValue ?? 1;
     if (stepValue <= 0) {
       stepValue = 1;
     }
@@ -339,12 +339,12 @@ class _SettingRowViewState extends State<SettingRowView> {
   /// A menu's options from the descriptor's free text, null when the text is not a menu.
   /// Special case: ROS gives additional_constraints no format; this reads the one v4l2_camera writes
   /// ('1 - Manual Mode, 3 - Aperture Priority Mode'). Other text stays a hint next to a number field.
-  List<SettingDropdownOption>? _readMenuOptions(CameraSetting cameraSetting) {
-    if (cameraSetting.typeName != 'integer' || cameraSetting.additionalConstraints.isEmpty) {
+  List<SettingDropdownOption>? _readMenuOptions(NodeSetting nodeSetting) {
+    if (nodeSetting.typeName != 'integer' || nodeSetting.additionalConstraints.isEmpty) {
       return null;
     }
     final List<SettingDropdownOption> menuOptions = [];
-    for (final String optionText in cameraSetting.additionalConstraints.split(',')) {
+    for (final String optionText in nodeSetting.additionalConstraints.split(',')) {
       final RegExpMatch? optionMatch = menuOptionPattern.firstMatch(optionText);
       if (optionMatch == null) {
         return null;
@@ -357,7 +357,7 @@ class _SettingRowViewState extends State<SettingRowView> {
     return menuOptions;
   }
 
-  Widget _buildSettingDropdown(CameraSetting cameraSetting, int settingValue, List<SettingDropdownOption> dropdownOptions) {
+  Widget _buildSettingDropdown(NodeSetting nodeSetting, int settingValue, List<SettingDropdownOption> dropdownOptions) {
     final List<DropdownMenuItem<int>> dropdownItems = [];
     bool isCurrentValueAnOption = false;
     for (final SettingDropdownOption dropdownOption in dropdownOptions) {
@@ -376,20 +376,20 @@ class _SettingRowViewState extends State<SettingRowView> {
       items: dropdownItems,
       onChanged: (int? chosenValue) {
         if (chosenValue != null && chosenValue != settingValue) {
-          _reportChange(cameraSetting.settingName, chosenValue);
+          _reportChange(nodeSetting.settingName, chosenValue);
         }
       },
     );
   }
 
-  Widget _buildSettingSlider(CameraSetting cameraSetting, double settingValue, double minimumValue, double maximumValue) {
-    final String settingName = cameraSetting.settingName;
+  Widget _buildSettingSlider(NodeSetting nodeSetting, double settingValue, double minimumValue, double maximumValue) {
+    final String settingName = nodeSetting.settingName;
     final double sliderValue = (_draggedSliderValue ?? settingValue).clamp(minimumValue, maximumValue);
     final Widget slider = Slider(
       value: sliderValue,
       min: minimumValue,
       max: maximumValue,
-      divisions: _computeSliderDivisionCount(cameraSetting, minimumValue, maximumValue),
+      divisions: _computeSliderDivisionCount(nodeSetting, minimumValue, maximumValue),
       onChanged: (double draggedValue) {
         setState(() {
           _draggedSliderValue = draggedValue;
@@ -397,7 +397,7 @@ class _SettingRowViewState extends State<SettingRowView> {
       },
       // Sent once on release: every intermediate value would make the driver reconfigure the camera.
       onChangeEnd: (double releasedValue) {
-        if (cameraSetting.typeName == 'integer') {
+        if (nodeSetting.typeName == 'integer') {
           _reportChange(settingName, releasedValue.round());
         } else {
           _reportChange(settingName, releasedValue);
@@ -410,7 +410,7 @@ class _SettingRowViewState extends State<SettingRowView> {
       SizedBox(
         width: sliderValueWidthLogicalPx,
         child: Text(
-          _formatValue(_getShownValue(cameraSetting)),
+          _formatValue(_getShownValue(nodeSetting)),
           style: Theme.of(context).textTheme.titleSmall,
           textAlign: TextAlign.end,
         ),
@@ -420,10 +420,10 @@ class _SettingRowViewState extends State<SettingRowView> {
 
   /// One slider position per allowed value: per step when the range has one, per whole number for an integer;
   /// null (free movement) for a double without a step, or when there would be too many positions to hit.
-  int? _computeSliderDivisionCount(CameraSetting cameraSetting, double minimumValue, double maximumValue) {
-    double? stepValue = cameraSetting.stepValue;
+  int? _computeSliderDivisionCount(NodeSetting nodeSetting, double minimumValue, double maximumValue) {
+    double? stepValue = nodeSetting.stepValue;
     if (stepValue == null || stepValue <= 0) {
-      if (cameraSetting.typeName != 'integer') {
+      if (nodeSetting.typeName != 'integer') {
         return null;
       }
       stepValue = 1;
@@ -437,9 +437,9 @@ class _SettingRowViewState extends State<SettingRowView> {
 
   /// A text field holding the value, which accepts only what the type allows and passes on every valid entry. Lists are
   /// written comma-separated, e.g. "640, 480".
-  Widget _buildSettingTextField(CameraSetting cameraSetting) {
+  Widget _buildSettingTextField(NodeSetting nodeSetting) {
     final List<TextInputFormatter> inputFormatters = [];
-    final RegExp? typedTextPattern = typedTextPatternByTypeName[cameraSetting.typeName];
+    final RegExp? typedTextPattern = typedTextPatternByTypeName[nodeSetting.typeName];
     if (typedTextPattern != null) {
       // Keeps the text as it was when a keystroke would make it something the type cannot be
       inputFormatters.add(TextInputFormatter.withFunction((TextEditingValue oldValue, TextEditingValue newValue) {
@@ -450,9 +450,9 @@ class _SettingRowViewState extends State<SettingRowView> {
       }));
     }
     TextInputType keyboardType = TextInputType.text;
-    if (cameraSetting.typeName == 'integer') {
+    if (nodeSetting.typeName == 'integer') {
       keyboardType = const TextInputType.numberWithOptions(signed: true);
-    } else if (cameraSetting.typeName == 'double') {
+    } else if (nodeSetting.typeName == 'double') {
       keyboardType = const TextInputType.numberWithOptions(signed: true, decimal: true);
     }
     return TextField(
@@ -461,25 +461,25 @@ class _SettingRowViewState extends State<SettingRowView> {
       inputFormatters: inputFormatters,
       keyboardType: keyboardType,
       decoration: const InputDecoration(isDense: true),
-      onChanged: (String typedText) => _onSettingTextTyped(cameraSetting, typedText),
+      onChanged: (String typedText) => _onSettingTextTyped(nodeSetting, typedText),
     );
   }
 
   /// Passes a valid entry on shortly after the last keystroke; an unfinished one waits for more typing.
-  void _onSettingTextTyped(CameraSetting cameraSetting, String typedText) {
+  void _onSettingTextTyped(NodeSetting nodeSetting, String typedText) {
     _typedValueReportTimer?.cancel();
     if (_textErrorText != null) {
       setState(() {
         _textErrorText = null;
       });
     }
-    final Object? parsedValue = _parseSettingText(cameraSetting.typeName, typedText);
+    final Object? parsedValue = _parseSettingText(nodeSetting.typeName, typedText);
     if (parsedValue == null) {
       return;
     }
     _typedValueReportTimer = Timer(typedValueReportDelay, () {
       if (mounted) {
-        _reportChange(cameraSetting.settingName, parsedValue);
+        _reportChange(nodeSetting.settingName, parsedValue);
       }
     });
   }
@@ -548,14 +548,14 @@ class _SettingRowViewState extends State<SettingRowView> {
   }
 
   /// E.g. '0 – 255, step 1' or '0.1 – 100'; null when the driver declares no range.
-  String? _formatRange(CameraSetting cameraSetting) {
-    final double? minimumValue = cameraSetting.minimumValue;
-    final double? maximumValue = cameraSetting.maximumValue;
+  String? _formatRange(NodeSetting nodeSetting) {
+    final double? minimumValue = nodeSetting.minimumValue;
+    final double? maximumValue = nodeSetting.maximumValue;
     if (minimumValue == null || maximumValue == null) {
       return null;
     }
     final String rangeText = '${_formatNumber(minimumValue)} – ${_formatNumber(maximumValue)}';
-    final double? stepValue = cameraSetting.stepValue;
+    final double? stepValue = nodeSetting.stepValue;
     if (stepValue == null || stepValue == 0) {
       return rangeText;
     }

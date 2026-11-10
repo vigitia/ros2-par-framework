@@ -51,11 +51,11 @@ setup_geometry_router = APIRouter()
 class CameraGeometry(BaseModel):
     # The unit's identifier, as in its calibration file names, e.g. 'blackfly_22260470'
     camera_id: str
-    # Type and serial of the unit, to select it (PUT /api/profiles/{name}/selected-camera)
+    # Type and serial of the unit, to select it (PUT /api/profiles/{name}/main-camera)
     camera_type: str
     serial: str
     # The unit a run of the profile starts
-    is_selected: bool
+    is_main_camera: bool
     # False: the placeholder pose from the parameter files, not a measurement
     is_pose_measured: bool
     # The camera body's position, [x, y, z]
@@ -100,18 +100,18 @@ def get_setup_geometry(profile_name: str) -> SetupGeometryResponse:
     cameras = []
     geometry_error_texts = []
     for camera_unit_index, (camera_name, serial) in enumerate(camera_units):
-        is_selected = camera_unit_index == 0
+        is_main_camera = camera_unit_index == 0
         try:
             cameras.append(_read_camera_geometry(profile_launch_context, camera_name, serial,
-                                                 is_selected))
+                                                 is_main_camera))
         except (OSError, ValueError, KeyError, TypeError, yaml.YAMLError) as error:
             geometry_error_texts.append(f'{get_camera_id(camera_name, serial)}: {error}')
 
     projector = None
-    selected_camera_name, selected_serial = camera_units[0]
+    main_camera_name, main_serial = camera_units[0]
     try:
-        projector = _read_projector_geometry(profile_launch_context, selected_camera_name,
-                                             selected_serial)
+        projector = _read_projector_geometry(profile_launch_context, main_camera_name,
+                                             main_serial)
     except (OSError, ValueError, KeyError, TypeError, yaml.YAMLError) as error:
         geometry_error_texts.append(f'projection mapping: {error}')
     front_view_right_direction, front_view_reference_text = _choose_front_view_right_direction(
@@ -134,7 +134,7 @@ def _choose_front_view_right_direction(projector: ProjectorGeometry | None,
         if unit_right_direction is not None:
             return unit_right_direction, 'the projected image'
     for camera in cameras:
-        if camera.is_selected and camera.image_right_direction is not None:
+        if camera.is_main_camera and camera.image_right_direction is not None:
             return camera.image_right_direction, f'the image of {camera.camera_id}'
     return [1.0, 0.0], 'the x axis of world'
 
@@ -149,7 +149,7 @@ def _normalize_table_direction(direction: np.ndarray) -> list[float] | None:
 
 
 def _read_camera_geometry(profile_launch_context: LaunchContext, camera_name: str, serial: str,
-                          is_selected: bool) -> CameraGeometry:
+                          is_main_camera: bool) -> CameraGeometry:
     """Return the camera unit's position, optical axis and field of view on the table."""
     camera_pose, is_pose_measured = _read_camera_pose(profile_launch_context, camera_name, serial)
     translation_m = np.array([float(camera_pose[f'translation.{axis}']) for axis in 'xyz'])
@@ -179,7 +179,7 @@ def _read_camera_geometry(profile_launch_context: LaunchContext, camera_name: st
     # The optical frame's x axis runs along the image rows, left to right
     image_right_direction = _normalize_table_direction(optical_rotation[:, 0])
     return CameraGeometry(camera_id=get_camera_id(camera_name, serial), camera_type=camera_name,
-                          serial=serial, is_selected=is_selected,
+                          serial=serial, is_main_camera=is_main_camera,
                           is_pose_measured=is_pose_measured, position_m=translation_m.tolist(),
                           optical_axis_table_hit_m=optical_axis_table_hit_m,
                           table_footprint_m=table_footprint_m,

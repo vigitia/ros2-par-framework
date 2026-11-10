@@ -24,6 +24,7 @@ class CameraPreviewWithSettingsView extends StatefulWidget {
     required this.cameraName,
     required this.isSettingsListShown,
     this.profileName,
+    this.serial = '',
     this.isFocusAssistShown = true,
     this.settingsTitleText,
     this.isSettingShown,
@@ -37,6 +38,9 @@ class CameraPreviewWithSettingsView extends StatefulWidget {
 
   /// Starts the camera with this saved profile's settings; null for par_setup.yaml's.
   final String? profileName;
+
+  /// The unit to open while no saved profile names it yet; empty opens the unit the parameter files name.
+  final String serial;
 
   final bool isSettingsListShown;
   final bool isFocusAssistShown;
@@ -84,6 +88,7 @@ class _CameraPreviewWithSettingsViewState extends State<CameraPreviewWithSetting
       backendClient: widget.backendClient,
       cameraName: widget.cameraName,
       profileName: widget.profileName,
+      serial: widget.serial,
       focusMeasuredArea: _focusMeasuredAreaNotifier,
     );
     final List<Widget> previewRows = [cameraPreviewView];

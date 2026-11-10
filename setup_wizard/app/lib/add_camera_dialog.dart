@@ -3,6 +3,7 @@
 // Dialog "Add camera": the camera types whose driver is installed; a type with serial numbers goes on to the
 // connected units, to pick the one to add or to type its serial, since several units of one type can be in a
 // profile. A type without serial numbers can be in a profile only once, so it is offered only while it is missing.
+// Opened for one camera type (unitChoiceCameraName), it only asks for the unit.
 
 import 'package:flutter/material.dart';
 
@@ -21,12 +22,21 @@ class AddCameraChoice {
 final RegExp serialPattern = RegExp(r'^[A-Za-z0-9_-]+$');
 
 class AddCameraDialog extends StatefulWidget {
-  const AddCameraDialog({super.key, required this.backendClient, required this.profileUnits});
+  const AddCameraDialog({
+    super.key,
+    required this.backendClient,
+    required this.profileUnits,
+    this.unitChoiceCameraName,
+  });
 
   final SetupWizardBackendClient backendClient;
 
   /// The profile's cameras now, as (camera type, serial), to offer only what can still be added.
   final List<({String cameraName, String serial})> profileUnits;
+
+  /// A camera type with serial numbers whose unit is to be chosen, skipping the choice of the type; null starts
+  /// with the types.
+  final String? unitChoiceCameraName;
 
   @override
   State<AddCameraDialog> createState() => _AddCameraDialogState();
@@ -44,6 +54,7 @@ class _AddCameraDialogState extends State<AddCameraDialog> {
   @override
   void initState() {
     super.initState();
+    _unitChoiceCameraName = widget.unitChoiceCameraName;
     _loadCameraTypes();
   }
 
@@ -120,7 +131,8 @@ class _AddCameraDialogState extends State<AddCameraDialog> {
   @override
   Widget build(BuildContext context) {
     final String? unitChoiceCameraName = _unitChoiceCameraName;
-    if (unitChoiceCameraName != null) {
+    // The units are known once the types have loaded
+    if (unitChoiceCameraName != null && _unitsByCameraName.containsKey(unitChoiceCameraName)) {
       return _buildUnitChoice(context, unitChoiceCameraName);
     }
     return _buildTypeChoice(context);
@@ -199,7 +211,10 @@ class _AddCameraDialogState extends State<AddCameraDialog> {
       title: Text('Add a $cameraName'),
       content: SizedBox(width: 360, child: ListView(shrinkWrap: true, children: unitRows)),
       actions: [
-        TextButton(onPressed: () => setState(() => _unitChoiceCameraName = null), child: const Text('Back')),
+        if (widget.unitChoiceCameraName == null)
+          TextButton(onPressed: () => setState(() => _unitChoiceCameraName = null), child: const Text('Back'))
+        else
+          TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancel')),
         FilledButton(
           onPressed: isTypedSerialValid
               ? () => Navigator.of(context).pop(AddCameraChoice(cameraName: cameraName, serial: typedSerial))

@@ -47,7 +47,7 @@ class CameraSettingsView extends StatefulWidget {
 }
 
 class _CameraSettingsViewState extends State<CameraSettingsView> {
-  List<CameraSetting>? _cameraSettings;
+  List<NodeSetting>? _cameraSettings;
 
   /// Where changes can be saved: the saved profile the camera runs with; null without one.
   String? _profileName;
@@ -225,7 +225,7 @@ class _CameraSettingsViewState extends State<CameraSettingsView> {
   Widget build(BuildContext context) {
     final TextTheme textTheme = Theme.of(context).textTheme;
     final Color mutedTextColor = Theme.of(context).colorScheme.onSurfaceVariant;
-    final List<CameraSetting>? cameraSettings = _getShownCameraSettings();
+    final List<NodeSetting>? cameraSettings = _getShownCameraSettings();
     final String titleText = widget.titleText ?? 'Settings: ${widget.cameraName}';
 
     final List<Widget> rows = [Text(titleText, style: textTheme.titleMedium)];
@@ -244,12 +244,12 @@ class _CameraSettingsViewState extends State<CameraSettingsView> {
     } else {
       rows.add(Padding(padding: const EdgeInsets.only(top: 4), child: _buildSaveRow(mutedTextColor)));
       // The ones that can be changed first: they are what the user came for.
-      final List<CameraSetting> fixedCameraSettings = [];
-      for (final CameraSetting cameraSetting in cameraSettings) {
-        if (cameraSetting.isReadOnly) {
-          fixedCameraSettings.add(cameraSetting);
+      final List<NodeSetting> fixedCameraSettings = [];
+      for (final NodeSetting nodeSetting in cameraSettings) {
+        if (nodeSetting.isReadOnly) {
+          fixedCameraSettings.add(nodeSetting);
         } else {
-          rows.add(_buildSettingRow(cameraSetting));
+          rows.add(_buildSettingRow(nodeSetting));
         }
       }
       if (fixedCameraSettings.isNotEmpty) {
@@ -257,8 +257,8 @@ class _CameraSettingsViewState extends State<CameraSettingsView> {
           padding: const EdgeInsets.only(top: 20),
           child: Text('Fixed by the driver', style: textTheme.titleSmall),
         ));
-        for (final CameraSetting cameraSetting in fixedCameraSettings) {
-          rows.add(_buildSettingRow(cameraSetting));
+        for (final NodeSetting nodeSetting in fixedCameraSettings) {
+          rows.add(_buildSettingRow(nodeSetting));
         }
       }
     }
@@ -266,40 +266,40 @@ class _CameraSettingsViewState extends State<CameraSettingsView> {
   }
 
   /// The loaded settings that isSettingShown keeps; null while none are loaded.
-  List<CameraSetting>? _getShownCameraSettings() {
-    final List<CameraSetting>? cameraSettings = _cameraSettings;
+  List<NodeSetting>? _getShownCameraSettings() {
+    final List<NodeSetting>? cameraSettings = _cameraSettings;
     final bool Function(String settingName)? isSettingShown = widget.isSettingShown;
     if (cameraSettings == null || isSettingShown == null) {
       return cameraSettings;
     }
-    final List<CameraSetting> shownCameraSettings = [];
-    for (final CameraSetting cameraSetting in cameraSettings) {
-      if (isSettingShown(cameraSetting.settingName)) {
-        shownCameraSettings.add(cameraSetting);
+    final List<NodeSetting> shownCameraSettings = [];
+    for (final NodeSetting nodeSetting in cameraSettings) {
+      if (isSettingShown(nodeSetting.settingName)) {
+        shownCameraSettings.add(nodeSetting);
       }
     }
     return shownCameraSettings;
   }
 
-  Widget _buildSettingRow(CameraSetting cameraSetting) {
+  Widget _buildSettingRow(NodeSetting nodeSetting) {
     return SettingRowView(
-      key: ValueKey<String>(cameraSetting.settingName),
-      cameraSetting: cameraSetting,
-      shownValue: cameraSetting.settingValue,
-      isEditable: !cameraSetting.isReadOnly,
+      key: ValueKey<String>(nodeSetting.settingName),
+      nodeSetting: nodeSetting,
+      shownValue: nodeSetting.settingValue,
+      isEditable: !nodeSetting.isReadOnly,
       lockedText: 'fixed by the driver',
-      errorText: _changeErrorTextByName[cameraSetting.settingName],
+      errorText: _changeErrorTextByName[nodeSetting.settingName],
       onSettingChanged: _changeSetting,
-      onResetToDefault: _createResetToDefault(cameraSetting),
+      onResetToDefault: _createResetToDefault(nodeSetting),
     );
   }
 
   /// Sets par_setup.yaml's value on the driver; "Save to profile" then removes the profile's own value.
-  VoidCallback? _createResetToDefault(CameraSetting cameraSetting) {
-    final Object? defaultValue = cameraSetting.defaultValue;
-    if (!cameraSetting.hasDefaultValue || defaultValue == null) {
+  VoidCallback? _createResetToDefault(NodeSetting nodeSetting) {
+    final Object? defaultValue = nodeSetting.defaultValue;
+    if (!nodeSetting.hasDefaultValue || defaultValue == null) {
       return null;
     }
-    return () => _changeSetting(cameraSetting.settingName, defaultValue);
+    return () => _changeSetting(nodeSetting.settingName, defaultValue);
   }
 }

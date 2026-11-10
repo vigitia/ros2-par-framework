@@ -45,7 +45,7 @@ class NodeSettingsEditorView extends StatefulWidget {
 }
 
 class _NodeSettingsEditorViewState extends State<NodeSettingsEditorView> {
-  List<CameraSetting>? _nodeSettings;
+  List<NodeSetting>? _nodeSettings;
   String? _settingsErrorText;
   Timer? _settingsRetryTimer;
 
@@ -71,7 +71,7 @@ class _NodeSettingsEditorViewState extends State<NodeSettingsEditorView> {
   Future<void> _loadNodeSettings() async {
     _settingsRetryTimer?.cancel();
     try {
-      final List<CameraSetting>? nodeSettings = await widget.backendClient.fetchNodeSettings(
+      final List<NodeSetting>? nodeSettings = await widget.backendClient.fetchNodeSettings(
         profileName: widget.profileName,
         nodeKind: widget.nodeKind,
         packageName: widget.packageName,
@@ -153,7 +153,7 @@ class _NodeSettingsEditorViewState extends State<NodeSettingsEditorView> {
   }
 
   /// A value on its way into the profile (a reset shows the default), else the profile's value.
-  Object? _getShownValue(CameraSetting nodeSetting) {
+  Object? _getShownValue(NodeSetting nodeSetting) {
     if (!_savingValueByName.containsKey(nodeSetting.settingName)) {
       return nodeSetting.settingValue;
     }
@@ -164,7 +164,7 @@ class _NodeSettingsEditorViewState extends State<NodeSettingsEditorView> {
   Widget build(BuildContext context) {
     final ColorScheme colorScheme = Theme.of(context).colorScheme;
     final TextStyle mutedTextStyle = TextStyle(color: colorScheme.onSurfaceVariant);
-    final List<CameraSetting>? nodeSettings = _nodeSettings;
+    final List<NodeSetting>? nodeSettings = _nodeSettings;
     final List<Widget> settingsRows = [
       Row(children: [
         Expanded(child: Text('Settings of ${widget.fullNodeName}', style: Theme.of(context).textTheme.titleSmall)),
@@ -194,12 +194,12 @@ class _NodeSettingsEditorViewState extends State<NodeSettingsEditorView> {
       'Changes are saved in the profile right away; the node reads them when it starts next.',
       style: mutedTextStyle,
     ));
-    for (final CameraSetting nodeSetting in nodeSettings) {
+    for (final NodeSetting nodeSetting in nodeSettings) {
       final String settingName = nodeSetting.settingName;
       // read_only means "not changed while running"; the node reads a saved value at its next start
       settingsRows.add(SettingRowView(
         key: ValueKey<String>(settingName),
-        cameraSetting: nodeSetting,
+        nodeSetting: nodeSetting,
         shownValue: _getShownValue(nodeSetting),
         isEditable: true,
         errorText: _saveErrorTextByName[settingName],

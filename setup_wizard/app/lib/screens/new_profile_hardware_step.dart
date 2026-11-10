@@ -4,10 +4,13 @@
 // the internal name for files and profile:= (e.g. 'labor_neu') is generated from it and not shown, and a name whose
 // profile exists already is refused. Below, the cameras whose driver packages are installed, each with a count
 // like in a shopping cart, so a setup can have none, one or several cameras, also several of one type (e.g. two
-// Brios). Previews and settings follow in the next step.
+// Brios). Adding a camera of a type with serial numbers asks which connected unit it is (AddCameraDialog), so the
+// previews of the next steps open that unit and the profile stores its serial. Previews and settings follow in the
+// next step.
 
 import 'package:flutter/material.dart';
 
+import '../add_camera_dialog.dart';
 import '../cameras_api.dart';
 import '../setup_wizard_backend_client.dart';
 import 'new_profile_wizard_screen.dart';
@@ -154,10 +157,47 @@ class _NewProfileHardwareStepState extends State<NewProfileHardwareStep> {
     widget.newProfileDraft.profileName = createInternalProfileName(profileDisplayName);
   }
 
-  void _addCameraInstance(String cameraType) {
+  /// Adds a camera of cameraType; for a type with serial numbers the user first chooses the unit.
+  Future<void> _addCameraInstance(String cameraType) async {
+    final ConnectedCameraUnits connectedUnits;
+    try {
+      connectedUnits = await widget.backendClient.fetchConnectedCameraUnits(cameraType);
+    } catch (error) {
+      _showMessage('Could not list the connected $cameraType cameras. ${describeBackendErrorForUser(error)}');
+      return;
+    }
+    if (!mounted) {
+      return;
+    }
+    String serial = '';
+    if (connectedUnits.isSerialSupported) {
+      final List<({String cameraName, String serial})> chosenUnits = [
+        for (final CameraInstanceDraft cameraInstance in widget.newProfileDraft.cameraInstances)
+          (cameraName: cameraInstance.cameraType, serial: cameraInstance.serial),
+      ];
+      final AddCameraChoice? choice = await showDialog<AddCameraChoice>(
+        context: context,
+        builder: (BuildContext dialogContext) => AddCameraDialog(
+          backendClient: widget.backendClient,
+          profileUnits: chosenUnits,
+          unitChoiceCameraName: cameraType,
+        ),
+      );
+      if (choice == null || !mounted) {
+        return;
+      }
+      serial = choice.serial;
+    }
     setState(() {
-      widget.newProfileDraft.addCameraInstance(cameraType);
+      widget.newProfileDraft.addCameraInstance(cameraType, serial);
     });
+  }
+
+  void _showMessage(String messageText) {
+    if (!mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(messageText)));
   }
 
   void _removeCameraInstance(String cameraType) {
@@ -261,7 +301,11 @@ class _NewProfileHardwareStepState extends State<NewProfileHardwareStep> {
     final List<String> instanceNames = [];
     for (final CameraInstanceDraft cameraInstance in widget.newProfileDraft.cameraInstances) {
       if (cameraInstance.cameraType == cameraType) {
-        instanceNames.add(cameraInstance.instanceName);
+        String instanceText = cameraInstance.instanceName;
+        if (cameraInstance.serial.isNotEmpty) {
+          instanceText = '$instanceText (serial ${cameraInstance.serial})';
+        }
+        instanceNames.add(instanceText);
       }
     }
     String subtitleText = supportedCamera.driverPackageNames.join(', ');

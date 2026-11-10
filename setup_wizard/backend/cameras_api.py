@@ -34,14 +34,22 @@ DRIVER_PACKAGE_NAMES_BY_CAMERA = {
 # The cameras whose connected units are told apart by their /dev/v4l/by-id entry, the same entry
 # their driver matches the serial parameter against (find_brio_camera_id, find_cu40_device_path):
 # the part of the name after the product name is the serial.
-# Simplification: the Blackfly needs Spinnaker's enumeration, so its serial is typed by hand.
-# Upgrade: list its units through the driver's package.
 V4L_BY_ID_PREFIX_BY_CAMERA = {
     'brio': 'usb-046d_Logitech_BRIO',
     'cu40': 'usb-e-con_systems_See3CAM_CU40',
 }
 V4L_BY_ID_FOLDER_PATH = '/dev/v4l/by-id'
 V4L_BY_ID_CAPTURE_SUFFIX = '-video-index0'
+
+# The cameras whose connected units are found as USB devices of one vendor, without their driver:
+# Linux lists each device's vendor id and serial text under USB_DEVICES_FOLDER_PATH.
+# Special case: the Blackfly S reports its serial number there in hexadecimal, while its driver
+# and the print on the camera use the decimal number, so it is converted. Seen on USB3 Blackfly S
+# units; a GigE model is not a USB device and is not listed, its serial is typed by hand.
+USB_VENDOR_ID_BY_CAMERA = {
+    'blackfly': '1e10',
+}
+USB_DEVICES_FOLDER_PATH = '/sys/bus/usb/devices'
 
 cameras_router = APIRouter()
 
@@ -91,6 +99,10 @@ def get_connected_camera_units(camera_name: str) -> ConnectedCameraUnitsResponse
     if camera_name not in CAMERA_SERIAL_SOURCE_BY_CAMERA:
         return ConnectedCameraUnitsResponse(is_serial_supported=False, is_listing_supported=False,
                                             serials=[])
+    usb_vendor_id = USB_VENDOR_ID_BY_CAMERA.get(camera_name)
+    if usb_vendor_id is not None:
+        return ConnectedCameraUnitsResponse(is_listing_supported=True,
+                                            serials=_find_usb_serials(usb_vendor_id))
     name_prefix = V4L_BY_ID_PREFIX_BY_CAMERA.get(camera_name)
     if name_prefix is None:
         return ConnectedCameraUnitsResponse(is_listing_supported=False, serials=[])
@@ -105,3 +117,23 @@ def get_connected_camera_units(camera_name: str) -> ConnectedCameraUnitsResponse
         if serial and FILE_NAME_PART_PATTERN.fullmatch(serial):
             serials.append(serial)
     return ConnectedCameraUnitsResponse(is_listing_supported=True, serials=serials)
+
+
+def _find_usb_serials(usb_vendor_id: str) -> list[str]:
+    """Return the serials of the connected USB devices of a vendor, as decimal numbers, sorted."""
+    serials = []
+    vendor_id_path_pattern = os.path.join(USB_DEVICES_FOLDER_PATH, '*', 'idVendor')
+    for vendor_id_path in sorted(glob.glob(vendor_id_path_pattern)):
+        serial_path = os.path.join(os.path.dirname(vendor_id_path), 'serial')
+        try:
+            with open(vendor_id_path) as vendor_id_file:
+                device_vendor_id = vendor_id_file.read().strip()
+            if device_vendor_id != usb_vendor_id:
+                continue
+            with open(serial_path) as serial_file:
+                hexadecimal_serial = serial_file.read().strip()
+            serials.append(str(int(hexadecimal_serial, 16)))
+        except (OSError, ValueError):
+            # Unplugged meanwhile, or a device without a serial number: not a unit to offer
+            continue
+    return sorted(serials)

@@ -68,7 +68,7 @@ class _SettingsRead:
 class NodeSettingsResponse(BaseModel):
     full_node_name: str
     # With the profile's values
-    settings: list[camera_preview_api.CameraSetting]
+    settings: list[camera_preview_api.NodeSetting]
 
 
 class NodeSettingsSaveRequest(BaseModel):
@@ -216,7 +216,7 @@ def _get_installed_package_stamp(package_name):
 
 
 def _read_cached_settings(node_kind, package_name):
-    """Return {full node name: [CameraSetting]} from the cache, None when absent or outdated."""
+    """Return {full node name: [NodeSetting]} from the cache, None when absent or outdated."""
     cache_file_path = _get_cache_file_path(node_kind, package_name)
     try:
         with open(cache_file_path) as cache_file:
@@ -228,7 +228,7 @@ def _read_cached_settings(node_kind, package_name):
     cached_settings_by_node_name = {}
     for full_node_name, settings_json in cache_document['settings_by_node_name'].items():
         cached_settings_by_node_name[full_node_name] = [
-            camera_preview_api.CameraSetting(**setting_json) for setting_json in settings_json]
+            camera_preview_api.NodeSetting(**setting_json) for setting_json in settings_json]
     return cached_settings_by_node_name
 
 
@@ -295,7 +295,7 @@ def _start_nodes_and_write_cache(node_kind, package_name):
                 preview_session, full_node_name, node_process, log_file_path,
                 deadline_monotonic_s)
             settings_by_node_name[full_node_name] = [
-                camera_setting.model_dump() for camera_setting in node_settings]
+                node_setting.model_dump() for node_setting in node_settings]
     finally:
         stop_process_group(node_process, LAUNCH_STOP_SIGNALS, SETTINGS_READ_STOP_TIMEOUT_S)
 

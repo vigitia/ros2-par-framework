@@ -29,7 +29,9 @@ import cameras_api
 import cv2
 from fastapi import APIRouter, HTTPException, Response
 import numpy as np
-from par_framework_core.launch_helpers import DEFAULT_TOPIC_NAME_CAMERA_IMAGE
+from par_framework_core.launch_helpers import (CAMERA_SERIAL_LAUNCH_ARGUMENT_NAME,
+                                               DEFAULT_TOPIC_NAME_CAMERA_IMAGE,
+                                               FILE_NAME_PART_PATTERN)
 from process_groups import LAUNCH_STOP_SIGNALS, stop_process_group
 import profiles_api
 from pydantic import BaseModel
@@ -252,7 +254,7 @@ _camera_preview_session = None
 camera_preview_router = APIRouter(lifespan=_run_ros_for_camera_preview)
 
 
-class CameraSetting(BaseModel):
+class NodeSetting(BaseModel):
     setting_name: str
     # bool, int, float, str, a list of those, or None while the parameter is not set
     setting_value: bool | int | float | str | list | None
@@ -275,7 +277,7 @@ class CameraSetting(BaseModel):
 class CameraSettingsResponse(BaseModel):
     camera_name: str
     driver_node_name: str
-    settings: list[CameraSetting]
+    settings: list[NodeSetting]
     # Where changes can be saved; None while the camera runs without a saved profile
     profile_name: str | None
     unsaved_setting_names: list[str]
@@ -309,6 +311,9 @@ class CameraPreviewStartRequest(BaseModel):
     # Starts the camera with this saved profile's settings; None uses par_setup.yaml's, e.g. for a
     # profile that is not saved yet.
     profile_name: str | None = None
+    # The unit to open (camera_serial:=) while no profile names it yet; '' opens the unit the
+    # parameter files name
+    serial: str = ''
 
 
 class CameraPreviewStartResponse(BaseModel):
@@ -325,9 +330,15 @@ class CameraPreviewStopRequest(BaseModel):
 @camera_preview_router.post('/api/camera-preview/start')
 def start_camera_preview(request: CameraPreviewStartRequest) -> CameraPreviewStartResponse:
     """Start the camera for the preview, stopping the camera of an earlier preview first."""
+    launch_arguments = [f'camera:={request.camera_name}', 'camera_only:=true']
+    if request.serial:
+        # Comes from the network and ends up in a command line and a file name
+        if not FILE_NAME_PART_PATTERN.fullmatch(request.serial):
+            raise HTTPException(status_code=422,
+                                detail='A serial number has only letters, digits, _ and -')
+        launch_arguments.append(f'{CAMERA_SERIAL_LAUNCH_ARGUMENT_NAME}:={request.serial}')
     preview_id = start_camera_launch(request.camera_name, request.profile_name,
-                                     CAMERA_PREVIEW_LAUNCH_FILE_NAME,
-                                     [f'camera:={request.camera_name}', 'camera_only:=true'])
+                                     CAMERA_PREVIEW_LAUNCH_FILE_NAME, launch_arguments)
     return CameraPreviewStartResponse(preview_id=preview_id)
 
 
@@ -450,10 +461,10 @@ def get_camera_preview_settings() -> CameraSettingsResponse:
     # driver's own value is not known while it runs with the profile. Upgrade: read the driver once
     # without a profile, as node_settings_api.py does for sensor nodes.
     par_setup_value_by_name = profiles_api.read_par_setup_node_settings(driver_node_name)
-    for camera_setting in settings:
-        if camera_setting.setting_name in par_setup_value_by_name:
-            camera_setting.has_default_value = True
-            camera_setting.default_value = par_setup_value_by_name[camera_setting.setting_name]
+    for node_setting in settings:
+        if node_setting.setting_name in par_setup_value_by_name:
+            node_setting.has_default_value = True
+            node_setting.default_value = par_setup_value_by_name[node_setting.setting_name]
     with session.session_lock:
         profile_name = session.profile_name
         unsaved_setting_names = sorted(session.unsaved_setting_value_by_name)
@@ -692,8 +703,8 @@ def read_node_settings(parameter_client):
     settings = []
     named_parameters = zip(parameter_names, descriptors, parameter_values)
     for parameter_name, descriptor, parameter_value in named_parameters:
-        settings.append(_create_camera_setting(parameter_name, descriptor, parameter_value))
-    settings.sort(key=lambda camera_setting: camera_setting.setting_name)
+        settings.append(_create_node_setting(parameter_name, descriptor, parameter_value))
+    settings.sort(key=lambda node_setting: node_setting.setting_name)
     return settings
 
 
@@ -713,9 +724,9 @@ def _is_ros_infrastructure_parameter(parameter_name):
     return False
 
 
-def _create_camera_setting(parameter_name, descriptor, parameter_value):
+def _create_node_setting(parameter_name, descriptor, parameter_value):
     setting_value = _convert_parameter_value_to_plain_python(parameter_value)
-    camera_setting = CameraSetting(
+    node_setting = NodeSetting(
         setting_name=parameter_name,
         setting_value=setting_value,
         type_name=TYPE_NAME_BY_PARAMETER_TYPE.get(parameter_value.type, 'not set'),
@@ -724,15 +735,15 @@ def _create_camera_setting(parameter_name, descriptor, parameter_value):
         is_read_only=descriptor.read_only)
     if descriptor.integer_range:
         integer_range = descriptor.integer_range[0]
-        camera_setting.minimum_value = integer_range.from_value
-        camera_setting.maximum_value = integer_range.to_value
-        camera_setting.step_value = integer_range.step
+        node_setting.minimum_value = integer_range.from_value
+        node_setting.maximum_value = integer_range.to_value
+        node_setting.step_value = integer_range.step
     elif descriptor.floating_point_range:
         floating_point_range = descriptor.floating_point_range[0]
-        camera_setting.minimum_value = floating_point_range.from_value
-        camera_setting.maximum_value = floating_point_range.to_value
-        camera_setting.step_value = floating_point_range.step
-    return camera_setting
+        node_setting.minimum_value = floating_point_range.from_value
+        node_setting.maximum_value = floating_point_range.to_value
+        node_setting.step_value = floating_point_range.step
+    return node_setting
 
 
 def wait_for_driver_service_answer(service_future, timeout_s=PARAMETER_SERVICE_TIMEOUT_S):

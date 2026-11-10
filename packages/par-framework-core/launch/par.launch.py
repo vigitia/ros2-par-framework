@@ -46,6 +46,7 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from par_framework_core.launch_helpers import (add_required_sensor_nodes, create_camera_nodes,
+                                               create_camera_serial_launch_argument,
                                                create_capture_camera_node,
                                                create_profile_launch_argument,
                                                create_projection_calibration_server_node,
@@ -338,6 +339,7 @@ def generate_launch_description():
             description='Parameter file describing this physical PAR setup, with a par_launch '
                         'section.'),
         create_profile_launch_argument(),
+        create_camera_serial_launch_argument(),
         DeclareLaunchArgument(
             'camera',
             default_value='',

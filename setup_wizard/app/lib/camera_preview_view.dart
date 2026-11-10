@@ -38,6 +38,7 @@ class CameraPreviewView extends StatefulWidget {
     required this.backendClient,
     required this.cameraName,
     this.profileName,
+    this.serial = '',
     this.focusMeasuredArea,
   });
 
@@ -48,6 +49,10 @@ class CameraPreviewView extends StatefulWidget {
 
   /// Starts the camera with this saved profile's settings; null for par_setup.yaml's (a profile not saved yet).
   final String? profileName;
+
+  /// The unit to open while no saved profile names it yet; empty opens the unit the parameter files name.
+  /// Changing it switches the preview.
+  final String serial;
 
   /// Where the focus is measured, framed on the camera image while set; null frames nothing.
   final ValueListenable<FocusMeasuredArea?>? focusMeasuredArea;
@@ -77,7 +82,8 @@ class _CameraPreviewViewState extends State<CameraPreviewView> {
   @override
   void didUpdateWidget(CameraPreviewView oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.cameraName != widget.cameraName || oldWidget.profileName != widget.profileName) {
+    final bool isOtherCamera = oldWidget.cameraName != widget.cameraName || oldWidget.serial != widget.serial;
+    if (isOtherCamera || oldWidget.profileName != widget.profileName) {
       _startPreview();
     }
   }
@@ -116,7 +122,11 @@ class _CameraPreviewViewState extends State<CameraPreviewView> {
     });
     final int previewId;
     try {
-      previewId = await backendClient.startCameraPreview(widget.cameraName, profileName: widget.profileName);
+      previewId = await backendClient.startCameraPreview(
+        widget.cameraName,
+        profileName: widget.profileName,
+        serial: widget.serial,
+      );
     } catch (error) {
       _showPreviewError(previewGeneration, error);
       return;

@@ -19,6 +19,7 @@ from ament_index_python.resources import get_resource, get_resources
 from launch.actions import DeclareLaunchArgument, LogInfo
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 from par_framework_core.connected_displays import (find_projector_display_ids,
                                                    get_projector_identity_title_text,
                                                    PROJECTOR_IDENTITY_PARAMETER_NAMES,
@@ -144,6 +145,9 @@ CAMERA_SERIAL_SOURCE_BY_CAMERA = {
     'kinect': (KINECT_NODE_PARAMETERS_KEY, 'sensor_sn'),
     'realsense': (REALSENSE_NODE_PARAMETERS_KEY, 'serial_no'),
 }
+# Launch argument that names the unit of camera:= to open for one run, instead of the serial in
+# the parameter files, e.g. to preview a unit before a profile names it
+CAMERA_SERIAL_LAUNCH_ARGUMENT_NAME = 'camera_serial'
 # par_launch key listing the cameras beyond par_launch.camera that the setup wizard configured and
 # calibrated, as '<camera>' or '<camera>:<serial>'. Only par_launch.camera is started
 ADDITIONAL_CAMERAS_KEY = 'additional_cameras'
@@ -299,20 +303,57 @@ def get_extrinsics_folder_path(context):
     return FOLDER_PATH_EXTRINSICS
 
 
+# Co-authored by Claude Code
+def create_camera_serial_launch_argument():
+    """Create the camera_serial launch argument of a launch that starts a camera by serial."""
+    return DeclareLaunchArgument(
+        CAMERA_SERIAL_LAUNCH_ARGUMENT_NAME,
+        default_value='',
+        description='Serial of the unit of camera:= to open for this run, e.g. to preview a unit '
+                    'no profile names yet. Empty uses the serial in the parameter files.')
+
+
+# Co-authored by Claude Code
+def get_camera_serial_launch_argument(context):
+    """Return camera_serial:= of this launch, '' when it is empty or the launch has none."""
+    # Not every launch file declares it, so it is looked up instead of performed
+    return context.launch_configurations.get(CAMERA_SERIAL_LAUNCH_ARGUMENT_NAME, '')
+
+
 # Co-authored by Claude Code: the camera units of a profile, told apart by serial
 def get_camera_serial(context, camera):
-    """Return the serial of the unit of this camera type that the parameter files name, or ''."""
+    """
+    Return the serial of the unit of this camera type the launch opens, or ''.
+
+    camera_serial:= wins for one run, otherwise the serial the parameter files name.
+    """
     if camera not in CAMERA_SERIAL_SOURCE_BY_CAMERA:
         return ''
     node_parameters_key, serial_parameter_name = CAMERA_SERIAL_SOURCE_BY_CAMERA[camera]
-    node_section = read_merged_parameters(context).get(node_parameters_key) or {}
-    node_parameters = node_section.get('ros__parameters') or {}
-    serial = str(node_parameters.get(serial_parameter_name, ''))
+    serial = get_camera_serial_launch_argument(context)
+    serial_source_text = f'{CAMERA_SERIAL_LAUNCH_ARGUMENT_NAME}:='
+    if not serial:
+        node_section = read_merged_parameters(context).get(node_parameters_key) or {}
+        node_parameters = node_section.get('ros__parameters') or {}
+        serial = str(node_parameters.get(serial_parameter_name, ''))
+        serial_source_text = f'{serial_parameter_name} under {node_parameters_key}'
     if serial and not FILE_NAME_PART_PATTERN.fullmatch(serial):
-        raise RuntimeError(f'[launch_helpers]: {camera} {serial_parameter_name} {serial!r} under '
-                           f'{node_parameters_key} is no serial number: use only letters, '
-                           f'digits, _ and -')
+        raise RuntimeError(f'[launch_helpers]: {camera} {serial_source_text} {serial!r} is no '
+                           f'serial number: use only letters, digits, _ and -')
     return serial
+
+
+# Co-authored by Claude Code
+def create_camera_serial_override_parameters(context, camera):
+    """Return the driver parameters that open the unit camera_serial:= names, [] without it."""
+    if not get_camera_serial_launch_argument(context):
+        return []
+    if camera not in CAMERA_SERIAL_SOURCE_BY_CAMERA:
+        return []
+    _, serial_parameter_name = CAMERA_SERIAL_SOURCE_BY_CAMERA[camera]
+    serial = get_camera_serial(context, camera)
+    # As text: launch would read a serial of digits as a number, which the drivers refuse
+    return [{serial_parameter_name: ParameterValue(serial, value_type=str)}]
 
 
 # Co-authored by Claude Code
@@ -499,9 +540,8 @@ def create_camera_nodes(context, camera):
 def create_logitech_brio_node(context):
     """Create the Brio with the parameter files and its unit's calibration."""
     # cameracalibrator's COMMIT writes it there
-    node_parameters_key, serial_parameter_name = CAMERA_SERIAL_SOURCE_BY_CAMERA['brio']
-    camera_info_file_name = get_camera_info_file_name(context, 'brio', node_parameters_key,
-                                                      serial_parameter_name)
+    camera_info_file_name = get_camera_info_file_name_of_unit(
+        'brio', get_camera_serial(context, 'brio'))
     camera_info_url = get_camera_info_url(context, camera_info_file_name)
     return [Node(
         package='logitech_brio',
@@ -510,7 +550,8 @@ def create_logitech_brio_node(context):
         output='screen',
         emulate_tty=True,
         parameters=[*get_params_file_paths(context),
-                    {'camera_info_url': camera_info_url}],
+                    {'camera_info_url': camera_info_url},
+                    *create_camera_serial_override_parameters(context, 'brio')],
         remappings=CAMERA_DRIVER_REMAPPINGS['brio'],
     )]
 
@@ -519,9 +560,8 @@ def create_logitech_brio_node(context):
 def create_see3cam_cu40_node(context):
     """Create the See3CAM_CU40 with the parameter files and its unit's calibration."""
     # In the profile's intrinsics folder like the Brio's, per unit through serial
-    node_parameters_key, serial_parameter_name = CAMERA_SERIAL_SOURCE_BY_CAMERA['cu40']
-    camera_info_file_name = get_camera_info_file_name(context, 'cu40', node_parameters_key,
-                                                      serial_parameter_name)
+    camera_info_file_name = get_camera_info_file_name_of_unit(
+        'cu40', get_camera_serial(context, 'cu40'))
     camera_info_url = get_camera_info_url(context, camera_info_file_name)
     return [Node(
         package='see3cam_cu40',
@@ -530,7 +570,8 @@ def create_see3cam_cu40_node(context):
         output='screen',
         emulate_tty=True,
         parameters=[*get_params_file_paths(context),
-                    {'camera_info_url': camera_info_url}],
+                    {'camera_info_url': camera_info_url},
+                    *create_camera_serial_override_parameters(context, 'cu40')],
         remappings=CAMERA_DRIVER_REMAPPINGS['cu40'],
     )]
 
@@ -568,7 +609,8 @@ def create_kinect_driver_node(context):
         executable='node',
         output='screen',
         emulate_tty=True,
-        parameters=get_params_file_paths(context),
+        parameters=[*get_params_file_paths(context),
+                    *create_camera_serial_override_parameters(context, 'kinect')],
         remappings=CAMERA_DRIVER_REMAPPINGS['kinect'],
     )
 
@@ -586,7 +628,8 @@ def create_realsense_driver_node(context):
         # camera_name prefixes the driver's TF frames (realsense_link, ...), which the mount
         # transform below attaches to, so it is set here and not in params_file
         parameters=[*get_params_file_paths(context),
-                    {'camera_name': 'realsense'}],
+                    {'camera_name': 'realsense'},
+                    *create_camera_serial_override_parameters(context, 'realsense')],
         remappings=CAMERA_DRIVER_REMAPPINGS['realsense'],
     )
 
@@ -621,9 +664,8 @@ def create_webcam_nodes(context):
 def create_blackfly_nodes(context):
     """Create a FLIR Blackfly S with spinnaker_camera_driver, and its optical frame transform."""
     # In the profile's intrinsics folder like the Brio's, per unit through serial_number
-    node_parameters_key, serial_parameter_name = CAMERA_SERIAL_SOURCE_BY_CAMERA['blackfly']
-    camera_info_file_name = get_camera_info_file_name(context, 'blackfly', node_parameters_key,
-                                                      serial_parameter_name)
+    camera_info_file_name = get_camera_info_file_name_of_unit(
+        'blackfly', get_camera_serial(context, 'blackfly'))
     camera_info_url = get_camera_info_url(context, camera_info_file_name)
     # The driver maps its ROS parameters onto the camera's settings with this file, which ships
     # with the driver for the whole Blackfly S series
@@ -642,7 +684,8 @@ def create_blackfly_nodes(context):
             parameters=[*get_params_file_paths(context),
                         {'parameter_file': camera_settings_mapping_path,
                          'camerainfo_url': camera_info_url,
-                         'frame_id': 'blackfly_optical_frame'}],
+                         'frame_id': 'blackfly_optical_frame'},
+                        *create_camera_serial_override_parameters(context, 'blackfly')],
             remappings=CAMERA_DRIVER_REMAPPINGS['blackfly'],
         ),
         create_optical_frame_tf_publisher('blackfly'),

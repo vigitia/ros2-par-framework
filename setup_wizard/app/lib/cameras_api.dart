@@ -45,8 +45,8 @@ extension CamerasApi on SetupWizardBackendClient {
   }
 
   /// Makes the camera unit the one the next run of the profile starts.
-  Future<void> selectProfileCamera({required String profileName, required String cameraName, String serial = ''}) async {
-    await sendJson('PUT', '/api/profiles/${Uri.encodeComponent(profileName)}/selected-camera',
+  Future<void> setProfileMainCamera({required String profileName, required String cameraName, String serial = ''}) async {
+    await sendJson('PUT', '/api/profiles/${Uri.encodeComponent(profileName)}/main-camera',
         {'camera_name': cameraName, 'serial': serial});
   }
 

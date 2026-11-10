@@ -57,6 +57,9 @@ DELETED_EXTRINSICS_FOLDER_NAME = 'extrinsics'
 
 # The capture camera is always a second Blackfly (launch_helpers.create_capture_camera_node).
 CAPTURE_CAMERA_DISPLAY_NAME = 'blackfly (capture)'
+# par.launch.py's switch for RViz with rviz_bridge. The Apps area lists RViz as an app under this
+# name (apps_api.py), stored as this switch instead of in par_launch.apps.
+RVIZ_LAUNCH_SWITCH_NAME = 'rviz'
 
 # Their drivers publish the calibration stored in the device.
 FACTORY_INTRINSICS_CAMERA_NAMES = ('kinect', 'realsense')
@@ -109,7 +112,7 @@ class CameraCalibrationSummary(BaseModel):
     # '' when the unit is not told apart; the selected camera is the one the next run starts
     camera_type: str = ''
     serial: str = ''
-    is_selected: bool = False
+    is_main_camera: bool = False
     # The camera type for a preview (camera:= of par.launch.py); None when the camera cannot be
     # started on its own for a preview.
     preview_camera_name: str | None
@@ -171,6 +174,8 @@ class NewProfileRequest(BaseModel):
     # Simplification: one camera, since the framework launches one at a time. Upgrade: a list of
     # camera instances, once launch_helpers starts several (card "Setup Wizard").
     camera_name: str
+    # The camera unit chosen in the Hardware step; '' for a camera type without serials
+    camera_serial: str = ''
     # SDL/pygame display index of the projector; None when the profile has no projector yet
     projector_display_id: int | None
 
@@ -246,6 +251,10 @@ def create_profile(request: NewProfileRequest) -> NewProfileResponse:
         # Without a camera the launch would silently take par_setup.yaml's camera
         raise HTTPException(status_code=422,
                             detail='Add a camera to the profile first (Hardware step)')
+    # It becomes part of the calibration file names
+    if request.camera_serial and not FILE_NAME_PART_PATTERN.fullmatch(request.camera_serial):
+        raise HTTPException(status_code=422,
+                            detail='A serial number has only letters, digits, _ and -')
     # Checked before the file exists, so a display that went away leaves no half-made profile
     projector_display = None
     if request.projector_display_id is not None:
@@ -286,7 +295,8 @@ def create_profile(request: NewProfileRequest) -> NewProfileResponse:
     if projector_display is not None:
         _write_projector_display_into_profile(request.profile_name, projector_display)
     serial_write_result = _write_camera_serial_into_profile(request.profile_name,
-                                                            request.camera_name)
+                                                            request.camera_name,
+                                                            request.camera_serial)
     if serial_write_result is not None:
         write_results.append(serial_write_result)
     for write_result in write_results:
@@ -302,6 +312,10 @@ def create_profile(request: NewProfileRequest) -> NewProfileResponse:
 def set_projector_app(profile_name: str, request: ProjectorAppChoiceRequest) -> None:
     """Store which of the profile's apps it puts on the projector (par_launch.projector_app)."""
     launch_section = read_profile_launch_section(profile_name)
+    if request.app_name == RVIZ_LAUNCH_SWITCH_NAME:
+        raise HTTPException(status_code=422,
+                            detail='RViz does not draw on the projector; it runs next to the '
+                                   'app on the projector')
     if request.app_name != PROJECTOR_APP_NONE:
         if request.app_name not in _read_enabled_app_names(launch_section):
             raise HTTPException(status_code=422,
@@ -316,15 +330,23 @@ def set_projector_app(profile_name: str, request: ProjectorAppChoiceRequest) -> 
 # Written by Claude Code
 @profiles_router.put('/api/profiles/{profile_name}/apps')
 def set_enabled_apps(profile_name: str, request: EnabledAppsRequest) -> None:
-    """Store which installed apps the profile offers (par_launch.apps), keeping their order."""
+    """
+    Store which installed apps the profile offers (par_launch.apps), keeping their order.
+
+    RViz is stored as the switch par_launch.rviz instead, which par.launch.py starts it by.
+    """
     launch_section = read_profile_launch_section(profile_name)
     enabled_app_names = []
+    is_rviz_enabled = False
     for app_name in request.app_names:
         if app_name in enabled_app_names:
             continue
         _check_startable_app(app_name)
+        if app_name == RVIZ_LAUNCH_SWITCH_NAME:
+            is_rviz_enabled = True
+            continue
         enabled_app_names.append(app_name)
-    setting_value_by_name = {'apps': enabled_app_names}
+    setting_value_by_name = {'apps': enabled_app_names, RVIZ_LAUNCH_SWITCH_NAME: is_rviz_enabled}
     # The projector app is always one of the profile's apps
     if str(launch_section.get('projector_app', PROJECTOR_APP_NONE)) not in enabled_app_names:
         setting_value_by_name['projector_app'] = PROJECTOR_APP_NONE
@@ -336,11 +358,11 @@ def _check_startable_app(app_name: str) -> None:
     """Raise 422 for no installed app, 409 for one whose entry par.launch.py would refuse."""
     # Imported here like camera_preview_api, so this module's imports stay free of the API modules
     import apps_api
-    for projector_app in apps_api.get_projector_app_list().projector_apps:
-        if projector_app.app_name != app_name:
+    for installed_app in apps_api.get_installed_app_list().installed_apps:
+        if installed_app.app_name != app_name:
             continue
-        if projector_app.entry_error_text is not None:
-            raise HTTPException(status_code=409, detail=projector_app.entry_error_text)
+        if installed_app.entry_error_text is not None:
+            raise HTTPException(status_code=409, detail=installed_app.entry_error_text)
         return
     raise HTTPException(status_code=422,
                         detail=f'{app_name!r} is no installed app; choose one from GET /api/apps')
@@ -348,12 +370,15 @@ def _check_startable_app(app_name: str) -> None:
 
 # Written by Claude Code
 def _read_enabled_app_names(launch_section: dict) -> list[str]:
-    """Return par_launch.apps as names; [] when the profile lists none."""
-    enabled_app_names = launch_section.get('apps') or []
-    if not isinstance(enabled_app_names, list):
+    """Return par_launch.apps as names, then RViz when par_launch.rviz is on; [] without any."""
+    listed_app_names = launch_section.get('apps') or []
+    if not isinstance(listed_app_names, list):
         raise RuntimeError(f'par_launch.apps must be a list of app names, not '
-                           f'{enabled_app_names!r}')
-    return [str(app_name) for app_name in enabled_app_names]
+                           f'{listed_app_names!r}')
+    enabled_app_names = [str(app_name) for app_name in listed_app_names]
+    if launch_section.get(RVIZ_LAUNCH_SWITCH_NAME) is True:
+        enabled_app_names.append(RVIZ_LAUNCH_SWITCH_NAME)
+    return enabled_app_names
 
 
 # Written by Claude Code
@@ -409,22 +434,22 @@ def add_camera(profile_name: str, request: CameraUnitRequest) -> None:
                                      {ADDITIONAL_CAMERAS_KEY: additional_camera_texts})
 
 
-@profiles_router.put('/api/profiles/{profile_name}/selected-camera')
-def select_camera(profile_name: str, request: CameraUnitRequest) -> None:
+@profiles_router.put('/api/profiles/{profile_name}/main-camera')
+def set_main_camera(profile_name: str, request: CameraUnitRequest) -> None:
     """Make an added camera unit the one the next run starts; the previous one stays in the list."""
     check_profile_exists(profile_name)
     profile_launch_context = create_profile_launch_context(profile_name)
     launch_section = read_launch_section(profile_launch_context)
-    selected_unit = (launch_section['camera'], get_camera_serial(profile_launch_context,
-                                                                 launch_section['camera']))
+    main_camera_name = launch_section['camera']
+    main_unit = (main_camera_name, get_camera_serial(profile_launch_context, main_camera_name))
     new_unit = (request.camera_name, request.serial)
-    if new_unit == selected_unit:
+    if new_unit == main_unit:
         return
     additional_units = get_additional_camera_units(profile_launch_context)
     if new_unit not in additional_units:
         raise HTTPException(status_code=404, detail='This camera is not in the profile')
     additional_units.remove(new_unit)
-    additional_units.append(selected_unit)
+    additional_units.append(main_unit)
     additional_camera_texts = [_create_camera_unit_text(*unit) for unit in additional_units]
     # The new camera's serial goes into its driver's section, which the launch reads
     if new_unit[1]:
@@ -446,10 +471,11 @@ def remove_camera(profile_name: str, camera_name: str,
     unit = (camera_name, serial)
     additional_units = get_additional_camera_units(profile_launch_context)
     if unit not in additional_units:
-        # The selected camera is not removed: a profile always has one to run
+        # The main camera is not removed: a profile always has one to run
         raise HTTPException(status_code=409,
-                            detail='Only a camera that is not selected can be removed')
-    deleted_folder_path = _create_deleted_folder(f'{profile_name}_{camera_name}{_suffix(serial)}')
+                            detail="The profile's main camera cannot be removed")
+    deleted_folder_name_stem = f'{profile_name}_{camera_name}{_create_serial_suffix(serial)}'
+    deleted_folder_path = _create_deleted_folder(deleted_folder_name_stem)
     intrinsics_folder_path = get_intrinsics_folder_path(profile_launch_context)
     file_relative_paths = [
         f'{intrinsics_folder_path}/{get_camera_info_file_name_of_unit(camera_name, serial)}']
@@ -700,13 +726,13 @@ def _compare_projector_display_mode(launch_section: dict,
 
 
 def _create_camera_summary(profile_launch_context: LaunchContext, camera_name: str,
-                           serial: str, is_selected: bool) -> CameraCalibrationSummary:
+                           serial: str, is_main_camera: bool) -> CameraCalibrationSummary:
     """Return the calibration state of a camera unit that can be started for a preview."""
     return CameraCalibrationSummary(
         camera_display_name=f'{camera_name} {serial}'.strip(),
         camera_type=camera_name,
         serial=serial,
-        is_selected=is_selected,
+        is_main_camera=is_main_camera,
         preview_camera_name=camera_name,
         intrinsics_state=_read_camera_intrinsics_state(profile_launch_context, camera_name, serial),
         pose_state=_read_camera_pose_state(profile_launch_context, camera_name, serial))
@@ -719,7 +745,7 @@ def _create_camera_unit_text(camera_name: str, serial: str) -> str:
     return camera_name
 
 
-def _suffix(serial: str) -> str:
+def _create_serial_suffix(serial: str) -> str:
     """Return '_<serial>' for a name, nothing without a serial."""
     if serial:
         return f'_{serial}'
@@ -734,9 +760,9 @@ def _get_additional_camera_texts(profile_launch_context: LaunchContext) -> list[
 
 def read_camera_units(profile_launch_context: LaunchContext) -> list[tuple[str, str]]:
     """Return the profile's camera units as (camera, serial): the selected one, then the rest."""
-    selected_camera_name = read_launch_section(profile_launch_context)['camera']
-    selected_serial = get_camera_serial(profile_launch_context, selected_camera_name)
-    return [(selected_camera_name, selected_serial),
+    main_camera_name = read_launch_section(profile_launch_context)['camera']
+    main_serial = get_camera_serial(profile_launch_context, main_camera_name)
+    return [(main_camera_name, main_serial),
             *get_additional_camera_units(profile_launch_context)]
 
 
@@ -897,9 +923,13 @@ def _write_projector_display_into_profile(profile_name: str,
 
 
 # Written by Claude Code
-def _write_camera_serial_into_profile(profile_name: str,
-                                      camera_name: str) -> NodeSettingsWriteResult | None:
-    """Write the camera's serial into the profile when one is set; None when there is none."""
+def _write_camera_serial_into_profile(profile_name: str, camera_name: str,
+                                      chosen_serial: str) -> NodeSettingsWriteResult | None:
+    """
+    Write the camera's serial into the profile; None when there is none.
+
+    chosen_serial is the unit chosen in the wizard; '' keeps the one the parameter files name.
+    """
     # Pinned even when par_setup.yaml has the same serial: the profile's intrinsics file is named
     # after it, so a later change of par_setup.yaml's serial would otherwise start another unit
     # with this unit's calibration
@@ -909,10 +939,9 @@ def _write_camera_serial_into_profile(profile_name: str,
     merged_parameters = read_merged_parameters(create_profile_launch_context(profile_name))
     node_section = merged_parameters.get(node_parameters_key) or {}
     node_parameters = node_section.get(ROS_PARAMETERS_KEY) or {}
-    serial = str(node_parameters.get(serial_parameter_name, ''))
+    serial = chosen_serial or str(node_parameters.get(serial_parameter_name, ''))
     if not serial:
-        # Simplification: the driver then opens the first unit it finds, whose serial the wizard
-        # does not learn. Upgrade: choose the unit in the Hardware step (card "Setup Wizard")
+        # No unit chosen and none named: the driver opens what it finds first, if it opens any
         return None
     return write_node_settings_into_profile(profile_name, node_parameters_key,
                                             {serial_parameter_name: serial},
