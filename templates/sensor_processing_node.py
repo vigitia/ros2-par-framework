@@ -9,6 +9,8 @@ object_detector, page_locator, gesture_detector, projection_mask) share. To star
      ExampleResult / ExampleResultList with the node's messages in par_framework_interfaces.
   3. Delete the blocks marked "Optional" that the node doesn't need.
   4. Replace this docstring with what the node subscribes to and publishes.
+  5. Register the node in the ament index, so par.launch.py and the setup wizard find it: copy
+     sensor_processing_node_entry.yaml as described there.
 
 Only the ROS work lives here (topics, parameters, message conversion, main()). The processing
 itself goes into <pkg>/<pkg>.py, which imports nothing from rclpy or message packages and takes

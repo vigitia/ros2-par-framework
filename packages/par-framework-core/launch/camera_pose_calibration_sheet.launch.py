@@ -23,7 +23,7 @@ from launch.actions import DeclareLaunchArgument, OpaqueFunction, Shutdown
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from par_framework_core.launch_helpers import (create_camera_nodes, create_profile_launch_argument,
-                                               get_chosen_camera, get_extrinsics_folder_path,
+                                               get_chosen_camera, get_extrinsics_relative_path,
                                                get_path_in_config_folder, POSE_ROTATION_KEYS,
                                                read_merged_parameters)
 
@@ -37,12 +37,13 @@ def get_camera_base_frame_id(camera):
     return f'{camera}_link'
 
 
+# Co-authored by Claude Code: the pose file is per camera unit
 def launch_setup(context):
     camera = get_chosen_camera(context)
     merged_parameters = read_merged_parameters(context)
     placeholder_pose = merged_parameters[f'/{camera}_tf_publisher']['ros__parameters']
     placeholder_rotation = [float(placeholder_pose[key]) for key in POSE_ROTATION_KEYS]
-    camera_pose_relative_path = f'{get_extrinsics_folder_path(context)}/camera_pose_{camera}.yaml'
+    camera_pose_relative_path = get_extrinsics_relative_path(context, 'camera_pose', camera)
     camera_pose_file_path = get_path_in_config_folder(camera_pose_relative_path)
     square_size_mm = float(LaunchConfiguration('square_size_mm').perform(context))
     board_columns = int(LaunchConfiguration('board_columns').perform(context))

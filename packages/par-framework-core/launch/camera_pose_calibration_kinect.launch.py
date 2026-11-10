@@ -20,19 +20,19 @@ from launch.actions import DeclareLaunchArgument, OpaqueFunction, Shutdown
 from launch_ros.actions import Node
 from par_framework_core.launch_helpers import (create_kinect_driver_node,
                                                create_profile_launch_argument,
-                                               get_extrinsics_folder_path,
+                                               get_extrinsics_relative_path,
                                                get_path_in_config_folder, POSE_ROTATION_KEYS,
                                                read_merged_parameters)
 
 PACKAGE_NAME = 'par_framework_core'
 
 
+# Co-authored by Claude Code: the pose file is named after the Kinect's ID
 def launch_setup(context):
     merged_parameters = read_merged_parameters(context)
     placeholder_pose = merged_parameters['/kinect_tf_publisher']['ros__parameters']
     placeholder_rotation = [float(placeholder_pose[key]) for key in POSE_ROTATION_KEYS]
-    extrinsics_folder_path = get_extrinsics_folder_path(context)
-    camera_pose_relative_path = f'{extrinsics_folder_path}/camera_pose_kinect.yaml'
+    camera_pose_relative_path = get_extrinsics_relative_path(context, 'camera_pose', 'kinect')
     camera_pose_file_path = get_path_in_config_folder(camera_pose_relative_path)
     return [
         create_kinect_driver_node(context),
