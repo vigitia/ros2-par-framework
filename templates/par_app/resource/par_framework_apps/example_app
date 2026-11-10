@@ -20,3 +20,7 @@ required_launch_switches: [fiducials_detector, page_locator]
 # without them anyway and must work uncalibrated (camera pixels), as every framework node does.
 # Known names: camera_intrinsics, camera_pose, projection_mapping, projector_center
 used_calibrations: [camera_intrinsics, camera_pose, projection_mapping]
+
+# The app's nodes whose settings (ROS parameters) the setup wizard's Apps area edits, as full node
+# names. Optional: an app without it shows no settings there.
+settings_node_names: [/example_app_node]

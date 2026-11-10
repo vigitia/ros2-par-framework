@@ -52,6 +52,7 @@ points (how `ros2cli` finds its verbs, but only for Python packages); a list of 
 | `launch_file` | one of the two | a file in `share/<pkg>/launch/`, for an app with more processes |
 | `required_launch_switches` | no | framework nodes that must run next to the app (`par_launch` switches) |
 | `used_calibrations` | no | `camera_intrinsics`, `camera_pose`, `projection_mapping`, `projector_center` |
+| `settings_node_names` | no | full names of the app's nodes whose parameters the setup wizard edits, e.g. `/example_app_node` |
 
 **Installed vs. running.** What the app needs *installed* goes into `package.xml` (`<exec_depend>`), where rosdep
 and the app store read it. What must *run* next to it goes into `required_launch_switches`: shared framework nodes
@@ -60,6 +61,14 @@ so two apps never run a detector twice. An app never starts them itself.
 
 **Calibrations don't block.** The app starts without the calibrations it uses; the wizard shows which ones are
 missing. The app must work uncalibrated (camera pixels), like every framework node.
+
+**Settings.** The setup wizard's Apps area edits the parameters of the nodes in `settings_node_names`. It reads
+them once: it starts the app alone with `par_setup.yaml` (no profile, no camera), reads names, descriptors and
+values through the standard ROS 2 parameter services, stops the app and caches the result until the package is
+installed again. Saving writes what differs from `par_setup.yaml` into the profile under the node's full name; the
+app reads it at its next start. So declare every setting with a `ParameterDescriptor` (description, range,
+`read_only` where a change needs a restart), read the values when the node starts, and let the app start without a
+camera image (it is started this way for a few seconds; a window it opens shows meanwhile).
 
 ## How it is started
 
