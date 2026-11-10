@@ -221,12 +221,13 @@ as the camera saw them. `par_geometry.pixels_to_table` undistorts them with `/ca
 into table coordinates; it needs calibrated intrinsics and the camera pose.
 
 **Intrinsics travel on `camera_info`.** The Brio, the webcam and the Blackfly load theirs from
-`config/calibration/intrinsics/camera_info_<camera>.yaml` (gitignored, one per camera type), which
+`config/calibration/intrinsics/<profile>/camera_info_<camera>.yaml` (gitignored, one per camera type and profile;
+without `profile:=` the shared `config/calibration/intrinsics/`), which
 `scripts/run_cameracalibrator.sh` writes through `/camera/set_camera_info`. A Brio whose `serial` is set has its own
 file, `camera_info_brio_<serial>.yaml`, since every lens differs; set it when several Brios are in use. The
-Blackfly always has its `serial_number` set, so its file is `camera_info_blackfly_<serial_number>.yaml`. Intrinsics
-are shared by all profiles. The Kinect and the RealSense publish
-their factory calibration instead.
+Blackfly always has its `serial_number` set, so its file is `camera_info_blackfly_<serial_number>.yaml`. Each profile
+has its own intrinsics, so recalibrating a camera for one setup (e.g. after refocusing) leaves the others alone.
+The Kinect and the RealSense publish their factory calibration instead.
 
 **The camera pose is a static transform.** `world` → the camera's body frame (`brio_link`, `camera_base`,
 `realsense_link`, `webcam_link`, `blackfly_link`) is published by `/<camera>_tf_publisher`, started with the driver. It uses the
@@ -244,7 +245,7 @@ No consumer changes. In `packages/par-framework-core/`:
 2. `config/par_setup.yaml`: the driver's parameters (colour images in BGR order) and a placeholder pose under
    `/<camera>_tf_publisher`.
 3. `launch/par.launch.py`: the camera in `CAMERA_DETECTOR_PARAMETER_OVERRIDES` if it provides depth or JPEGs. A
-   depth camera also goes into `DEPTH_CAMERAS` in `launch/projection_calibration.launch.py`. The one RViz
+   depth camera also goes into `DEPTH_CAMERA_NAMES` in `launch/projection_calibration.launch.py`. The one RViz
    configuration, `config/rviz/par_framework.rviz`, shows the `/camera/...` topics and needs no change; a topic only
    the new camera publishes goes in there as a disabled display.
 4. A released driver goes into `config/ros_packages.list`, a driver from source into `config/nodes.list`.

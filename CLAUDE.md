@@ -86,8 +86,9 @@ hardware constants in node source. A namespaced node needs its full name (e.g. `
 bare name is silently ignored. Another physical setup is a **profile** (`profile:=<name>`): `config/profiles/<name>.yaml`
 (gitignored) holds only the keys that differ, nodes get `[params_file, profile]` (ROS merges, later wins), and what
 the launch files read themselves (`par_launch`, placeholder poses) goes through `launch_helpers.read_merged_parameters`.
-Extrinsics are per profile (`calibration/extrinsics/<profile>/`), intrinsics per camera unit (a Brio with `serial`:
-`camera_info_brio_<serial>.yaml`). Launch code takes parameter files from `get_params_file_paths`, never from
+Calibrations are per profile: extrinsics in `calibration/extrinsics/<profile>/`, intrinsics in
+`calibration/intrinsics/<profile>/`, named per camera unit (a Brio with `serial`: `camera_info_brio_<serial>.yaml`;
+a profile pins its camera's serial). Launch code takes parameter files from `get_params_file_paths`, never from
 `params_file` alone.
 
 **Node package convention:** `<pkg>/<pkg>_node.py` does only the ROS work (the `Node` subclass, topics, services,
@@ -111,8 +112,9 @@ start in `launch_helpers` plus its entry there. Nodes hard-code the neutral name
 remapping, not by parameter. The event camera (`camera:=event`) has no frames: `event_camera_renderer` collects its
 events into `/camera/image_raw`, the raw events are on `/camera/events`, and there is no `camera_info`.
 
-Intrinsics: `config/calibration/intrinsics/camera_info_<camera>.yaml` (gitignored), set as `camera_info_url` by
-`launch_helpers`, written by `scripts/run_cameracalibrator.sh`. The Kinect publishes its factory calibration instead.
+Intrinsics: `config/calibration/intrinsics/<profile>/camera_info_<camera>.yaml` (gitignored; without a profile the
+shared `calibration/intrinsics/`), set as `camera_info_url` by `launch_helpers.get_camera_info_url`, written by
+`scripts/run_cameracalibrator.sh`. The Kinect publishes its factory calibration instead.
 
 `page_locator` turns `/fiducials` into `/pages` (`PageList`, corners in camera pixels, clockwise from the top left)
 for sheets with markers `4n .. 4n+3`; the `marker_*` layout in `par_setup.yaml` must match the paper (default:
