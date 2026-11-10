@@ -1,9 +1,10 @@
-# Written by Claude Code: copy of spinnaker_camera_driver's config/blackfly_s.yaml with a software trigger, for the
-# capture camera (par.launch.py capture_camera:=true, /capture_camera/blackfly). Two changes against the original:
+# Written by Claude Code: copy of spinnaker_camera_driver's config/blackfly_s.yaml with a software trigger, used for
+# every Blackfly (launch/camera_blackfly.launch.py); a camera without trigger settings runs freely as with the
+# original. Two changes against the original:
 # - trigger_mode comes after trigger_source: the driver sets the parameters in the order of this file, so the
 #   trigger source is chosen before the trigger is switched on.
 # - trigger_software (AcquisitionControl/TriggerSoftware) is added: every set of this command parameter, also to the
-#   same value, makes the camera take one frame, e.g. ros2 param set /capture_camera/blackfly trigger_software true
+#   same value, makes the camera take one frame, e.g. ros2 param set /cameras/capture/blackfly trigger_software true
 #
 #
 # config file for blackfly S cameras (USB3 and GigE)
