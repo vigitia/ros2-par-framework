@@ -2,8 +2,8 @@
 //
 // The app's calls to the backend's sensor processing nodes (setup_wizard/backend/sensor_nodes_api.py): the
 // installed nodes and the profile's selection, a run of the profile's camera with the selected nodes, what each
-// node publishes, and its settings, applied by saving them into the profile and starting the run again. A run is
-// stopped like a preview (stopCameraPreview with the run's preview id).
+// node publishes. Settings are read and saved by node_settings_api.dart. A run is stopped like a preview
+// (stopCameraPreview with the run's preview id).
 
 import 'dart:convert';
 
@@ -47,43 +47,6 @@ extension SensorNodesApi on SetupWizardBackendClient {
     final http.Response response = await http.get(stateUri).timeout(backendRequestTimeout);
     _throwOnError(response);
     return SensorNodesRunState.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
-  }
-
-  /// The running node's settings; null while it does not answer yet.
-  Future<List<CameraSetting>?> fetchSensorNodeSettings(String packageName) async {
-    final Uri settingsUri =
-        Uri.parse('$backendBaseUrl/api/sensor-nodes/settings').replace(queryParameters: {'package_name': packageName});
-    final http.Response response = await http.get(settingsUri).timeout(backendRequestTimeout * 2);
-    if (response.statusCode == 503) {
-      return null;
-    }
-    _throwOnError(response);
-    final List<CameraSetting> settings = [];
-    final Map<String, dynamic> settingsJson = jsonDecode(response.body) as Map<String, dynamic>;
-    for (final dynamic settingJson in settingsJson['settings'] as List<dynamic>) {
-      settings.add(CameraSetting.fromJson(settingJson as Map<String, dynamic>));
-    }
-    return settings;
-  }
-
-  /// Saves the changed settings into the profile and starts the run again; returns the new run's preview id and
-  /// what was written.
-  Future<SensorNodeSettingsApplyResult> applySensorNodeSettings({
-    required String profileName,
-    required String packageName,
-    required Map<String, Object> settingValueByName,
-  }) async {
-    final http.Response response = await _postSensorNodesJson('/api/sensor-nodes/settings/apply', {
-      'profile_name': profileName,
-      'package_name': packageName,
-      'setting_value_by_name': settingValueByName,
-    });
-    final Map<String, dynamic> applyJson = jsonDecode(response.body) as Map<String, dynamic>;
-    return SensorNodeSettingsApplyResult(
-      previewId: applyJson['preview_id'] as int,
-      writtenSettingNames: (applyJson['written_setting_names'] as List<dynamic>).cast<String>(),
-      removedSettingNames: (applyJson['removed_setting_names'] as List<dynamic>).cast<String>(),
-    );
   }
 
   /// The latest message on a node's output topic as text.
@@ -225,18 +188,6 @@ class SensorNodeOutputTopic {
 
   /// A sensor_msgs/Image, shown as frames.
   final bool isImage;
-}
-
-class SensorNodeSettingsApplyResult {
-  const SensorNodeSettingsApplyResult({
-    required this.previewId,
-    required this.writtenSettingNames,
-    required this.removedSettingNames,
-  });
-
-  final int previewId;
-  final List<String> writtenSettingNames;
-  final List<String> removedSettingNames;
 }
 
 class SensorNodeOutputMessage {

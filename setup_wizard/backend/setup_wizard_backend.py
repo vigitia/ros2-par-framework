@@ -21,10 +21,12 @@ import extrinsics_api
 from fastapi import FastAPI
 import focus_api
 import intrinsics_api
+import node_settings_api
 import profiles_api
 import projector_blackout_api
 import run_api
 import sensor_nodes_api
+import setup_geometry_api
 import uvicorn
 
 # Localhost only: nothing protects the backend yet, so other machines in the network must not
@@ -47,6 +49,8 @@ setup_wizard_backend_app.include_router(apps_api.apps_router)
 setup_wizard_backend_app.include_router(projector_blackout_api.projector_blackout_router)
 setup_wizard_backend_app.include_router(sensor_nodes_api.sensor_nodes_router)
 setup_wizard_backend_app.include_router(run_api.run_router)
+setup_wizard_backend_app.include_router(setup_geometry_api.setup_geometry_router)
+setup_wizard_backend_app.include_router(node_settings_api.node_settings_router)
 
 
 @setup_wizard_backend_app.get('/api/status')

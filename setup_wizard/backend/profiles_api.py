@@ -16,6 +16,10 @@ import threading
 from ament_index_python.packages import get_package_share_directory
 from fastapi import APIRouter, HTTPException
 from launch import LaunchContext
+from par_framework_core.connected_displays import (
+    ConnectedDisplay, find_projector_display_ids, get_display_mode_text, get_display_title_text,
+    get_projector_display_mode, get_projector_identity, get_projector_identity_title_text,
+    PROJECTOR_DISPLAY_MODE_PARAMETER_NAME_BY_ATTRIBUTE, read_connected_displays)
 from par_framework_core.launch_helpers import (ADDITIONAL_CAMERAS_KEY, CAMERA_DRIVER_REMAPPINGS,
                                                CAMERA_SERIAL_SOURCE_BY_CAMERA,
                                                CAPTURE_CAMERA_NODE_PARAMETERS_KEY,
@@ -29,10 +33,11 @@ from par_framework_core.launch_helpers import (ADDITIONAL_CAMERAS_KEY, CAMERA_DR
                                                get_intrinsics_folder_path,
                                                get_invalid_pose_keys,
                                                get_path_in_config_folder,
-                                               get_projector_display_id,
                                                get_sensor_node_package_names, PROJECTOR_APP_NONE,
                                                read_launch_section, read_merged_parameters,
-                                               read_par_app_entry, RENDERING_MANAGER_APP_NAME)
+                                               read_par_app_entry, read_projector_identity,
+                                               read_stored_projector_display_id,
+                                               RENDERING_MANAGER_APP_NAME)
 from pydantic import BaseModel
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap
@@ -62,6 +67,19 @@ INTRINSICS_STATE_FACTORY = 'factory'
 INTRINSICS_STATE_MISSING = 'missing'
 # The event camera publishes no camera_info, so it cannot be calibrated yet.
 INTRINSICS_STATE_UNSUPPORTED = 'unsupported'
+# Whether the profile's projector is where par_launch.projector_display_id says, as the app
+# receives it. Launches look the projector up by its stored identity
+# (launch_helpers.get_projector_display_id), so a moved projector still works there.
+PROJECTOR_DISPLAY_STATE_NOT_SET = 'not_set'
+# A display id without a stored identity (written by hand): nothing to check it against
+PROJECTOR_DISPLAY_STATE_UNIDENTIFIED = 'unidentified'
+PROJECTOR_DISPLAY_STATE_CONNECTED = 'connected'
+# The projector is connected, but under another display id than the stored one
+PROJECTOR_DISPLAY_STATE_MOVED = 'moved'
+PROJECTOR_DISPLAY_STATE_NOT_CONNECTED = 'not_connected'
+# Several displays match the stored identity (identical projectors without a serial)
+PROJECTOR_DISPLAY_STATE_AMBIGUOUS = 'ambiguous'
+PROJECTOR_DISPLAY_STATE_DISPLAYS_UNREADABLE = 'displays_unreadable'
 POSE_STATE_MEASURED = 'measured'
 POSE_STATE_PLACEHOLDER = 'placeholder'
 # The measured pose file exists but lacks keys or numbers; a launch would stop on it.
@@ -106,8 +124,26 @@ class ProfileSummary(BaseModel):
     cameras: list[CameraCalibrationSummary]
     sensor_node_names: list[str]
     app_names: list[str]
-    # The projector's display (the framework's display_id); None when the profile sets none
+    # The apps the profile offers (par_launch.apps), in its order; the projector app is one of them
+    enabled_app_names: list[str] = []
+    # The display to use for the projector now: found by its stored identity, else the stored
+    # id; None when the profile sets none or the projector is not found
     projector_display_id: int | None = None
+    # par_launch.projector_display_id as written in the profile
+    stored_projector_display_id: int | None = None
+    # One of the PROJECTOR_DISPLAY_STATE_* values
+    projector_display_state: str = PROJECTOR_DISPLAY_STATE_NOT_SET
+    # The stored projector's name, e.g. 'EPS EB-680'; '' without a stored identity
+    projector_title_text: str = ''
+    # The display at the stored id now, e.g. 'eDP-1 15"'; '' when none is or it cannot be read
+    stored_display_title_text: str = ''
+    # The display mode the projector was chosen with, e.g. '3840 × 2160 at 60 Hz'; '' when the
+    # profile stores none
+    stored_display_mode_text: str = ''
+    # The projector's display mode now; '' while it is not found
+    current_display_mode_text: str = ''
+    # True when both are known and differ: the projector calibration may no longer fit
+    is_display_mode_changed: bool = False
     # Set when the profile's files cannot be read; the lists are empty then.
     profile_error_text: str | None = None
 
@@ -146,9 +182,19 @@ class CameraUnitRequest(BaseModel):
     serial: str = ''
 
 
+class ProjectorDisplayChoiceRequest(BaseModel):
+    # A display_id from GET /api/displays
+    display_id: int
+
+
 class ProjectorAppChoiceRequest(BaseModel):
-    # par_launch.projector_app: none, or the app_name of an installed app from GET /api/apps
+    # par_launch.projector_app: none, or one of the profile's apps (par_launch.apps)
     app_name: str
+
+
+class EnabledAppsRequest(BaseModel):
+    # par_launch.apps: app_names of installed apps from GET /api/apps
+    app_names: list[str]
 
 
 class NewProfileResponse(BaseModel):
@@ -161,9 +207,17 @@ class NewProfileResponse(BaseModel):
 def get_profile_list() -> ProfileListResponse:
     """List the profiles (config/profiles/<name>.yaml) with what they run, and the last choice."""
     profile_names = _read_profile_names()
+    # Read once for all profiles: SDL opens the displays per call
+    displays_error_text = None
+    try:
+        connected_displays = read_connected_displays()
+    except RuntimeError as error:
+        connected_displays = []
+        displays_error_text = str(error)
     profile_summaries = []
     for profile_name in profile_names:
-        profile_summaries.append(_read_profile_summary(profile_name))
+        profile_summaries.append(_read_profile_summary(profile_name, connected_displays,
+                                                       displays_error_text))
     last_selected_profile_name = _read_last_selected_profile_name()
     if last_selected_profile_name not in profile_names:
         last_selected_profile_name = None
@@ -173,7 +227,7 @@ def get_profile_list() -> ProfileListResponse:
 
 @profiles_router.put('/api/profiles/last-selected')
 def set_last_selected_profile(request: LastSelectedProfileRequest) -> None:
-    """Remember the selected profile, so the start screen preselects it next time."""
+    """Remember the selected profile, so the wizard opens it next time."""
     # The name ends up in a file path and in profile:=, so it must be an existing profile name.
     check_profile_exists(request.profile_name)
     with open(_get_last_selected_profile_path(), 'w') as last_selected_profile_file:
@@ -192,8 +246,10 @@ def create_profile(request: NewProfileRequest) -> NewProfileResponse:
         # Without a camera the launch would silently take par_setup.yaml's camera
         raise HTTPException(status_code=422,
                             detail='Add a camera to the profile first (Hardware step)')
-    if request.projector_display_id is not None and request.projector_display_id < 0:
-        raise HTTPException(status_code=422, detail='The display number cannot be negative')
+    # Checked before the file exists, so a display that went away leaves no half-made profile
+    projector_display = None
+    if request.projector_display_id is not None:
+        projector_display = _find_connected_display(request.projector_display_id)
 
     profile_path = get_path_in_config_folder(
         f'{FOLDER_PATH_PROFILES}/{request.profile_name}{PROFILE_FILE_EXTENSION}')
@@ -208,8 +264,6 @@ def create_profile(request: NewProfileRequest) -> NewProfileResponse:
         f'  {ROS_PARAMETERS_KEY}:',
         f'    camera: {request.camera_name}',
     ]
-    if request.projector_display_id is not None:
-        profile_lines.append(f'    projector_display_id: {request.projector_display_id}')
     try:
         # 'x' creates the file only if it does not exist, so an existing profile is never
         # overwritten, even by two requests at once
@@ -229,6 +283,8 @@ def create_profile(request: NewProfileRequest) -> NewProfileResponse:
     for node_name, setting_value_by_name in new_profile_setting_values.items():
         write_results.append(write_node_settings_into_profile(request.profile_name, node_name,
                                                               setting_value_by_name))
+    if projector_display is not None:
+        _write_projector_display_into_profile(request.profile_name, projector_display)
     serial_write_result = _write_camera_serial_into_profile(request.profile_name,
                                                             request.camera_name)
     if serial_write_result is not None:
@@ -244,26 +300,69 @@ def create_profile(request: NewProfileRequest) -> NewProfileResponse:
 
 @profiles_router.put('/api/profiles/{profile_name}/projector-app')
 def set_projector_app(profile_name: str, request: ProjectorAppChoiceRequest) -> None:
-    """Store which app the profile puts on the projector (par_launch.projector_app)."""
-    check_profile_exists(profile_name)
-    # Imported here like camera_preview_api, so this module's imports stay free of the API modules
-    import apps_api
+    """Store which of the profile's apps it puts on the projector (par_launch.projector_app)."""
+    launch_section = read_profile_launch_section(profile_name)
     if request.app_name != PROJECTOR_APP_NONE:
-        projector_apps = apps_api.get_projector_app_list().projector_apps
-        chosen_app = None
-        for projector_app in projector_apps:
-            if projector_app.app_name == request.app_name:
-                chosen_app = projector_app
-        if chosen_app is None:
+        if request.app_name not in _read_enabled_app_names(launch_section):
             raise HTTPException(status_code=422,
-                                detail=f'{request.app_name!r} is no installed app; choose one '
-                                       f'from GET /api/apps or {PROJECTOR_APP_NONE}')
-        if chosen_app.entry_error_text is not None:
-            # par.launch.py would refuse to start it
-            raise HTTPException(status_code=409, detail=chosen_app.entry_error_text)
+                                detail=f'{request.app_name} is not one of the profile\'s apps; '
+                                       f'add it under Apps first')
+        _check_startable_app(request.app_name)
     # As the sensor node switches: none is par_setup.yaml's value, so choosing it removes the key
     write_node_settings_into_profile(profile_name, '/par_launch',
                                      {'projector_app': request.app_name})
+
+
+# Written by Claude Code
+@profiles_router.put('/api/profiles/{profile_name}/apps')
+def set_enabled_apps(profile_name: str, request: EnabledAppsRequest) -> None:
+    """Store which installed apps the profile offers (par_launch.apps), keeping their order."""
+    launch_section = read_profile_launch_section(profile_name)
+    enabled_app_names = []
+    for app_name in request.app_names:
+        if app_name in enabled_app_names:
+            continue
+        _check_startable_app(app_name)
+        enabled_app_names.append(app_name)
+    setting_value_by_name = {'apps': enabled_app_names}
+    # The projector app is always one of the profile's apps
+    if str(launch_section.get('projector_app', PROJECTOR_APP_NONE)) not in enabled_app_names:
+        setting_value_by_name['projector_app'] = PROJECTOR_APP_NONE
+    write_node_settings_into_profile(profile_name, '/par_launch', setting_value_by_name)
+
+
+# Written by Claude Code
+def _check_startable_app(app_name: str) -> None:
+    """Raise 422 for no installed app, 409 for one whose entry par.launch.py would refuse."""
+    # Imported here like camera_preview_api, so this module's imports stay free of the API modules
+    import apps_api
+    for projector_app in apps_api.get_projector_app_list().projector_apps:
+        if projector_app.app_name != app_name:
+            continue
+        if projector_app.entry_error_text is not None:
+            raise HTTPException(status_code=409, detail=projector_app.entry_error_text)
+        return
+    raise HTTPException(status_code=422,
+                        detail=f'{app_name!r} is no installed app; choose one from GET /api/apps')
+
+
+# Written by Claude Code
+def _read_enabled_app_names(launch_section: dict) -> list[str]:
+    """Return par_launch.apps as names; [] when the profile lists none."""
+    enabled_app_names = launch_section.get('apps') or []
+    if not isinstance(enabled_app_names, list):
+        raise RuntimeError(f'par_launch.apps must be a list of app names, not '
+                           f'{enabled_app_names!r}')
+    return [str(app_name) for app_name in enabled_app_names]
+
+
+# Written by Claude Code
+@profiles_router.put('/api/profiles/{profile_name}/projector-display')
+def set_projector_display(profile_name: str, request: ProjectorDisplayChoiceRequest) -> None:
+    """Store which connected display is the profile's projector: its id and its identity."""
+    check_profile_exists(profile_name)
+    _write_projector_display_into_profile(profile_name,
+                                          _find_connected_display(request.display_id))
 
 
 @profiles_router.post('/api/profiles/{profile_name}/cameras')
@@ -285,7 +384,7 @@ def add_camera(profile_name: str, request: CameraUnitRequest) -> None:
         raise HTTPException(status_code=422,
                             detail='A serial number has only letters, digits, _ and -')
     profile_launch_context = create_profile_launch_context(profile_name)
-    camera_units = _read_camera_units(profile_launch_context)
+    camera_units = read_camera_units(profile_launch_context)
     units_of_type = [unit for unit in camera_units if unit[0] == camera_name]
     if camera_name not in CAMERA_SERIAL_SOURCE_BY_CAMERA:
         # Without a serial the units of a type cannot be told apart, so their files would collide
@@ -405,6 +504,33 @@ def check_profile_exists(profile_name: str) -> None:
         raise HTTPException(status_code=404, detail=f'No profile named {profile_name!r}')
 
 
+def read_profile_launch_section(profile_name: str) -> dict:
+    """Return the profile's par_launch section as a launch reads it; 404 or 409 when it cannot."""
+    check_profile_exists(profile_name)
+    profile_launch_context = create_profile_launch_context(profile_name)
+    try:
+        return read_launch_section(profile_launch_context)
+    except (RuntimeError, KeyError, OSError) as error:
+        raise HTTPException(status_code=409,
+                            detail=f'Cannot read the profile {profile_name}: {error}') from error
+
+
+def read_profile_node_settings(profile_name: str, full_node_name: str) -> dict:
+    """Return the node's parameters as the profile sets them; {} when it sets none."""
+    check_profile_exists(profile_name)
+    profile_path = get_path_in_config_folder(
+        f'{FOLDER_PATH_PROFILES}/{profile_name}{PROFILE_FILE_EXTENSION}')
+    with open(profile_path) as profile_file:
+        profile_document = yaml.safe_load(profile_file) or {}
+    if not isinstance(profile_document, dict):
+        raise HTTPException(status_code=409, detail=f'{profile_path} holds no node sections')
+    node_section_name = _find_node_section_name(profile_document, full_node_name)
+    if node_section_name is None:
+        return {}
+    node_section = profile_document[node_section_name] or {}
+    return node_section.get(ROS_PARAMETERS_KEY) or {}
+
+
 def _read_profile_names() -> list[str]:
     """Return the profile file names, sorted, without those that profile:= would reject."""
     profiles_folder_path = get_path_in_config_folder(FOLDER_PATH_PROFILES)
@@ -421,13 +547,21 @@ def _read_profile_names() -> list[str]:
     return sorted(profile_names)
 
 
-def _read_profile_summary(profile_name: str) -> ProfileSummary:
-    """Return the cameras, sensor nodes and app the profile starts through par_launch."""
+# Co-authored by Claude Code: the projector is checked against the connected displays
+def _read_profile_summary(profile_name: str, connected_displays: list[ConnectedDisplay],
+                          displays_error_text: str | None) -> ProfileSummary:
+    """
+    Return the cameras, sensor nodes and app the profile starts through par_launch.
+
+    connected_displays is empty and displays_error_text says why when they cannot be read.
+    """
     profile_launch_context = create_profile_launch_context(profile_name)
     try:
         launch_section = read_launch_section(profile_launch_context)
         main_camera_name = launch_section['camera']
-        projector_display_id = get_projector_display_id(profile_launch_context, launch_section)
+        enabled_app_names = _read_enabled_app_names(launch_section)
+        projector_display_summary = _create_projector_display_summary(
+            launch_section, connected_displays, displays_error_text)
         main_serial = get_camera_serial(profile_launch_context, main_camera_name)
         cameras = [_create_camera_summary(profile_launch_context, main_camera_name, main_serial,
                                           True)]
@@ -476,7 +610,93 @@ def _read_profile_summary(profile_name: str) -> ProfileSummary:
             sensor_node_names.append(switch_name)
     return ProfileSummary(profile_name=profile_name, cameras=cameras,
                           sensor_node_names=sensor_node_names, app_names=app_names,
-                          projector_display_id=projector_display_id)
+                          enabled_app_names=enabled_app_names,
+                          **projector_display_summary)
+
+
+# Written by Claude Code
+def _create_projector_display_summary(launch_section: dict,
+                                      connected_displays: list[ConnectedDisplay],
+                                      displays_error_text: str | None) -> dict:
+    """Return the ProfileSummary fields about the projector, checked like a launch finds it."""
+    stored_projector_display_id = read_stored_projector_display_id(launch_section)
+    projector_identity = read_projector_identity(launch_section)
+    stored_display_title_text = ''
+    for connected_display in connected_displays:
+        if connected_display.display_id == stored_projector_display_id:
+            stored_display_title_text = get_display_title_text(connected_display)
+    projector_display_summary = {
+        'projector_display_id': stored_projector_display_id,
+        'stored_projector_display_id': stored_projector_display_id,
+        'projector_title_text': get_projector_identity_title_text(projector_identity),
+        'stored_display_title_text': stored_display_title_text,
+    }
+
+    if not projector_identity:
+        if stored_projector_display_id is None:
+            projector_display_summary['projector_display_state'] = PROJECTOR_DISPLAY_STATE_NOT_SET
+        else:
+            projector_display_summary['projector_display_state'] = (
+                PROJECTOR_DISPLAY_STATE_UNIDENTIFIED)
+        return projector_display_summary
+    if displays_error_text is not None:
+        print(f'[profiles_api]: cannot check the projector: {displays_error_text}')
+        projector_display_summary['projector_display_state'] = (
+            PROJECTOR_DISPLAY_STATE_DISPLAYS_UNREADABLE)
+        return projector_display_summary
+
+    matching_display_ids = find_projector_display_ids(connected_displays, projector_identity)
+    if len(matching_display_ids) != 1:
+        # Nothing to project on: steps that black out or calibrate the projector need the right one
+        projector_display_summary['projector_display_id'] = None
+        if matching_display_ids:
+            projector_display_summary['projector_display_state'] = (
+                PROJECTOR_DISPLAY_STATE_AMBIGUOUS)
+        else:
+            projector_display_summary['projector_display_state'] = (
+                PROJECTOR_DISPLAY_STATE_NOT_CONNECTED)
+        return projector_display_summary
+
+    found_projector_display_id = matching_display_ids[0]
+    projector_display_summary['projector_display_id'] = found_projector_display_id
+    for connected_display in connected_displays:
+        if connected_display.display_id == found_projector_display_id:
+            projector_display_summary.update(
+                _compare_projector_display_mode(launch_section, connected_display))
+    is_at_stored_id = stored_projector_display_id in (None, found_projector_display_id)
+    if is_at_stored_id:
+        projector_display_summary['projector_display_state'] = PROJECTOR_DISPLAY_STATE_CONNECTED
+    else:
+        projector_display_summary['projector_display_state'] = PROJECTOR_DISPLAY_STATE_MOVED
+    return projector_display_summary
+
+
+# Written by Claude Code
+def _compare_projector_display_mode(launch_section: dict,
+                                    connected_display: ConnectedDisplay) -> dict:
+    """Return the ProfileSummary fields comparing the stored display mode with the current one."""
+    current_display_mode = get_projector_display_mode(connected_display)
+    stored_display_mode = {}
+    for parameter_name in PROJECTOR_DISPLAY_MODE_PARAMETER_NAME_BY_ATTRIBUTE.values():
+        stored_display_mode[parameter_name] = launch_section.get(parameter_name)
+    display_mode_comparison = {'current_display_mode_text': get_display_mode_text(
+        connected_display.width_px, connected_display.height_px,
+        connected_display.refresh_rate_hz)}
+    stored_width_px = stored_display_mode['projector_width_px']
+    stored_height_px = stored_display_mode['projector_height_px']
+    if stored_width_px is None or stored_height_px is None:
+        return display_mode_comparison
+    display_mode_comparison['stored_display_mode_text'] = get_display_mode_text(
+        stored_width_px, stored_height_px, stored_display_mode['projector_refresh_rate_hz'])
+    is_display_mode_changed = False
+    for parameter_name, stored_value in stored_display_mode.items():
+        # A refresh rate the display did not report when it was chosen cannot be compared
+        if stored_value is None:
+            continue
+        if stored_value != current_display_mode[parameter_name]:
+            is_display_mode_changed = True
+    display_mode_comparison['is_display_mode_changed'] = is_display_mode_changed
+    return display_mode_comparison
 
 
 def _create_camera_summary(profile_launch_context: LaunchContext, camera_name: str,
@@ -512,7 +732,7 @@ def _get_additional_camera_texts(profile_launch_context: LaunchContext) -> list[
             for unit in get_additional_camera_units(profile_launch_context)]
 
 
-def _read_camera_units(profile_launch_context: LaunchContext) -> list[tuple[str, str]]:
+def read_camera_units(profile_launch_context: LaunchContext) -> list[tuple[str, str]]:
     """Return the profile's camera units as (camera, serial): the selected one, then the rest."""
     selected_camera_name = read_launch_section(profile_launch_context)['camera']
     selected_serial = get_camera_serial(profile_launch_context, selected_camera_name)
@@ -535,13 +755,43 @@ def _read_camera_intrinsics_state(profile_launch_context: LaunchContext, camera_
     """Return whether the camera unit has its lens calibration (INTRINSICS_STATE_*)."""
     if camera_name in FACTORY_INTRINSICS_CAMERA_NAMES:
         return INTRINSICS_STATE_FACTORY
-    if camera_name == 'webcam':
-        return _get_intrinsics_file_state(profile_launch_context,
-                                          get_camera_info_file_name_of_unit(camera_name, serial))
-    if camera_name not in CAMERA_SERIAL_SOURCE_BY_CAMERA:
+    intrinsics_file_name = _get_camera_intrinsics_file_name(camera_name, serial)
+    if intrinsics_file_name is None:
         return INTRINSICS_STATE_UNSUPPORTED
-    return _get_intrinsics_file_state(profile_launch_context,
-                                      get_camera_info_file_name_of_unit(camera_name, serial))
+    return _get_intrinsics_file_state(profile_launch_context, intrinsics_file_name)
+
+
+# Written by Claude Code
+def _get_camera_intrinsics_file_name(camera_name: str, serial: str) -> str | None:
+    """
+    Return the intrinsics file name the framework gives the camera unit at launch.
+
+    None when it gives none: a camera with its own calibration (FACTORY_INTRINSICS_CAMERA_NAMES)
+    or one whose units the framework cannot tell apart yet.
+    """
+    if camera_name in FACTORY_INTRINSICS_CAMERA_NAMES:
+        return None
+    if camera_name != 'webcam' and camera_name not in CAMERA_SERIAL_SOURCE_BY_CAMERA:
+        return None
+    return get_camera_info_file_name_of_unit(camera_name, serial)
+
+
+# Written by Claude Code
+def get_camera_intrinsics_file_path(profile_name: str, camera_name: str) -> str | None:
+    """
+    Return the path of the intrinsics file the framework gives the profile's camera at launch.
+
+    The same file launch_helpers.get_camera_info_url names, whatever the driver calls its
+    parameter for it. None when the framework gives the camera none (see
+    _get_camera_intrinsics_file_name).
+    """
+    profile_launch_context = create_profile_launch_context(profile_name)
+    serial = get_camera_serial(profile_launch_context, camera_name)
+    intrinsics_file_name = _get_camera_intrinsics_file_name(camera_name, serial)
+    if intrinsics_file_name is None:
+        return None
+    intrinsics_folder_path = get_intrinsics_folder_path(profile_launch_context)
+    return get_path_in_config_folder(f'{intrinsics_folder_path}/{intrinsics_file_name}')
 
 
 def _read_capture_camera_intrinsics_state(profile_launch_context: LaunchContext) -> str:
@@ -614,6 +864,39 @@ class NodeSettingsWriteResult(BaseModel):
 
 
 # Written by Claude Code
+def _find_connected_display(display_id: int) -> ConnectedDisplay:
+    """Return the connected display with this display_id; HTTP 422 when there is none."""
+    try:
+        connected_displays = read_connected_displays()
+    except RuntimeError as error:
+        raise HTTPException(status_code=500, detail=str(error)) from error
+    for connected_display in connected_displays:
+        if connected_display.display_id == display_id:
+            return connected_display
+    raise HTTPException(status_code=422,
+                        detail=f'Display {display_id} is not connected: search the displays '
+                               f'again and choose a connected one')
+
+
+# Written by Claude Code
+def _write_projector_display_into_profile(profile_name: str,
+                                          projector_display: ConnectedDisplay) -> None:
+    """Write the projector's display id, identity and display mode into the profile's par_launch."""
+    # The id is pinned even when par_setup.yaml has the same, like the identity it belongs to
+    setting_value_by_name = {'projector_display_id': projector_display.display_id}
+    for parameter_name, identity_text in get_projector_identity(projector_display).items():
+        # None removes a value the display does not report, so none of an earlier projector stays
+        if identity_text:
+            setting_value_by_name[parameter_name] = identity_text
+        else:
+            setting_value_by_name[parameter_name] = None
+    # A refresh rate the display does not report is None and removes an earlier one the same way
+    setting_value_by_name.update(get_projector_display_mode(projector_display))
+    write_node_settings_into_profile(profile_name, '/par_launch', setting_value_by_name,
+                                     always_written_setting_names=('projector_display_id',))
+
+
+# Written by Claude Code
 def _write_camera_serial_into_profile(profile_name: str,
                                       camera_name: str) -> NodeSettingsWriteResult | None:
     """Write the camera's serial into the profile when one is set; None when there is none."""
@@ -652,7 +935,7 @@ def write_node_settings_into_profile(profile_name: str, full_node_name: str,
     check_profile_exists(profile_name)
     profile_path = get_path_in_config_folder(
         f'{FOLDER_PATH_PROFILES}/{profile_name}{PROFILE_FILE_EXTENSION}')
-    default_setting_value_by_name = _read_par_setup_node_settings(full_node_name)
+    default_setting_value_by_name = read_par_setup_node_settings(full_node_name)
     round_trip_yaml = _create_round_trip_yaml()
     with _profile_write_lock:
         with open(profile_path) as profile_file:
@@ -806,7 +1089,7 @@ def _find_node_section_name(parameter_document: dict, full_node_name: str) -> st
     return None
 
 
-def _read_par_setup_node_settings(full_node_name: str) -> dict:
+def read_par_setup_node_settings(full_node_name: str) -> dict:
     """Return the node's parameters in par_setup.yaml, the defaults a profile overrides."""
     par_setup_path = os.path.join(get_package_share_directory('par_framework_core'), 'config',
                                   'par_setup.yaml')

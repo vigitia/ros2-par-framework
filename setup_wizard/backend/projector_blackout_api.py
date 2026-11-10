@@ -25,6 +25,7 @@ import time
 
 import displays_api
 from fastapi import APIRouter
+from process_groups import stop_process_group
 from pydantic import BaseModel, Field
 
 BLACKOUT_WINDOW_SCRIPT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
@@ -150,18 +151,10 @@ def _stop_blackout_window():
     window_process = _blackout_session.window_process
     _blackout_session.window_process = None
     _blackout_session.display_id = None
-    if window_process is None or window_process.poll() is not None:
+    if window_process is None:
         return
-    for stop_signal in (signal.SIGTERM, signal.SIGKILL):
-        try:
-            os.killpg(window_process.pid, stop_signal)
-        except ProcessLookupError:
-            return
-        try:
-            window_process.wait(timeout=BLACKOUT_WINDOW_STOP_TIMEOUT_S)
-            return
-        except subprocess.TimeoutExpired:
-            continue
+    stop_process_group(window_process, (signal.SIGTERM, signal.SIGKILL),
+                       BLACKOUT_WINDOW_STOP_TIMEOUT_S)
 
 
 def _is_display_connected(display_id):

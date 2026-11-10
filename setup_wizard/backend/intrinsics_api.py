@@ -8,8 +8,10 @@ preview runs (camera_preview_api).
 Generic, through ROS conventions only, so it works for any camera driver that follows them:
 - Whether a camera needs it comes from one message on /camera/camera_info: none published means
   intrinsics do not apply; an all-zero camera matrix K means uncalibrated; otherwise the
-  calibration comes from the file in the driver's camera_info_url parameter (camera_info_manager's
-  convention) when that file exists, else from the camera itself (factory calibration).
+  calibration comes from the calibration file when that file exists, else from the camera itself
+  (factory calibration). The file is the one the framework gives the camera at launch
+  (profiles_api.get_camera_intrinsics_file_path), else the one in the driver's camera_info_url
+  parameter (camera_info_manager's convention).
 - The calibration runs ROS's own camera_calibration library (MonoCalibrator, the code behind
   cameracalibrator) on the camera's frames, without its window: the app shows the detected board,
   the coverage of image position, size and tilt, and the result.
@@ -29,6 +31,7 @@ from fastapi import APIRouter, HTTPException, Response
 from par_framework_core.launch_helpers import (DEFAULT_SERVICE_NAME_CAMERA_SET_INFO,
                                                DEFAULT_TOPIC_NAME_CAMERA_IMAGE,
                                                DEFAULT_TOPIC_NAME_CAMERA_INFO)
+import profiles_api
 from pydantic import BaseModel, Field
 from rcl_interfaces.msg import ParameterType
 from rclpy.qos import QoSHistoryPolicy, QoSProfile, QoSReliabilityPolicy
@@ -155,7 +158,15 @@ def _read_camera_intrinsics_state(preview_session):
         preview_session)
     frame_receiver = preview_session.frame_receiver
     can_store_calibration = _has_set_camera_info_service(frame_receiver)
-    calibration_file_path = _read_calibration_file_path(parameter_client)
+    # The file the framework gave the camera, else the one the driver names under the usual
+    # parameter: drivers spell that parameter differently (e.g. camerainfo_url), the framework's
+    # file is known whatever the spelling
+    calibration_file_path = None
+    if preview_session.profile_name is not None and preview_session.camera_name is not None:
+        calibration_file_path = profiles_api.get_camera_intrinsics_file_path(
+            preview_session.profile_name, preview_session.camera_name)
+    if calibration_file_path is None:
+        calibration_file_path = _read_calibration_file_path(parameter_client)
     calibration_file_modified_iso = ''
     if calibration_file_path and os.path.isfile(calibration_file_path):
         modified_time_s = os.path.getmtime(calibration_file_path)

@@ -1,9 +1,10 @@
 // Written by Claude Code
 //
-// One camera's live feeds with, if wanted, its settings next to them (below them in narrow windows), and the focus
-// help below the feeds, which frames its measured area on the camera image. The settings scroll in an area of their
-// own, so the feeds stay in place while the user goes through them. Shared by the wizard's per-camera steps and a
-// profile's overview.
+// One camera's live feeds with, if wanted, its settings next to them (below them in narrow windows), and, if wanted,
+// the focus help below the feeds, which frames its measured area on the camera image. The settings can be limited to
+// some of them (e.g. only the focus settings on the wizard's Focus page). The settings take the height they need and
+// scroll with the page, which has the only scroll bar on the screen. Shared by the wizard's per-camera steps and a
+// profile's Cameras area.
 
 import 'package:flutter/material.dart';
 
@@ -16,12 +17,6 @@ import 'setup_wizard_backend_client.dart';
 /// Below this width the settings go under the feeds instead of next to them.
 const double sideBySideSettingsMinimumWidthLogicalPx = 1000;
 
-/// Height of the settings' scroll area next to the feeds: as high as a single feed.
-const double sideBySideSettingsHeightLogicalPx = singleFeedHeightLogicalPx;
-
-/// Height of the settings' scroll area below the feeds, small enough to keep the feeds in view.
-const double stackedSettingsHeightLogicalPx = 320;
-
 class CameraPreviewWithSettingsView extends StatefulWidget {
   const CameraPreviewWithSettingsView({
     super.key,
@@ -29,6 +24,10 @@ class CameraPreviewWithSettingsView extends StatefulWidget {
     required this.cameraName,
     required this.isSettingsListShown,
     this.profileName,
+    this.isFocusAssistShown = true,
+    this.settingsTitleText,
+    this.isSettingShown,
+    this.noShownSettingsText,
   });
 
   final SetupWizardBackendClient backendClient;
@@ -40,6 +39,12 @@ class CameraPreviewWithSettingsView extends StatefulWidget {
   final String? profileName;
 
   final bool isSettingsListShown;
+  final bool isFocusAssistShown;
+
+  /// Passed on to CameraSettingsView; null for its defaults (every setting, titled with the camera name).
+  final String? settingsTitleText;
+  final bool Function(String settingName)? isSettingShown;
+  final String? noShownSettingsText;
 
   @override
   State<CameraPreviewWithSettingsView> createState() => _CameraPreviewWithSettingsViewState();
@@ -57,6 +62,15 @@ class _CameraPreviewWithSettingsViewState extends State<CameraPreviewWithSetting
   final ValueNotifier<FocusMeasuredArea?> _focusMeasuredAreaNotifier = ValueNotifier<FocusMeasuredArea?>(null);
 
   @override
+  void didUpdateWidget(CameraPreviewWithSettingsView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Without the focus help, the preview must not keep framing its last measured area
+    if (!widget.isFocusAssistShown) {
+      _focusMeasuredAreaNotifier.value = null;
+    }
+  }
+
+  @override
   void dispose() {
     _focusMeasuredAreaNotifier.dispose();
     super.dispose();
@@ -72,18 +86,16 @@ class _CameraPreviewWithSettingsViewState extends State<CameraPreviewWithSetting
       profileName: widget.profileName,
       focusMeasuredArea: _focusMeasuredAreaNotifier,
     );
-    final Widget previewView = Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        cameraPreviewView,
-        const SizedBox(height: 16),
-        FocusAssistView(
-          key: _focusAssistViewKey,
-          backendClient: widget.backendClient,
-          measuredAreaNotifier: _focusMeasuredAreaNotifier,
-        ),
-      ],
-    );
+    final List<Widget> previewRows = [cameraPreviewView];
+    if (widget.isFocusAssistShown) {
+      previewRows.add(const SizedBox(height: 16));
+      previewRows.add(FocusAssistView(
+        key: _focusAssistViewKey,
+        backendClient: widget.backendClient,
+        measuredAreaNotifier: _focusMeasuredAreaNotifier,
+      ));
+    }
+    final Widget previewView = Column(crossAxisAlignment: CrossAxisAlignment.start, children: previewRows);
     if (!widget.isSettingsListShown) {
       return previewView;
     }
@@ -92,7 +104,7 @@ class _CameraPreviewWithSettingsViewState extends State<CameraPreviewWithSetting
       if (constraints.maxWidth < sideBySideSettingsMinimumWidthLogicalPx) {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
-          children: [previewView, const SizedBox(height: 16), _buildSettingsArea(stackedSettingsHeightLogicalPx)],
+          children: [previewView, const SizedBox(height: 16), _buildSettingsView()],
         );
       }
       return Row(
@@ -100,57 +112,21 @@ class _CameraPreviewWithSettingsViewState extends State<CameraPreviewWithSetting
         children: [
           Expanded(flex: 3, child: previewView),
           const SizedBox(width: 24),
-          Expanded(flex: 2, child: _buildSettingsArea(sideBySideSettingsHeightLogicalPx)),
+          Expanded(flex: 2, child: _buildSettingsView()),
         ],
       );
     });
   }
 
-  Widget _buildSettingsArea(double areaHeightLogicalPx) {
-    // The scroll area with its scroll position moves with the key too.
-    return _ScrollingSettingsArea(
+  Widget _buildSettingsView() {
+    // The key keeps the settings and their unsaved changes when the layout switches between beside and below
+    return CameraSettingsView(
       key: _cameraSettingsViewKey,
-      areaHeightLogicalPx: areaHeightLogicalPx,
-      settingsView: CameraSettingsView(backendClient: widget.backendClient, cameraName: widget.cameraName),
-    );
-  }
-}
-
-/// The settings in a scroll area of fixed height with a visible scroll bar, so they scroll without moving the feeds.
-class _ScrollingSettingsArea extends StatefulWidget {
-  const _ScrollingSettingsArea({super.key, required this.areaHeightLogicalPx, required this.settingsView});
-
-  final double areaHeightLogicalPx;
-  final Widget settingsView;
-
-  @override
-  State<_ScrollingSettingsArea> createState() => _ScrollingSettingsAreaState();
-}
-
-class _ScrollingSettingsAreaState extends State<_ScrollingSettingsArea> {
-  // An own controller, so the always visible scroll bar and the scroll view agree on the position.
-  final ScrollController _settingsScrollController = ScrollController();
-
-  @override
-  void dispose() {
-    _settingsScrollController.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      height: widget.areaHeightLogicalPx,
-      child: Scrollbar(
-        controller: _settingsScrollController,
-        thumbVisibility: true,
-        child: SingleChildScrollView(
-          controller: _settingsScrollController,
-          // Room for the scroll bar, so it does not cover the values.
-          padding: const EdgeInsets.only(right: 16),
-          child: widget.settingsView,
-        ),
-      ),
+      backendClient: widget.backendClient,
+      cameraName: widget.cameraName,
+      titleText: widget.settingsTitleText,
+      isSettingShown: widget.isSettingShown,
+      noShownSettingsText: widget.noShownSettingsText,
     );
   }
 }

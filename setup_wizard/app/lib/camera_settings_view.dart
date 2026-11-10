@@ -4,7 +4,8 @@
 // description), each with a control chosen from its descriptor (SettingRowView), so it works for any driver;
 // read-only ones have none. Changeable settings come first. A change is sent to the running driver, which may
 // refuse it with a reason; the list is read again afterwards, since one setting can change others (e.g. automatic
-// exposure). The camera must be running, so the list waits and retries while the camera is still starting.
+// exposure). The camera must be running, so the list waits and retries while the camera is still starting. The list
+// can be limited to some settings (isSettingShown).
 
 import 'dart:async';
 
@@ -18,12 +19,28 @@ import 'setup_wizard_backend_client.dart';
 const Duration cameraSettingsRetryInterval = Duration(seconds: 2);
 
 class CameraSettingsView extends StatefulWidget {
-  const CameraSettingsView({super.key, required this.backendClient, required this.cameraName});
+  const CameraSettingsView({
+    super.key,
+    required this.backendClient,
+    required this.cameraName,
+    this.titleText,
+    this.isSettingShown,
+    this.noShownSettingsText,
+  });
 
   final SetupWizardBackendClient backendClient;
 
   /// The camera whose preview runs; its settings are read from the running driver.
   final String cameraName;
+
+  /// Shown above the list; null for `Settings: cameraName`.
+  final String? titleText;
+
+  /// Which settings the list shows; null for all of them.
+  final bool Function(String settingName)? isSettingShown;
+
+  /// Shown when isSettingShown leaves none; null for a general text.
+  final String? noShownSettingsText;
 
   @override
   State<CameraSettingsView> createState() => _CameraSettingsViewState();
@@ -208,9 +225,10 @@ class _CameraSettingsViewState extends State<CameraSettingsView> {
   Widget build(BuildContext context) {
     final TextTheme textTheme = Theme.of(context).textTheme;
     final Color mutedTextColor = Theme.of(context).colorScheme.onSurfaceVariant;
-    final List<CameraSetting>? cameraSettings = _cameraSettings;
+    final List<CameraSetting>? cameraSettings = _getShownCameraSettings();
+    final String titleText = widget.titleText ?? 'Settings: ${widget.cameraName}';
 
-    final List<Widget> rows = [Text('Settings: ${widget.cameraName}', style: textTheme.titleMedium)];
+    final List<Widget> rows = [Text(titleText, style: textTheme.titleMedium)];
     if (cameraSettings == null) {
       String waitingText = 'Waiting for the camera to report its settings …';
       if (_lastErrorText != null) {
@@ -221,7 +239,8 @@ class _CameraSettingsViewState extends State<CameraSettingsView> {
         child: Text(waitingText, style: TextStyle(color: mutedTextColor)),
       ));
     } else if (cameraSettings.isEmpty) {
-      rows.add(Text('The driver reports no settings to show.', style: TextStyle(color: mutedTextColor)));
+      final String noSettingsText = widget.noShownSettingsText ?? 'The driver reports no settings to show.';
+      rows.add(Text(noSettingsText, style: TextStyle(color: mutedTextColor)));
     } else {
       rows.add(Padding(padding: const EdgeInsets.only(top: 4), child: _buildSaveRow(mutedTextColor)));
       // The ones that can be changed first: they are what the user came for.
@@ -246,6 +265,22 @@ class _CameraSettingsViewState extends State<CameraSettingsView> {
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: rows);
   }
 
+  /// The loaded settings that isSettingShown keeps; null while none are loaded.
+  List<CameraSetting>? _getShownCameraSettings() {
+    final List<CameraSetting>? cameraSettings = _cameraSettings;
+    final bool Function(String settingName)? isSettingShown = widget.isSettingShown;
+    if (cameraSettings == null || isSettingShown == null) {
+      return cameraSettings;
+    }
+    final List<CameraSetting> shownCameraSettings = [];
+    for (final CameraSetting cameraSetting in cameraSettings) {
+      if (isSettingShown(cameraSetting.settingName)) {
+        shownCameraSettings.add(cameraSetting);
+      }
+    }
+    return shownCameraSettings;
+  }
+
   Widget _buildSettingRow(CameraSetting cameraSetting) {
     return SettingRowView(
       key: ValueKey<String>(cameraSetting.settingName),
@@ -255,6 +290,16 @@ class _CameraSettingsViewState extends State<CameraSettingsView> {
       lockedText: 'fixed by the driver',
       errorText: _changeErrorTextByName[cameraSetting.settingName],
       onSettingChanged: _changeSetting,
+      onResetToDefault: _createResetToDefault(cameraSetting),
     );
+  }
+
+  /// Sets par_setup.yaml's value on the driver; "Save to profile" then removes the profile's own value.
+  VoidCallback? _createResetToDefault(CameraSetting cameraSetting) {
+    final Object? defaultValue = cameraSetting.defaultValue;
+    if (!cameraSetting.hasDefaultValue || defaultValue == null) {
+      return null;
+    }
+    return () => _changeSetting(cameraSetting.settingName, defaultValue);
   }
 }

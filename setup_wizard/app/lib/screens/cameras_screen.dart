@@ -2,92 +2,85 @@
 //
 // Hub area "Cameras" of a profile: its cameras as chips; exactly one is the selected camera, the one the next run of
 // the profile starts. Clicking another chip selects it. For the selected camera the user can open, on request, its
-// images and settings (changed on the running camera), its lens calibration, camera pose or projector calibration;
-// during the lens calibration and the camera pose the projector shows black. "Add camera" adds a camera unit (several
+// images and settings (changed on the running camera), its lens calibration, camera pose or projector calibration
+// (CameraSectionView, which also keeps the projector black where needed). "Add camera" adds a camera unit (several
 // units of one type are told apart by their serial number), and a camera that is not selected can be removed, which
 // moves its calibrations away after a confirmation. Only the selected camera is ever started here, so the driver
-// always opens the unit the profile names and calibrations land in that unit's files.
+// always opens the unit the profile names and calibrations land in that unit's files. Opened with a requested camera
+// section (a camera clicked in the Overview's drawing, or a missing calibration step started there), the area selects
+// that camera and opens the section at once.
 
 import 'package:flutter/material.dart';
 
 import '../add_camera_dialog.dart';
-import '../camera_preview_with_settings_view.dart';
+import '../camera_section_view.dart';
 import '../cameras_api.dart';
-import '../extrinsics_calibration_view.dart';
-import '../intrinsics_calibration_view.dart';
-import '../projector_blackout_holder.dart';
+import '../profile_run_view.dart';
+import '../profile_summary_loading.dart';
 import '../setup_wizard_backend_client.dart';
 
-/// What this area shows for the selected camera; each starts the camera itself, so only one is shown at a time.
-enum CameraSection { imageAndSettings, lensCalibration, cameraPose, projectorCalibration }
 
 class CamerasScreen extends StatefulWidget {
-  const CamerasScreen({super.key, required this.backendClient, required this.profileName});
+  const CamerasScreen({
+    super.key,
+    required this.backendClient,
+    required this.profileName,
+    this.requestedCameraSection,
+  });
 
   final SetupWizardBackendClient backendClient;
   final String profileName;
+
+  /// A camera unit and section to open right away, e.g. a camera clicked in the Overview's drawing; the unit
+  /// becomes the selected camera like a click on its chip. null opens the area as usual.
+  final CameraSectionRequest? requestedCameraSection;
 
   @override
   State<CamerasScreen> createState() => _CamerasScreenState();
 }
 
-class _CamerasScreenState extends State<CamerasScreen> {
-  bool _isLoadingProfile = true;
-  String? _profileErrorText;
-  ProfileSummary? _profileSummary;
-
+class _CamerasScreenState extends State<CamerasScreen> with ProfileSummaryLoading<CamerasScreen> {
   /// Null until the user opens one, so no camera starts unasked.
   CameraSection? _shownCameraSection;
 
   @override
   void initState() {
     super.initState();
-    _loadProfile();
+    _loadProfileAndOpenRequestedCamera();
+  }
+
+  Future<void> _loadProfileAndOpenRequestedCamera() async {
+    await _loadProfile();
+    final CameraSectionRequest? requestedCameraSection = widget.requestedCameraSection;
+    final ProfileSummary? profileSummary = getShownProfileSummary();
+    if (!mounted || requestedCameraSection == null || profileSummary == null) {
+      return;
+    }
+    CameraCalibrationSummary? requestedCamera;
+    for (final CameraCalibrationSummary camera in profileSummary.cameras) {
+      final bool isSameType = camera.cameraType == requestedCameraSection.cameraType;
+      if (isSameType && camera.serial == requestedCameraSection.serial) {
+        requestedCamera = camera;
+      }
+    }
+    // Only cameras that can be selected (not the capture camera)
+    if (requestedCamera == null || requestedCamera.previewCameraName == null) {
+      return;
+    }
+    if (!requestedCamera.isSelected) {
+      await _selectCamera(requestedCamera);
+    }
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _shownCameraSection = requestedCameraSection.cameraSection;
+    });
   }
 
   /// isSpinnerShown false reloads in the background, so what is shown stays while the answer is on its way.
-  Future<void> _loadProfile({bool isSpinnerShown = true}) async {
-    if (isSpinnerShown) {
-      setState(() {
-        _isLoadingProfile = true;
-        _profileErrorText = null;
-      });
-    }
-    try {
-      final ProfileList profileList = await widget.backendClient.fetchProfileList();
-      ProfileSummary? foundProfileSummary;
-      for (final ProfileSummary profileSummary in profileList.profileSummaries) {
-        if (profileSummary.profileName == widget.profileName) {
-          foundProfileSummary = profileSummary;
-        }
-      }
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _profileSummary = foundProfileSummary;
-        if (foundProfileSummary == null) {
-          _profileErrorText = 'This profile does not exist any more. Go back to the start screen.';
-        } else {
-          final String? summaryErrorText = foundProfileSummary.profileErrorText;
-          if (summaryErrorText != null) {
-            debugPrint('[CamerasScreen]: cannot read profile ${widget.profileName}: $summaryErrorText');
-            _profileErrorText = 'This profile\'s file cannot be read. It may contain a mistake from editing it by hand.';
-          } else {
-            _profileErrorText = null;
-          }
-        }
-        _isLoadingProfile = false;
-      });
-    } catch (error) {
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _profileErrorText = describeBackendErrorForUser(error);
-        _isLoadingProfile = false;
-      });
-    }
+  Future<void> _loadProfile({bool isSpinnerShown = true}) {
+    return loadProfileSummary(widget.backendClient, widget.profileName, isSpinnerShown: isSpinnerShown);
   }
 
   CameraCalibrationSummary? _findSelectedCamera(ProfileSummary profileSummary) {
@@ -175,22 +168,9 @@ class _CamerasScreenState extends State<CamerasScreen> {
 
   @override
   Widget build(BuildContext context) {
-    if (_isLoadingProfile) {
-      return const Center(child: CircularProgressIndicator());
-    }
-    final String? profileErrorText = _profileErrorText;
-    final ProfileSummary? profileSummary = _profileSummary;
-    if (profileErrorText != null || profileSummary == null) {
-      return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(profileErrorText ?? 'This profile cannot be shown.',
-                style: TextStyle(color: Theme.of(context).colorScheme.error), textAlign: TextAlign.center),
-            TextButton(onPressed: _loadProfile, child: const Text('Try again')),
-          ],
-        ),
-      );
+    final ProfileSummary? profileSummary = getShownProfileSummary();
+    if (profileSummary == null) {
+      return buildProfileLoadStateView(onRetryClicked: _loadProfile);
     }
 
     final TextTheme textTheme = Theme.of(context).textTheme;
@@ -211,19 +191,12 @@ class _CamerasScreenState extends State<CamerasScreen> {
       final CameraSection? shownCameraSection = _shownCameraSection;
       if (shownCameraSection != null) {
         cameraRows.add(const SizedBox(height: 16));
-        if (shownCameraSection == CameraSection.lensCalibration || shownCameraSection == CameraSection.cameraPose) {
-          // The lens calibration and the pose need no projector light; the projector calibration needs it, the
-          // camera image may be tuned under it
-          cameraRows.add(ProjectorBlackoutHolder(
-            backendClient: widget.backendClient,
-            projectorDisplayId: profileSummary.projectorDisplayId,
-          ));
-        }
-        cameraRows.add(_buildCameraSection(shownCameraSection, selectedCamera));
+        cameraRows.add(_buildCameraSection(shownCameraSection, selectedCamera, profileSummary));
       }
     }
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(24),
+      // Room below the content, so the hub's Run button does not cover its end
+      padding: const EdgeInsets.fromLTRB(24, 24, 24, runButtonClearanceLogicalPx),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: cameraRows),
     );
   }
@@ -263,42 +236,19 @@ class _CamerasScreenState extends State<CamerasScreen> {
   }
 
   /// The section of the selected camera; the key makes a newly selected camera start afresh.
-  Widget _buildCameraSection(CameraSection cameraSection, CameraCalibrationSummary selectedCamera) {
-    final Key sectionKey = ValueKey<String>('${selectedCamera.cameraType}-${selectedCamera.serial}-$cameraSection');
-    final String cameraName = selectedCamera.cameraType;
-    switch (cameraSection) {
-      case CameraSection.imageAndSettings:
-        return CameraPreviewWithSettingsView(
-          key: sectionKey,
-          backendClient: widget.backendClient,
-          cameraName: cameraName,
-          profileName: widget.profileName,
-          isSettingsListShown: true,
-        );
-      case CameraSection.lensCalibration:
-        return IntrinsicsCalibrationView(
-          key: sectionKey,
-          backendClient: widget.backendClient,
-          cameraName: cameraName,
-          profileName: widget.profileName,
-        );
-      case CameraSection.cameraPose:
-        return ExtrinsicsCalibrationView(
-          key: sectionKey,
-          backendClient: widget.backendClient,
-          profileName: widget.profileName,
-          cameraName: cameraName,
-          calibrationTopic: ExtrinsicsCalibrationTopic.cameraPose,
-        );
-      case CameraSection.projectorCalibration:
-        return ExtrinsicsCalibrationView(
-          key: sectionKey,
-          backendClient: widget.backendClient,
-          profileName: widget.profileName,
-          cameraName: cameraName,
-          calibrationTopic: ExtrinsicsCalibrationTopic.projectorMapping,
-        );
-    }
+  Widget _buildCameraSection(
+    CameraSection cameraSection,
+    CameraCalibrationSummary selectedCamera,
+    ProfileSummary profileSummary,
+  ) {
+    return CameraSectionView(
+      key: ValueKey<String>('${selectedCamera.cameraType}-${selectedCamera.serial}'),
+      backendClient: widget.backendClient,
+      profileName: widget.profileName,
+      cameraName: selectedCamera.cameraType,
+      cameraSection: cameraSection,
+      projectorDisplayId: profileSummary.projectorDisplayId,
+    );
   }
 
   Widget _buildCameraChoice(List<CameraCalibrationSummary> cameras) {

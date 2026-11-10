@@ -15,6 +15,12 @@ extension DisplaysApi on SetupWizardBackendClient {
     }
     return connectedDisplays;
   }
+
+  /// Stores displayId as the profile's projector; the backend also stores the display's identity (EDID make, model,
+  /// serial, connector), by which launches find the projector when its id changes.
+  Future<void> setProfileProjectorDisplay({required String profileName, required int displayId}) async {
+    await sendJson('PUT', '/api/profiles/${Uri.encodeComponent(profileName)}/projector-display', {'display_id': displayId});
+  }
 }
 
 /// One connected display (projector or monitor) as SDL and its EDID describe it.

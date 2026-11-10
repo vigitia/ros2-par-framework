@@ -20,7 +20,6 @@ app quit or crashed).
 from contextlib import asynccontextmanager
 import os
 import shutil
-import signal
 import subprocess
 import tempfile
 import threading
@@ -31,6 +30,7 @@ import cv2
 from fastapi import APIRouter, HTTPException, Response
 import numpy as np
 from par_framework_core.launch_helpers import DEFAULT_TOPIC_NAME_CAMERA_IMAGE
+from process_groups import LAUNCH_STOP_SIGNALS, stop_process_group
 import profiles_api
 from pydantic import BaseModel
 from rcl_interfaces.msg import ParameterType
@@ -266,6 +266,10 @@ class CameraSetting(BaseModel):
     # fixed format, so it is shown as a hint, empty without one.
     additional_constraints: str = ''
     is_read_only: bool
+    # What "Reset to default" sets: par_setup.yaml's value for a camera driver, the node's own value
+    # without a profile for a sensor node or app; has_default_value is False when it is not known
+    has_default_value: bool = False
+    default_value: bool | int | float | str | list | None = None
 
 
 class CameraSettingsResponse(BaseModel):
@@ -442,6 +446,14 @@ def get_camera_preview_settings() -> CameraSettingsResponse:
     session = get_camera_preview_session()
     driver_node_name, parameter_client = get_driver_parameter_client(session)
     settings = read_node_settings(parameter_client)
+    # Simplification: a driver setting par_setup.yaml does not list gets no default, since the
+    # driver's own value is not known while it runs with the profile. Upgrade: read the driver once
+    # without a profile, as node_settings_api.py does for sensor nodes.
+    par_setup_value_by_name = profiles_api.read_par_setup_node_settings(driver_node_name)
+    for camera_setting in settings:
+        if camera_setting.setting_name in par_setup_value_by_name:
+            camera_setting.has_default_value = True
+            camera_setting.default_value = par_setup_value_by_name[camera_setting.setting_name]
     with session.session_lock:
         profile_name = session.profile_name
         unsaved_setting_names = sorted(session.unsaved_setting_value_by_name)
@@ -768,18 +780,9 @@ def _stop_camera_process(session: CameraPreviewSession) -> None:
     session.unsaved_settings_node_name = None
     session.running_preview_id = None
     session.frame_receiver.stop_receiving()
-    if camera_process is None or camera_process.poll() is not None:
+    if camera_process is None:
         return
-    for stop_signal in (signal.SIGINT, signal.SIGTERM, signal.SIGKILL):
-        try:
-            os.killpg(camera_process.pid, stop_signal)
-        except ProcessLookupError:
-            return
-        try:
-            camera_process.wait(timeout=CAMERA_PROCESS_STOP_TIMEOUT_S)
-            return
-        except subprocess.TimeoutExpired:
-            continue
+    stop_process_group(camera_process, LAUNCH_STOP_SIGNALS, CAMERA_PROCESS_STOP_TIMEOUT_S)
 
 
 def _read_camera_process_log_tail() -> str:

@@ -1,16 +1,13 @@
 // Written by Claude Code
 //
-// New-profile step "Intrinsics": the cameras' lens calibration, one camera after the other. Each shows where its
-// intrinsics come from now and, where the driver can store one, a calibration with a checkerboard (see
-// IntrinsicsCalibrationView). The chosen projector shows black meanwhile, so its light does not disturb the board.
-// Runs on the saved profile, whose intrinsics folder the calibration is stored in. Optional: the framework also runs
-// uncalibrated, so Next stays allowed.
+// New-profile page "Intrinsics" of one camera, its lens calibration: where its intrinsics come from now and, where
+// the driver can store one, a calibration with a checkerboard (see IntrinsicsCalibrationView). The chosen projector
+// shows black meanwhile, so its light does not disturb the board. Runs on the saved profile, whose intrinsics folder
+// the calibration is stored in. Optional: the framework also runs uncalibrated, so Next stays allowed.
 
 import 'package:flutter/material.dart';
 
-import '../camera_instance_preview_panel.dart';
-import '../intrinsics_calibration_view.dart';
-import '../projector_blackout_holder.dart';
+import '../camera_section_view.dart';
 import '../setup_wizard_backend_client.dart';
 import 'new_profile_wizard_screen.dart';
 
@@ -19,41 +16,35 @@ class IntrinsicsCalibrationStep extends StatelessWidget {
     super.key,
     required this.backendClient,
     required this.newProfileDraft,
-    required this.onCanContinueChanged,
+    required this.cameraInstance,
   });
 
   final SetupWizardBackendClient backendClient;
 
-  /// What earlier steps decided; this step reads the chosen cameras.
+  /// What earlier steps decided; this page reads the saved profile's name and the projector.
   final NewProfileDraft newProfileDraft;
 
-  /// Tells the wizard whether Next is allowed (see NewProfileWizardScreen for when to call it). Not called: the
-  /// calibration is optional, so Next stays allowed.
-  final ValueChanged<bool> onCanContinueChanged;
+  /// The camera this page calibrates.
+  final CameraInstanceDraft cameraInstance;
 
   @override
   Widget build(BuildContext context) {
-    if (newProfileDraft.cameraInstances.isEmpty) {
-      return const Text('No camera was chosen in the hardware step, so there is nothing to calibrate.');
+    // The wizard saved the profile when leaving the Projector page
+    final String? profileName = newProfileDraft.profileName;
+    if (profileName == null) {
+      return const Text('The profile has no name yet: go back to the Hardware step.');
     }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text('Calibrate the lens of each camera that needs it, one after the other.'),
+        const Text('Calibrate the lens of this camera, if it needs it.'),
         const SizedBox(height: 12),
-        ProjectorBlackoutHolder(
+        CameraSectionView(
           backendClient: backendClient,
+          profileName: profileName,
+          cameraName: cameraInstance.cameraType,
+          cameraSection: CameraSection.lensCalibration,
           projectorDisplayId: newProfileDraft.projectorDisplayIds.firstOrNull,
-        ),
-        CameraInstancePreviewPanel(
-          backendClient: backendClient,
-          cameraInstances: newProfileDraft.cameraInstances,
-          buildSelectedCameraContent: (CameraInstanceDraft selectedInstance) => IntrinsicsCalibrationView(
-            backendClient: backendClient,
-            cameraName: selectedInstance.cameraType,
-            // The wizard saved the profile when leaving the Projector step
-            profileName: newProfileDraft.profileName,
-          ),
         ),
       ],
     );

@@ -12,13 +12,13 @@ import atexit
 import os
 import re
 import shutil
-import signal
 import subprocess
 import tempfile
 import threading
 
 import camera_preview_api
 from fastapi import APIRouter, HTTPException
+from process_groups import LAUNCH_STOP_SIGNALS, stop_process_group
 import profiles_api
 from pydantic import BaseModel
 
@@ -117,16 +117,7 @@ def _stop_run_process() -> None:
     if _run_process is None or _run_process.poll() is not None:
         return
     _was_run_stopped_by_user = True
-    for stop_signal in (signal.SIGINT, signal.SIGTERM, signal.SIGKILL):
-        try:
-            os.killpg(_run_process.pid, stop_signal)
-        except ProcessLookupError:
-            return
-        try:
-            _run_process.wait(timeout=RUN_PROCESS_STOP_TIMEOUT_S)
-            return
-        except subprocess.TimeoutExpired:
-            continue
+    stop_process_group(_run_process, LAUNCH_STOP_SIGNALS, RUN_PROCESS_STOP_TIMEOUT_S)
 
 
 def _read_run_log_tail() -> list[str]:

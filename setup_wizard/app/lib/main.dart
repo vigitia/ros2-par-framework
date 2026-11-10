@@ -4,8 +4,8 @@
 
 import 'package:flutter/material.dart';
 
+import 'screens/profile_hub_screen.dart';
 import 'setup_wizard_backend_client.dart';
-import 'screens/start_screen.dart';
 
 void main() {
   runApp(const SetupWizardApp());
@@ -18,13 +18,14 @@ class SetupWizardApp extends StatelessWidget {
   Widget build(BuildContext context) {
     // Dark always, not following the desktop: projection setups usually run in dimmed rooms.
     final ThemeData darkTheme = ThemeData(
-      colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo, brightness: Brightness.dark),
+      colorScheme: ColorScheme.fromSeed(seedColor: Colors.green, brightness: Brightness.dark),
     );
     return MaterialApp(
       title: 'ROS 2 PAR Framework',
+      debugShowCheckedModeBanner: false,
       darkTheme: darkTheme,
       themeMode: ThemeMode.dark,
-      home: SetupWizardStartScreen(backendClient: SetupWizardBackendClient()),
+      home: ProfileHubScreen(backendClient: SetupWizardBackendClient()),
     );
   }
 }

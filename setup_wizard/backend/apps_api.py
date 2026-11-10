@@ -1,10 +1,12 @@
 # Written by Claude Code
 """
-Apps API of the setup wizard backend: the apps a profile can put on the projector.
+Apps API of the setup wizard backend: the installed apps a profile can offer and put on the
+projector.
 
 Every installed PAR app registers in the ament index under par_framework_apps (blueprint:
 templates/par_app/), so a new app shows up here without a change to the wizard. Its entry is
-read and checked by the same launch_helpers function par.launch.py starts it with.
+read and checked by the same launch_helpers function par.launch.py starts it with. Their settings
+are read and saved by node_settings_api.py.
 """
 
 from ament_index_python.resources import has_resource
@@ -32,6 +34,8 @@ class ProjectorAppSummary(BaseModel):
     required_launch_switch_names: list[str]
     # launch_helpers.PAR_APP_CALIBRATION_NAMES the app uses; it also starts without them
     used_calibration_names: list[str]
+    # The app's nodes whose settings the wizard edits (full node names); empty without any
+    settings_node_names: list[str] = []
     # Set when the app's entry is malformed: par.launch.py would refuse to start it
     entry_error_text: str | None = None
 
@@ -72,4 +76,5 @@ def _read_projector_app_summary(app_package_name: str) -> ProjectorAppSummary:
         display_name=par_app_entry['display_name'],
         description=par_app_entry['description'],
         required_launch_switch_names=par_app_entry['required_launch_switches'],
-        used_calibration_names=par_app_entry['used_calibrations'])
+        used_calibration_names=par_app_entry['used_calibrations'],
+        settings_node_names=par_app_entry['settings_node_names'])

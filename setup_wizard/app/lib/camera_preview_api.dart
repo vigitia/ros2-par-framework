@@ -176,6 +176,8 @@ class CameraSetting {
     required this.stepValue,
     required this.additionalConstraints,
     required this.isReadOnly,
+    this.hasDefaultValue = false,
+    this.defaultValue,
   });
 
   factory CameraSetting.fromJson(Map<String, dynamic> settingJson) {
@@ -189,6 +191,8 @@ class CameraSetting {
       stepValue: (settingJson['step_value'] as num?)?.toDouble(),
       additionalConstraints: settingJson['additional_constraints'] as String,
       isReadOnly: settingJson['is_read_only'] as bool,
+      hasDefaultValue: settingJson['has_default_value'] as bool? ?? false,
+      defaultValue: settingJson['default_value'],
     );
   }
 
@@ -210,4 +214,9 @@ class CameraSetting {
   /// it no fixed format, so it is only shown. Empty without one.
   final String additionalConstraints;
   final bool isReadOnly;
+
+  /// Whether "Reset to default" knows a value: par_setup.yaml's for a camera driver, the node's own value without a
+  /// profile for a sensor node or app.
+  final bool hasDefaultValue;
+  final Object? defaultValue;
 }

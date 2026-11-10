@@ -1,19 +1,25 @@
 // Written by Claude Code
 //
-// Hub area "Sensor nodes" of a profile: which sensor processing nodes the profile starts, and their settings.
-// The nodes are the ones installed (registered in the ament index); a node's required nodes are selected along
-// with it. "Start" runs the profile's camera with the selected nodes and shows the camera image, each node's image
-// outputs as frames and its other outputs as their latest message. A node applies no setting while it runs, so
-// "Apply" saves the changed settings into the profile and starts the run again.
+// Hub area "Sensor nodes" of a profile: one tab per sensor processing node the profile starts (par_launch.<package>:
+// true), "Add sensor node" for the installed ones it does not start yet. A node's tab shows what it is, Disable (not
+// for a node another enabled one needs, which comes along with it) and its settings. The settings are read once from
+// the node and saved into the profile without a run (NodeSettingsEditorView). The floating "Debug node" button
+// starts the profile's camera with the enabled nodes, without the projector app; the tab in front then shows the
+// camera image and its node's outputs (image outputs as frames, the others as their latest message), and saving
+// settings meanwhile starts the run again with them.
 
 import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../addable_tabs_view.dart';
 import '../camera_preview_api.dart';
 import '../camera_preview_view.dart';
+import '../node_settings_api.dart';
+import '../node_settings_editor_view.dart';
+import '../profile_run_view.dart';
 import '../sensor_nodes_api.dart';
-import '../setting_row_view.dart';
+import '../top_aligned_page_content.dart';
 import '../setup_wizard_backend_client.dart';
 
 /// Pause between two run state requests while a run goes.
@@ -22,12 +28,12 @@ const Duration sensorNodesRunStatePollInterval = Duration(seconds: 1);
 /// Pause between two requests for a node's latest output message.
 const Duration sensorNodeOutputPollInterval = Duration(milliseconds: 500);
 
-/// Pause before asking a starting node for its settings again.
-const Duration sensorNodeSettingsRetryInterval = Duration(seconds: 2);
-
 /// Height of the camera image and of a node's image output.
 const double sensorNodesCameraImageHeightLogicalPx = 360;
 const double sensorNodeImageOutputHeightLogicalPx = 240;
+
+/// par.launch.py names each sensor node `<package>_node`, without a namespace.
+const String sensorNodeNameSuffix = '_node';
 
 class SensorNodesScreen extends StatefulWidget {
   const SensorNodesScreen({super.key, required this.backendClient, required this.profileName});
@@ -48,10 +54,13 @@ class _SensorNodesScreenState extends State<SensorNodesScreen> {
   bool _isSavingSelection = false;
   String? _selectionErrorText;
 
-  /// The running run's preview id; null while none runs.
+  /// The node whose tab comes to the front when the tabs change, e.g. one just added.
+  String? _shownTabPackageName;
+
+  /// The running try's preview id; null while none runs.
   int? _runPreviewId;
 
-  /// Increased with every start, so the image and settings views of an earlier run are built anew.
+  /// Increased with every start, so the image views of an earlier run are built anew.
   int _runStartCount = 0;
   SensorNodesRunState? _runState;
   String? _runErrorText;
@@ -97,25 +106,10 @@ class _SensorNodesScreenState extends State<SensorNodesScreen> {
     }
   }
 
-  /// The selected nodes that need packageName, e.g. page_locator for fiducials_detector.
-  List<String> _getSelectedNodesNeeding(String packageName) {
-    final List<String> needingNodeNames = [];
-    final SensorNodeList? sensorNodeList = _sensorNodeList;
-    if (sensorNodeList == null) {
-      return needingNodeNames;
-    }
-    for (final SensorNodeSummary sensorNode in sensorNodeList.sensorNodes) {
-      final bool isSelected = _selectedPackageNames.contains(sensorNode.packageName);
-      if (isSelected && sensorNode.requiredSensorNodes.contains(packageName)) {
-        needingNodeNames.add(sensorNode.displayName);
-      }
-    }
-    return needingNodeNames;
-  }
-
-  Future<void> _toggleSensorNode(String packageName, bool isSelected) async {
+  /// Enables or disables the node; an enabled one comes to the front as its tab.
+  Future<void> _setSensorNodeEnabled(String packageName, bool isEnabled) async {
     final Set<String> requestedPackageNames = Set<String>.of(_selectedPackageNames);
-    if (isSelected) {
+    if (isEnabled) {
       requestedPackageNames.add(packageName);
     } else {
       requestedPackageNames.remove(packageName);
@@ -123,6 +117,9 @@ class _SensorNodesScreenState extends State<SensorNodesScreen> {
     setState(() {
       _isSavingSelection = true;
       _selectionErrorText = null;
+      if (isEnabled) {
+        _shownTabPackageName = packageName;
+      }
     });
     try {
       final List<String> storedPackageNames = await widget.backendClient.saveSensorNodeSelection(
@@ -224,114 +221,202 @@ class _SensorNodesScreenState extends State<SensorNodesScreen> {
     });
   }
 
+  /// The enabled nodes in the order the backend lists them.
+  List<SensorNodeSummary> _getEnabledSensorNodes(SensorNodeList sensorNodeList) {
+    final List<SensorNodeSummary> enabledSensorNodes = [];
+    for (final SensorNodeSummary sensorNode in sensorNodeList.sensorNodes) {
+      if (_selectedPackageNames.contains(sensorNode.packageName)) {
+        enabledSensorNodes.add(sensorNode);
+      }
+    }
+    return enabledSensorNodes;
+  }
+
   @override
   Widget build(BuildContext context) {
     final SensorNodeList? sensorNodeList = _sensorNodeList;
     if (sensorNodeList == null) {
       final String? listErrorText = _listErrorText;
       if (listErrorText != null) {
-        return Center(
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
+        return TopAlignedPageContent(
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text('Cannot list the sensor nodes: $listErrorText',
                 style: TextStyle(color: Theme.of(context).colorScheme.error)),
-            TextButton(onPressed: _loadSensorNodeList, child: const Text('Retry')),
+            TextButton(onPressed: _loadSensorNodeList, child: const Text('Try again')),
           ]),
         );
       }
-      return const Center(child: CircularProgressIndicator());
+      return const TopAlignedPageContent(child: CircularProgressIndicator());
     }
-    final List<Widget> screenRows = [
-      Text('Sensor processing nodes', style: Theme.of(context).textTheme.titleMedium),
-      const SizedBox(height: 4),
-      Text(
-        'Choose what the profile starts on its camera (${sensorNodeList.cameraName}). A node that reads another '
-        'one\'s output brings that one along.',
-        style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
+
+    final List<SensorNodeSummary> enabledSensorNodes = _getEnabledSensorNodes(sensorNodeList);
+    final List<String> tabTitles = [];
+    String? shownTabTitle;
+    for (final SensorNodeSummary enabledSensorNode in enabledSensorNodes) {
+      tabTitles.add(enabledSensorNode.displayName);
+      if (enabledSensorNode.packageName == _shownTabPackageName) {
+        shownTabTitle = enabledSensorNode.displayName;
+      }
+    }
+    String noTabsText = 'The profile starts no sensor node. Add one with "Add sensor node".';
+    if (sensorNodeList.sensorNodes.isEmpty) {
+      noTabsText = 'No sensor processing node is installed. Add their repos to config/nodes.list and run '
+          './scripts/local_build.sh.';
+    }
+    Widget? debugButton;
+    if (enabledSensorNodes.isNotEmpty) {
+      debugButton = _buildDebugButton(sensorNodeList.cameraName);
+    }
+    // A Scaffold of its own, so the button floats in this area's bottom right corner
+    return Scaffold(
+      floatingActionButton: debugButton,
+      body: AddableTabsView(
+        tabTitles: tabTitles,
+        shownTabTitle: shownTabTitle,
+        addButtonText: 'Add sensor node',
+        addMenuEntries: _buildAddMenuEntries(sensorNodeList),
+        noTabsText: noTabsText,
+        buildTabContent: (int tabIndex, bool isShownTab) =>
+            _buildSensorNodeTab(enabledSensorNodes[tabIndex], isShownTab),
       ),
-      const SizedBox(height: 8),
-      ..._buildSelectionRows(sensorNodeList),
-      const SizedBox(height: 24),
-      ..._buildRunRows(),
-    ];
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(24),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: screenRows),
     );
   }
 
-  List<Widget> _buildSelectionRows(SensorNodeList sensorNodeList) {
+  /// Starts the camera with the enabled nodes, or stops that run.
+  Widget _buildDebugButton(String cameraName) {
     final ColorScheme colorScheme = Theme.of(context).colorScheme;
-    if (sensorNodeList.sensorNodes.isEmpty) {
-      return [
-        const Text('No sensor processing node is installed. Add their repos to config/nodes.list and run '
-            './scripts/local_build.sh.'),
-      ];
+    if (_runPreviewId != null) {
+      return FloatingActionButton.extended(
+        onPressed: _stopRun,
+        tooltip: 'Stop the camera and the sensor nodes.',
+        backgroundColor: colorScheme.error,
+        foregroundColor: colorScheme.onError,
+        icon: const Icon(Icons.stop),
+        label: const Text('Stop debugging'),
+      );
     }
-    final List<Widget> selectionRows = [];
-    for (final SensorNodeSummary sensorNode in sensorNodeList.sensorNodes) {
-      final List<String> needingNodeNames = _getSelectedNodesNeeding(sensorNode.packageName);
-      final bool isNeeded = needingNodeNames.isNotEmpty;
-      final List<String> subtitleParts = [sensorNode.description];
-      if (sensorNode.requiredSensorNodes.isNotEmpty) {
-        subtitleParts.add('Needs ${sensorNode.requiredSensorNodes.join(', ')}.');
-      }
-      if (isNeeded) {
-        subtitleParts.add('Needed by ${needingNodeNames.join(', ')}.');
-      }
-      final bool hasEntryError = sensorNode.entryErrorText.isNotEmpty;
-      if (hasEntryError) {
-        subtitleParts.add(sensorNode.entryErrorText);
-      }
-      // A node another selected one needs stays on; a broken entry cannot be started
-      final bool canToggle = !_isSavingSelection && !isNeeded && !hasEntryError;
-      selectionRows.add(CheckboxListTile(
-        value: _selectedPackageNames.contains(sensorNode.packageName),
-        onChanged: canToggle ? (bool? isChecked) => _toggleSensorNode(sensorNode.packageName, isChecked ?? false) : null,
-        title: Text(sensorNode.displayName),
-        subtitle: Text(subtitleParts.join(' '), style: TextStyle(color: hasEntryError ? colorScheme.error : null)),
-        controlAffinity: ListTileControlAffinity.leading,
-        contentPadding: EdgeInsets.zero,
-      ));
+    Widget icon = const Icon(Icons.bug_report_outlined);
+    VoidCallback? onPressed = _startRun;
+    if (_isStartingRun) {
+      onPressed = null;
+      icon = const SizedBox.square(dimension: 20, child: CircularProgressIndicator(strokeWidth: 2));
     }
-    final String? selectionErrorText = _selectionErrorText;
-    if (selectionErrorText != null) {
-      selectionRows.add(Text(selectionErrorText, style: TextStyle(color: colorScheme.error)));
-    }
-    return selectionRows;
+    return FloatingActionButton.extended(
+      onPressed: onPressed,
+      tooltip: 'Start the camera ($cameraName) with the enabled nodes, as the profile does but without the projector '
+          'app, and show what the node in front publishes.',
+      icon: icon,
+      label: const Text('Debug node'),
+    );
   }
 
-  List<Widget> _buildRunRows() {
+  List<Widget> _buildAddMenuEntries(SensorNodeList sensorNodeList) {
+    final List<Widget> addMenuEntries = [];
+    for (final SensorNodeSummary sensorNode in sensorNodeList.sensorNodes) {
+      if (_selectedPackageNames.contains(sensorNode.packageName)) {
+        continue;
+      }
+      // A broken entry cannot be started
+      VoidCallback? onPressed;
+      if (sensorNode.entryErrorText.isEmpty && !_isSavingSelection) {
+        onPressed = () => _setSensorNodeEnabled(sensorNode.packageName, true);
+      }
+      addMenuEntries.add(MenuItemButton(onPressed: onPressed, child: Text(sensorNode.displayName)));
+    }
+    return addMenuEntries;
+  }
+
+  /// The selected nodes that need packageName, e.g. page_locator for fiducials_detector.
+  List<String> _getSelectedNodesNeeding(String packageName) {
+    final List<String> needingNodeNames = [];
+    for (final SensorNodeSummary sensorNode in _sensorNodeList?.sensorNodes ?? <SensorNodeSummary>[]) {
+      final bool isSelected = _selectedPackageNames.contains(sensorNode.packageName);
+      if (isSelected && sensorNode.requiredSensorNodes.contains(packageName)) {
+        needingNodeNames.add(sensorNode.displayName);
+      }
+    }
+    return needingNodeNames;
+  }
+
+  Widget _buildSensorNodeTab(SensorNodeSummary sensorNode, bool isShownTab) {
     final ColorScheme colorScheme = Theme.of(context).colorScheme;
-    final int? runPreviewId = _runPreviewId;
-    final List<Widget> runRows = [Text('Try and adjust', style: Theme.of(context).textTheme.titleMedium)];
-    if (runPreviewId == null) {
-      runRows.addAll([
-        const SizedBox(height: 4),
-        const Text('Starts the camera with the selected nodes, as the profile does, without the projector app.'),
-        const SizedBox(height: 8),
-        FilledButton(
-          onPressed: _selectedPackageNames.isEmpty || _isStartingRun ? null : _startRun,
-          child: Text(_isStartingRun ? 'Starting …' : 'Start'),
+    final TextStyle mutedTextStyle = TextStyle(color: colorScheme.onSurfaceVariant);
+    final List<String> needingNodeNames = _getSelectedNodesNeeding(sensorNode.packageName);
+    final List<String> descriptionParts = [sensorNode.description];
+    if (sensorNode.requiredSensorNodes.isNotEmpty) {
+      descriptionParts.add('Needs ${sensorNode.requiredSensorNodes.join(', ')}, which starts along with it.');
+    }
+    VoidCallback? onDisableClicked;
+    String disableTooltipText = 'The profile no longer starts this node.';
+    if (needingNodeNames.isNotEmpty) {
+      disableTooltipText = 'Needed by ${needingNodeNames.join(', ')}: disable that first.';
+    } else if (!_isSavingSelection) {
+      onDisableClicked = () => _setSensorNodeEnabled(sensorNode.packageName, false);
+    }
+    final List<Widget> tabRows = [
+      Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Expanded(child: Text(descriptionParts.join(' '), style: mutedTextStyle)),
+        const SizedBox(width: 12),
+        Tooltip(
+          message: disableTooltipText,
+          child: OutlinedButton.icon(
+            onPressed: onDisableClicked,
+            icon: const Icon(Icons.remove_circle_outline),
+            label: const Text('Disable'),
+          ),
         ),
-      ]);
+      ]),
+    ];
+    final String? selectionErrorText = _selectionErrorText;
+    if (selectionErrorText != null) {
+      tabRows.add(Text(selectionErrorText, style: TextStyle(color: colorScheme.error)));
+    }
+    tabRows.add(const SizedBox(height: 16));
+    // Only the tab in front shows the live image, so hidden tabs do not ask for frames
+    if (isShownTab) {
+      final List<Widget> debugRows = _buildDebugRows(sensorNode);
+      if (debugRows.isNotEmpty) {
+        tabRows.addAll(debugRows);
+        tabRows.add(const SizedBox(height: 24));
+      }
+    }
+    tabRows.add(NodeSettingsEditorView(
+      backendClient: widget.backendClient,
+      profileName: widget.profileName,
+      nodeKind: SettingsNodeKind.sensorNode,
+      packageName: sensorNode.packageName,
+      fullNodeName: '/${sensorNode.packageName}$sensorNodeNameSuffix',
+      onSettingsSaved: _restartRunningDebugRun,
+    ));
+    return SingleChildScrollView(
+      // Room below the content, so the floating button does not cover its end
+      padding: const EdgeInsets.fromLTRB(24, 16, 24, runButtonClearanceLogicalPx),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: tabRows),
+    );
+  }
+
+  /// A running debug run starts again, so the nodes read the saved settings.
+  void _restartRunningDebugRun() {
+    if (_runPreviewId != null) {
+      _startRun();
+    }
+  }
+
+  /// The live view while debugging: the camera image and this node's outputs; nothing while no run goes.
+  List<Widget> _buildDebugRows(SensorNodeSummary sensorNode) {
+    final ColorScheme colorScheme = Theme.of(context).colorScheme;
+    final List<Widget> debugRows = [];
+    if (_runPreviewId == null) {
       final String? runErrorText = _runErrorText;
       if (runErrorText != null) {
-        runRows.add(Padding(
-          padding: const EdgeInsets.only(top: 8),
-          child: Text(runErrorText, style: TextStyle(color: colorScheme.error)),
-        ));
+        debugRows.add(Text('Could not start debugging: $runErrorText', style: TextStyle(color: colorScheme.error)));
       }
-      return runRows;
+      return debugRows;
     }
-
-    runRows.addAll([
+    debugRows.add(Text('Debugging', style: Theme.of(context).textTheme.titleMedium));
+    debugRows.addAll([
+      if (_isStartingRun) const Text('Starting again …'),
       const SizedBox(height: 8),
-      Row(children: [
-        OutlinedButton(onPressed: _stopRun, child: const Text('Stop')),
-        const SizedBox(width: 12),
-        if (_isStartingRun) const Text('Starting again …'),
-      ]),
-      const SizedBox(height: 12),
       SizedBox(
         height: sensorNodesCameraImageHeightLogicalPx,
         child: Align(
@@ -346,245 +431,74 @@ class _SensorNodesScreenState extends State<SensorNodesScreen> {
     ]);
     final SensorNodesRunState? runState = _runState;
     if (runState == null) {
-      runRows.add(const Text('Starting the nodes …'));
-      return runRows;
+      debugRows.add(const Text('Starting the nodes …'));
+      return debugRows;
     }
     if (!runState.isLaunchRunning) {
-      runRows.add(Text('The run ended. Its last output:', style: TextStyle(color: colorScheme.error)));
-      runRows.add(SelectableText(
+      debugRows.add(Text('The run ended. Its last output:', style: TextStyle(color: colorScheme.error)));
+      debugRows.add(SelectableText(
         runState.launchLogLines.join('\n'),
         style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
       ));
-      runRows.add(const SizedBox(height: 8));
-      runRows.add(FilledButton(onPressed: _isStartingRun ? null : _startRun, child: const Text('Start again')));
-      return runRows;
+      debugRows.add(const SizedBox(height: 8));
+      debugRows.add(FilledButton(onPressed: _isStartingRun ? null : _startRun, child: const Text('Start again')));
+      return debugRows;
     }
     for (final RunningSensorNode runningSensorNode in runState.runningSensorNodes) {
-      runRows.add(const SizedBox(height: 16));
-      runRows.add(_SensorNodeRunCard(
+      if (runningSensorNode.packageName != sensorNode.packageName) {
+        continue;
+      }
+      debugRows.add(const SizedBox(height: 16));
+      debugRows.add(_SensorNodeOutputsView(
         key: ValueKey<String>('${runningSensorNode.packageName}_$_runStartCount'),
         backendClient: widget.backendClient,
-        profileName: widget.profileName,
         runningSensorNode: runningSensorNode,
-        displayName: _getDisplayName(runningSensorNode.packageName),
-        onRunRestarted: _setRunningPreviewId,
       ));
     }
-    return runRows;
-  }
-
-  String _getDisplayName(String packageName) {
-    for (final SensorNodeSummary sensorNode in _sensorNodeList?.sensorNodes ?? <SensorNodeSummary>[]) {
-      if (sensorNode.packageName == packageName) {
-        return sensorNode.displayName;
-      }
-    }
-    return packageName;
+    return debugRows;
   }
 }
 
-/// One running node: its outputs and its settings with Apply.
-class _SensorNodeRunCard extends StatefulWidget {
-  const _SensorNodeRunCard({
-    super.key,
-    required this.backendClient,
-    required this.profileName,
-    required this.runningSensorNode,
-    required this.displayName,
-    required this.onRunRestarted,
-  });
+/// What a running node publishes: its image outputs as frames, the others as their latest message.
+class _SensorNodeOutputsView extends StatelessWidget {
+  const _SensorNodeOutputsView({super.key, required this.backendClient, required this.runningSensorNode});
 
   final SetupWizardBackendClient backendClient;
-  final String profileName;
   final RunningSensorNode runningSensorNode;
-  final String displayName;
-
-  /// Called with the new run's preview id after Apply started the run again.
-  final ValueChanged<int> onRunRestarted;
-
-  @override
-  State<_SensorNodeRunCard> createState() => _SensorNodeRunCardState();
-}
-
-class _SensorNodeRunCardState extends State<_SensorNodeRunCard> {
-  List<CameraSetting>? _nodeSettings;
-  String? _settingsErrorText;
-  Timer? _settingsRetryTimer;
-
-  /// Changes not applied yet, by setting name.
-  final Map<String, Object> _pendingValueByName = {};
-  bool _isApplying = false;
-  String? _applyErrorText;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadNodeSettings();
-  }
-
-  @override
-  void dispose() {
-    _settingsRetryTimer?.cancel();
-    super.dispose();
-  }
-
-  /// Asks until the node answers; it may still be starting.
-  Future<void> _loadNodeSettings() async {
-    try {
-      final List<CameraSetting>? nodeSettings =
-          await widget.backendClient.fetchSensorNodeSettings(widget.runningSensorNode.packageName);
-      if (!mounted) {
-        return;
-      }
-      if (nodeSettings == null) {
-        _settingsRetryTimer = Timer(sensorNodeSettingsRetryInterval, _loadNodeSettings);
-        return;
-      }
-      setState(() {
-        _nodeSettings = nodeSettings;
-        _settingsErrorText = null;
-      });
-    } catch (error) {
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _settingsErrorText = describeBackendErrorForUser(error);
-      });
-      _settingsRetryTimer = Timer(sensorNodeSettingsRetryInterval, _loadNodeSettings);
-    }
-  }
-
-  void _keepPendingChange(String settingName, Object settingValue) {
-    setState(() {
-      _pendingValueByName[settingName] = settingValue;
-      _applyErrorText = null;
-    });
-  }
-
-  Future<void> _applySettings() async {
-    setState(() {
-      _isApplying = true;
-      _applyErrorText = null;
-    });
-    try {
-      final SensorNodeSettingsApplyResult applyResult = await widget.backendClient.applySensorNodeSettings(
-        profileName: widget.profileName,
-        packageName: widget.runningSensorNode.packageName,
-        settingValueByName: Map<String, Object>.of(_pendingValueByName),
-      );
-      // The run starts anew, which rebuilds this card with the node's new values
-      widget.onRunRestarted(applyResult.previewId);
-    } catch (error) {
-      if (mounted) {
-        setState(() {
-          _applyErrorText = describeBackendErrorForUser(error);
-          _isApplying = false;
-        });
-      }
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
     final ColorScheme colorScheme = Theme.of(context).colorScheme;
     final TextTheme textTheme = Theme.of(context).textTheme;
-    final RunningSensorNode runningSensorNode = widget.runningSensorNode;
-    final List<Widget> cardRows = [
+    final List<Widget> outputRows = [
       Row(children: [
         Icon(
           runningSensorNode.isRunning ? Icons.play_circle : Icons.hourglass_empty,
           color: runningSensorNode.isRunning ? Colors.green.shade400 : colorScheme.onSurfaceVariant,
         ),
         const SizedBox(width: 8),
-        Expanded(child: Text(widget.displayName, style: textTheme.titleMedium)),
         Text(runningSensorNode.isRunning ? 'running' : 'starting …', style: TextStyle(color: colorScheme.onSurfaceVariant)),
       ]),
     ];
     if (runningSensorNode.isRunning && runningSensorNode.outputTopics.isEmpty) {
-      cardRows.add(Text('Publishes nothing yet.', style: TextStyle(color: colorScheme.onSurfaceVariant)));
+      outputRows.add(Text('Publishes nothing yet.', style: TextStyle(color: colorScheme.onSurfaceVariant)));
     }
     for (final SensorNodeOutputTopic outputTopic in runningSensorNode.outputTopics) {
-      cardRows.add(const SizedBox(height: 8));
-      cardRows.add(Text('${outputTopic.topicName} (${outputTopic.typeName})', style: textTheme.labelMedium));
+      outputRows.add(const SizedBox(height: 8));
+      outputRows.add(Text('${outputTopic.topicName} (${outputTopic.typeName})', style: textTheme.labelMedium));
       if (outputTopic.isImage) {
-        cardRows.add(SizedBox(
+        outputRows.add(SizedBox(
           height: sensorNodeImageOutputHeightLogicalPx,
           child: Align(
             alignment: Alignment.topLeft,
-            child: CameraFeedImage(backendClient: widget.backendClient, feedTopicName: outputTopic.topicName),
+            child: CameraFeedImage(backendClient: backendClient, feedTopicName: outputTopic.topicName),
           ),
         ));
       } else {
-        cardRows.add(_SensorNodeOutputText(backendClient: widget.backendClient, topicName: outputTopic.topicName));
+        outputRows.add(_SensorNodeOutputText(backendClient: backendClient, topicName: outputTopic.topicName));
       }
     }
-    cardRows.add(const SizedBox(height: 12));
-    cardRows.addAll(_buildSettingsRows());
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: cardRows),
-      ),
-    );
-  }
-
-  List<Widget> _buildSettingsRows() {
-    final ColorScheme colorScheme = Theme.of(context).colorScheme;
-    final List<CameraSetting>? nodeSettings = _nodeSettings;
-    final List<Widget> settingsRows = [Text('Settings', style: Theme.of(context).textTheme.titleSmall)];
-    if (nodeSettings == null) {
-      String waitingText = 'Waiting for the node to report its settings …';
-      final String? settingsErrorText = _settingsErrorText;
-      if (settingsErrorText != null) {
-        waitingText = '$waitingText ($settingsErrorText)';
-      }
-      settingsRows.add(Text(waitingText, style: TextStyle(color: colorScheme.onSurfaceVariant)));
-      return settingsRows;
-    }
-    if (nodeSettings.isEmpty) {
-      settingsRows.add(Text('The node reports no settings.', style: TextStyle(color: colorScheme.onSurfaceVariant)));
-      return settingsRows;
-    }
-    settingsRows.add(Text(
-      'The node reads its settings when it starts: Apply saves the changes into the profile and starts it again.',
-      style: TextStyle(color: colorScheme.onSurfaceVariant),
-    ));
-    final int pendingChangeCount = _pendingValueByName.length;
-    settingsRows.add(const SizedBox(height: 8));
-    settingsRows.add(Row(children: [
-      FilledButton(
-        onPressed: pendingChangeCount == 0 || _isApplying ? null : _applySettings,
-        child: Text(_isApplying ? 'Applying …' : 'Apply'),
-      ),
-      const SizedBox(width: 12),
-      TextButton(
-        onPressed: pendingChangeCount == 0 || _isApplying
-            ? null
-            : () => setState(() {
-                  _pendingValueByName.clear();
-                }),
-        child: const Text('Discard'),
-      ),
-      const SizedBox(width: 12),
-      Text('$pendingChangeCount not applied', style: TextStyle(color: colorScheme.onSurfaceVariant)),
-    ]));
-    final String? applyErrorText = _applyErrorText;
-    if (applyErrorText != null) {
-      settingsRows.add(Text(applyErrorText, style: TextStyle(color: colorScheme.error)));
-    }
-    for (final CameraSetting nodeSetting in nodeSettings) {
-      final String settingName = nodeSetting.settingName;
-      // read_only means "not changed while running"; the node reads a new value at its restart
-      settingsRows.add(SettingRowView(
-        key: ValueKey<String>(settingName),
-        cameraSetting: nodeSetting,
-        shownValue: _pendingValueByName[settingName] ?? nodeSetting.settingValue,
-        isEditable: !_isApplying,
-        onSettingChanged: _keepPendingChange,
-      ));
-    }
-    return settingsRows;
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: outputRows);
   }
 }
 
@@ -647,12 +561,8 @@ class _SensorNodeOutputTextState extends State<_SensorNodeOutputText> {
     }
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Text('${receivedAgeS.toStringAsFixed(1)} s ago', style: TextStyle(color: mutedColor, fontSize: 12)),
-      ConstrainedBox(
-        constraints: const BoxConstraints(maxHeight: 200),
-        child: SingleChildScrollView(
-          child: SelectableText(outputMessage.messageText, style: const TextStyle(fontFamily: 'monospace', fontSize: 12)),
-        ),
-      ),
+      // Its full height, scrolling with the page; the backend cuts long messages and arrays
+      SelectableText(outputMessage.messageText, style: const TextStyle(fontFamily: 'monospace', fontSize: 12)),
     ]);
   }
 }

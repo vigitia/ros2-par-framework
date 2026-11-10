@@ -43,11 +43,24 @@ class BackendRequestException implements Exception {
   String toString() => 'Backend answered $statusCode: $detailText';
 }
 
+/// A profile that cannot be shown: it no longer exists, or its files cannot be read. userText is written for the user.
+class ProfileUnavailableException implements Exception {
+  const ProfileUnavailableException(this.userText);
+
+  final String userText;
+
+  @override
+  String toString() => 'Profile unavailable: $userText';
+}
+
 /// A sentence for the user about a failed backend call, without technical words; the real error goes to the console.
 /// isBackendDetailShown: the backend's own sentence for answers that are the user's to fix (e.g. a camera that is in
 /// the profile already). Only for calls whose backend texts are written for users.
 String describeBackendErrorForUser(Object error, {bool isBackendDetailShown = false}) {
   debugPrint('[SetupWizardBackendClient]: $error');
+  if (error is ProfileUnavailableException) {
+    return error.userText;
+  }
   if (error is http.ClientException || error is TimeoutException) {
     return 'The PAR machine does not answer. Check that it is switched on and its setup service is running, then try '
         'again.';
@@ -72,14 +85,6 @@ String describeBackendErrorForUser(Object error, {bool isBackendDetailShown = fa
     }
   }
   return 'Something went wrong on the PAR machine. Please try again.';
-}
-
-/// What the backend reports about itself.
-class SetupWizardBackendStatus {
-  const SetupWizardBackendStatus({required this.machineName});
-
-  /// Host name of the machine the backend runs on, i.e. the machine this UI controls.
-  final String machineName;
 }
 
 /// Calls the backend's API. Each screen adds the calls it needs as an extension on this class in its own file
@@ -120,10 +125,26 @@ class SetupWizardBackendClient {
     return jsonDecode(response.body);
   }
 
-  /// Asks the backend whether it runs and on which machine. Throws when it is unreachable or answers with an error.
-  Future<SetupWizardBackendStatus> fetchBackendStatus() async {
-    final Map<String, dynamic> statusJson = await getJson('/api/status') as Map<String, dynamic>;
-    return SetupWizardBackendStatus(machineName: statusJson['machine_name'] as String);
+  /// Fetches what one profile runs. Throws ProfileUnavailableException when it no longer exists or its files cannot
+  /// be read, and the usual errors when the backend is unreachable.
+  Future<ProfileSummary> fetchProfileSummary(String profileName) async {
+    final ProfileList profileList = await fetchProfileList();
+    for (final ProfileSummary profileSummary in profileList.profileSummaries) {
+      if (profileSummary.profileName != profileName) {
+        continue;
+      }
+      final String? profileErrorText = profileSummary.profileErrorText;
+      if (profileErrorText != null) {
+        debugPrint('[SetupWizardBackendClient]: cannot read profile $profileName: $profileErrorText');
+        throw const ProfileUnavailableException(
+          'This profile\'s file cannot be read. It may contain a mistake from editing it by hand.',
+        );
+      }
+      return profileSummary;
+    }
+    throw const ProfileUnavailableException(
+      'This profile does not exist any more. Choose another one in the Overview.',
+    );
   }
 
   /// Fetches the hardware setups (profiles) with what each runs, and the one selected last time.
@@ -140,7 +161,7 @@ class SetupWizardBackendClient {
     );
   }
 
-  /// Tells the backend which profile was chosen, so the start screen preselects it next time.
+  /// Tells the backend which profile was chosen, so the wizard opens it next time.
   Future<void> setLastSelectedProfile(String profileName) async {
     await sendJson('PUT', '/api/profiles/last-selected', {'profile_name': profileName});
   }
@@ -188,7 +209,15 @@ class ProfileSummary {
     required this.cameras,
     required this.sensorNodeNames,
     required this.appNames,
+    required this.enabledAppNames,
     required this.projectorDisplayId,
+    required this.storedProjectorDisplayId,
+    required this.projectorDisplayState,
+    required this.projectorTitleText,
+    required this.storedDisplayTitleText,
+    required this.storedDisplayModeText,
+    required this.currentDisplayModeText,
+    required this.isDisplayModeChanged,
     required this.profileErrorText,
   });
 
@@ -198,7 +227,15 @@ class ProfileSummary {
       cameras: _readCameraCalibrationSummaries(profileSummaryJson['cameras'] as List<dynamic>),
       sensorNodeNames: (profileSummaryJson['sensor_node_names'] as List<dynamic>).cast<String>(),
       appNames: (profileSummaryJson['app_names'] as List<dynamic>).cast<String>(),
+      enabledAppNames: (profileSummaryJson['enabled_app_names'] as List<dynamic>).cast<String>(),
       projectorDisplayId: profileSummaryJson['projector_display_id'] as int?,
+      storedProjectorDisplayId: profileSummaryJson['stored_projector_display_id'] as int?,
+      projectorDisplayState: ProjectorDisplayState.fromBackendName(profileSummaryJson['projector_display_state'] as String),
+      projectorTitleText: profileSummaryJson['projector_title_text'] as String,
+      storedDisplayTitleText: profileSummaryJson['stored_display_title_text'] as String,
+      storedDisplayModeText: profileSummaryJson['stored_display_mode_text'] as String,
+      currentDisplayModeText: profileSummaryJson['current_display_mode_text'] as String,
+      isDisplayModeChanged: profileSummaryJson['is_display_mode_changed'] as bool,
       profileErrorText: profileSummaryJson['profile_error_text'] as String?,
     );
   }
@@ -208,8 +245,33 @@ class ProfileSummary {
   final List<String> sensorNodeNames;
   final List<String> appNames;
 
-  /// The projector's display (the framework's display_id); null when the profile sets none.
+  /// The apps the profile offers (par_launch.apps), in its order; the projector app is one of them.
+  final List<String> enabledAppNames;
+
+  /// The display to use for the projector now (the framework's display_id): found by the projector's stored
+  /// identity, else the stored id; null when the profile sets none or the projector is not found.
   final int? projectorDisplayId;
+
+  /// par_launch.projector_display_id as written in the profile.
+  final int? storedProjectorDisplayId;
+
+  /// Whether the projector is at the stored display id; launches find it by its identity either way.
+  final ProjectorDisplayState projectorDisplayState;
+
+  /// The stored projector's name, e.g. 'EPS EB-680'; empty without a stored identity.
+  final String projectorTitleText;
+
+  /// The display at the stored id now, e.g. 'eDP-1 15"'; empty when none is or the displays cannot be read.
+  final String storedDisplayTitleText;
+
+  /// The display mode the projector was chosen with, e.g. '3840 × 2160 at 60 Hz'; empty when none is stored.
+  final String storedDisplayModeText;
+
+  /// The projector's display mode now; empty while it is not found.
+  final String currentDisplayModeText;
+
+  /// True when both modes are known and differ: the projector calibration may no longer fit.
+  final bool isDisplayModeChanged;
 
   /// Set when the backend could not read the profile's files; the lists are empty then.
   final String? profileErrorText;
@@ -222,9 +284,6 @@ class ProfileSummary {
     return cameras;
   }
 }
-
-/// How far a camera is calibrated, combining its intrinsics and its pose.
-enum CameraCalibrationLevel { complete, partial, none }
 
 /// A camera of a profile with the state of its intrinsics and its pose, as the backend reports them.
 class CameraCalibrationSummary {
@@ -245,8 +304,8 @@ class CameraCalibrationSummary {
       serial: cameraJson['serial'] as String,
       isSelected: cameraJson['is_selected'] as bool,
       previewCameraName: cameraJson['preview_camera_name'] as String?,
-      intrinsicsState: cameraJson['intrinsics_state'] as String,
-      poseState: cameraJson['pose_state'] as String,
+      intrinsicsState: IntrinsicsCalibrationState.fromBackendName(cameraJson['intrinsics_state'] as String),
+      poseState: CameraPoseState.fromBackendName(cameraJson['pose_state'] as String),
     );
   }
 
@@ -265,35 +324,89 @@ class CameraCalibrationSummary {
   /// its own for a preview yet.
   final String? previewCameraName;
 
-  /// 'calibrated', 'factory', 'missing' or 'unsupported' (setup_wizard_backend.py, INTRINSICS_STATE_*).
-  final String intrinsicsState;
+  final IntrinsicsCalibrationState intrinsicsState;
+  final CameraPoseState poseState;
+}
 
-  /// 'measured', 'placeholder', 'invalid' or 'unsupported' (setup_wizard_backend.py, POSE_STATE_*).
-  final String poseState;
+/// Whether a camera unit has its lens calibration (backend profiles_api.INTRINSICS_STATE_*).
+enum IntrinsicsCalibrationState {
+  /// A calibration file in the profile's intrinsics folder.
+  calibrated('calibrated'),
 
-  /// Complete when every calibration the camera supports is done, none when none of them is.
-  CameraCalibrationLevel getCalibrationLevel() {
-    int supportedCalibrationCount = 0;
-    int doneCalibrationCount = 0;
-    if (intrinsicsState != 'unsupported') {
-      supportedCalibrationCount += 1;
-      if (intrinsicsState == 'calibrated' || intrinsicsState == 'factory') {
-        doneCalibrationCount += 1;
+  /// The camera publishes its own factory calibration.
+  factory('factory'),
+  missing('missing'),
+
+  /// The wizard cannot calibrate this camera (yet).
+  unsupported('unsupported');
+
+  const IntrinsicsCalibrationState(this.backendName);
+
+  final String backendName;
+
+  static IntrinsicsCalibrationState fromBackendName(String backendName) {
+    for (final IntrinsicsCalibrationState intrinsicsState in IntrinsicsCalibrationState.values) {
+      if (intrinsicsState.backendName == backendName) {
+        return intrinsicsState;
       }
     }
-    if (poseState != 'unsupported') {
-      supportedCalibrationCount += 1;
-      if (poseState == 'measured') {
-        doneCalibrationCount += 1;
+    throw FormatException('Unknown intrinsics state from the backend: $backendName');
+  }
+}
+
+/// Whether the profile has a measured pose for a camera unit (backend profiles_api.POSE_STATE_*).
+enum CameraPoseState {
+  measured('measured'),
+
+  /// No pose file: launches use the placeholder pose of the parameter files.
+  placeholder('placeholder'),
+
+  /// A pose file that cannot be used, e.g. one edited by hand that lacks a key.
+  invalid('invalid'),
+
+  /// The camera has no pose of its own (e.g. the capture camera).
+  unsupported('unsupported');
+
+  const CameraPoseState(this.backendName);
+
+  final String backendName;
+
+  static CameraPoseState fromBackendName(String backendName) {
+    for (final CameraPoseState poseState in CameraPoseState.values) {
+      if (poseState.backendName == backendName) {
+        return poseState;
       }
     }
+    throw FormatException('Unknown camera pose state from the backend: $backendName');
+  }
+}
 
-    if (doneCalibrationCount == supportedCalibrationCount) {
-      return CameraCalibrationLevel.complete;
+/// Whether a profile's projector is at its stored display id (backend profiles_api.PROJECTOR_DISPLAY_STATE_*).
+enum ProjectorDisplayState {
+  notSet('not_set'),
+
+  /// A display id without a stored identity (written by hand): nothing to check it against.
+  unidentified('unidentified'),
+  connected('connected'),
+
+  /// Connected, but under another display id than the stored one.
+  moved('moved'),
+  notConnected('not_connected'),
+
+  /// Several displays match the stored identity (identical projectors without a serial).
+  ambiguous('ambiguous'),
+  displaysUnreadable('displays_unreadable');
+
+  const ProjectorDisplayState(this.backendName);
+
+  final String backendName;
+
+  static ProjectorDisplayState fromBackendName(String backendName) {
+    for (final ProjectorDisplayState projectorDisplayState in ProjectorDisplayState.values) {
+      if (projectorDisplayState.backendName == backendName) {
+        return projectorDisplayState;
+      }
     }
-    if (doneCalibrationCount == 0) {
-      return CameraCalibrationLevel.none;
-    }
-    return CameraCalibrationLevel.partial;
+    throw FormatException('Unknown projector display state from the backend: $backendName');
   }
 }

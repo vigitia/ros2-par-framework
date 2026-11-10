@@ -1,7 +1,8 @@
 // Written by Claude Code
 //
-// The app's calls for the app on the projector: the installed apps (setup_wizard/backend/apps_api.py) and the
-// profile's choice among them, par_launch.projector_app (setup_wizard/backend/profiles_api.py).
+// The app's calls for the apps: the installed apps (setup_wizard/backend/apps_api.py), the apps a profile offers
+// (par_launch.apps) and the one it puts on the projector (par_launch.projector_app), both in
+// setup_wizard/backend/profiles_api.py. Their settings are read and saved by node_settings_api.dart.
 
 import 'setup_wizard_backend_client.dart';
 
@@ -23,6 +24,12 @@ extension AppsApi on SetupWizardBackendClient {
   Future<void> setProfileProjectorApp({required String profileName, required String appName}) async {
     await sendJson('PUT', '/api/profiles/${Uri.encodeComponent(profileName)}/projector-app', {'app_name': appName});
   }
+
+  /// Stores which installed apps the profile offers (par_launch.apps), in this order; an app no longer among them
+  /// stops being the profile's projector app.
+  Future<void> setProfileEnabledApps({required String profileName, required List<String> appNames}) async {
+    await sendJson('PUT', '/api/profiles/${Uri.encodeComponent(profileName)}/apps', {'app_names': appNames});
+  }
 }
 
 class ProjectorApp {
@@ -30,6 +37,7 @@ class ProjectorApp {
     required this.appName,
     required this.displayName,
     required this.description,
+    required this.settingsNodeNames,
     required this.entryErrorText,
   });
 
@@ -38,6 +46,7 @@ class ProjectorApp {
       appName: appJson['app_name'] as String,
       displayName: appJson['display_name'] as String,
       description: appJson['description'] as String,
+      settingsNodeNames: (appJson['settings_node_names'] as List<dynamic>).cast<String>(),
       entryErrorText: appJson['entry_error_text'] as String?,
     );
   }
@@ -46,6 +55,9 @@ class ProjectorApp {
   final String appName;
   final String displayName;
   final String description;
+
+  /// The app's nodes whose settings the Apps area edits (full node names); empty when the app declares none.
+  final List<String> settingsNodeNames;
 
   /// Set when the app's entry is malformed, so the framework would refuse to start it.
   final String? entryErrorText;

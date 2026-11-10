@@ -11,9 +11,8 @@ here:
 - A run is par.launch.py with the profile, started as the preview's camera process
   (camera_preview_api.start_camera_launch), so the camera image, stop and watchdog work as for a
   preview. The projector app, RViz and the capture camera stay off.
-- Settings are the node's parameters, read through the ROS 2 parameter services. No node applies
-  a change while it runs, so applying writes the changed values into the profile (what differs
-  from par_setup.yaml) and starts the run again.
+- Settings are read and saved by node_settings_api.py, without a run; a run started again picks
+  up what was saved.
 - What a node publishes is listed from the ROS graph: its sensor_msgs/Image topics are shown as
   frames (camera_preview_api's frame endpoint), every other topic as its latest message in text.
 """
@@ -24,11 +23,10 @@ import time
 import camera_preview_api
 from fastapi import APIRouter, HTTPException
 from par_framework_core.launch_helpers import (add_required_sensor_nodes,
-                                               get_sensor_node_package_names, read_launch_section,
+                                               get_sensor_node_package_names,
                                                read_sensor_node_entry)
 import profiles_api
 from pydantic import BaseModel
-from rclpy.parameter import Parameter
 from rclpy.qos import QoSHistoryPolicy, QoSProfile, QoSReliabilityPolicy
 from rclpy.validate_topic_name import validate_topic_name
 from rosidl_runtime_py import message_to_yaml
@@ -116,26 +114,6 @@ class SensorNodesRunState(BaseModel):
     sensor_nodes: list[RunningSensorNode]
 
 
-class SensorNodeSettingsResponse(BaseModel):
-    full_node_name: str
-    settings: list[camera_preview_api.CameraSetting]
-
-
-class SensorNodeSettingsApplyRequest(BaseModel):
-    profile_name: str
-    package_name: str
-    # Converted to each parameter's type, as the running node reports it
-    setting_value_by_name: dict[str, bool | int | float | str | list]
-
-
-class SensorNodeSettingsApplyResponse(BaseModel):
-    node_section_name: str
-    written_setting_names: list[str]
-    removed_setting_names: list[str]
-    # The restarted run's preview id
-    preview_id: int
-
-
 class SensorNodeOutputMessage(BaseModel):
     type_name: str
     # The latest message as YAML, long arrays cut; empty before the first one
@@ -163,7 +141,7 @@ class _OutputMessageReceiver:
 @sensor_nodes_router.get('/api/sensor-nodes')
 def get_sensor_node_list(profile_name: str) -> SensorNodeListResponse:
     """List the installed sensor nodes, and which ones the profile starts."""
-    launch_section = _read_profile_launch_section(profile_name)
+    launch_section = profiles_api.read_profile_launch_section(profile_name)
     sensor_nodes = []
     for package_name in get_sensor_node_package_names():
         is_selected = launch_section.get(package_name) is True
@@ -213,7 +191,7 @@ def set_sensor_node_selection(request: SensorNodeSelectionRequest) -> SensorNode
 @sensor_nodes_router.post('/api/sensor-nodes/run/start')
 def start_sensor_nodes_run(request: SensorNodesRunStartRequest) -> SensorNodesRunStartResponse:
     """Start the profile's camera with its selected sensor nodes, ending the running preview."""
-    launch_section = _read_profile_launch_section(request.profile_name)
+    launch_section = profiles_api.read_profile_launch_section(request.profile_name)
     preview_id = _start_run(request.profile_name, launch_section)
     return SensorNodesRunStartResponse(preview_id=preview_id)
 
@@ -221,7 +199,7 @@ def start_sensor_nodes_run(request: SensorNodesRunStartRequest) -> SensorNodesRu
 @sensor_nodes_router.get('/api/sensor-nodes/run/state')
 def get_sensor_nodes_run_state(profile_name: str) -> SensorNodesRunState:
     """Return which selected nodes run and what each publishes."""
-    launch_section = _read_profile_launch_section(profile_name)
+    launch_section = profiles_api.read_profile_launch_section(profile_name)
     preview_session = camera_preview_api.get_camera_preview_session()
     with preview_session.session_lock:
         launch_process = preview_session.camera_process
@@ -251,57 +229,6 @@ def get_sensor_nodes_run_state(profile_name: str) -> SensorNodesRunState:
     return SensorNodesRunState(is_launch_running=is_launch_running,
                                launch_log_lines=launch_log_lines,
                                sensor_nodes=running_sensor_nodes)
-
-
-@sensor_nodes_router.get('/api/sensor-nodes/settings')
-def get_sensor_node_settings(package_name: str) -> SensorNodeSettingsResponse:
-    """Return the running node's settings with their descriptors; 503 while it starts."""
-    _check_installed_sensor_node(package_name)
-    full_node_name = '/' + package_name + SENSOR_NODE_NAME_SUFFIX
-    preview_session = camera_preview_api.get_camera_preview_session()
-    parameter_client = camera_preview_api.get_node_parameter_client(preview_session,
-                                                                    full_node_name)
-    settings = camera_preview_api.read_node_settings(parameter_client)
-    return SensorNodeSettingsResponse(full_node_name=full_node_name, settings=settings)
-
-
-@sensor_nodes_router.post('/api/sensor-nodes/settings/apply')
-def apply_sensor_node_settings(
-        request: SensorNodeSettingsApplyRequest) -> SensorNodeSettingsApplyResponse:
-    """Write the changed settings into the profile and start the run again, so they take effect."""
-    _check_installed_sensor_node(request.package_name)
-    launch_section = _read_profile_launch_section(request.profile_name)
-    if not request.setting_value_by_name:
-        raise HTTPException(status_code=400, detail='No setting changed')
-    full_node_name = '/' + request.package_name + SENSOR_NODE_NAME_SUFFIX
-    preview_session = camera_preview_api.get_camera_preview_session()
-    parameter_client = camera_preview_api.get_node_parameter_client(preview_session,
-                                                                    full_node_name)
-    setting_names = list(request.setting_value_by_name)
-    # ROS fails a whole describe request when one name is unknown, so the names are checked first
-    node_parameter_names = camera_preview_api.wait_for_driver_service_answer(
-        parameter_client.list_parameters()).result.names
-    unknown_setting_names = sorted(set(setting_names) - set(node_parameter_names))
-    if unknown_setting_names:
-        raise HTTPException(status_code=400,
-                            detail=f'{full_node_name} has no settings {unknown_setting_names}')
-    descriptors = camera_preview_api.wait_for_driver_service_answer(
-        parameter_client.describe_parameters(setting_names)).descriptors
-    converted_value_by_name = {}
-    for setting_name, descriptor in zip(setting_names, descriptors):
-        converted_value_by_name[setting_name] = camera_preview_api.convert_setting_value(
-            request.setting_value_by_name[setting_name], Parameter.Type(descriptor.type))
-    # Simplification: a parameter par.launch.py sets itself after the parameter files (e.g.
-    # use_depth for a depth camera, debug) keeps the launch's value whatever the profile says.
-    # Upgrade: report those, once par.launch.py can tell which parameters it sets.
-    write_result = profiles_api.write_node_settings_into_profile(
-        request.profile_name, full_node_name, converted_value_by_name)
-    preview_id = _start_run(request.profile_name, launch_section)
-    return SensorNodeSettingsApplyResponse(
-        node_section_name=write_result.node_section_name,
-        written_setting_names=write_result.written_setting_names,
-        removed_setting_names=write_result.removed_setting_names,
-        preview_id=preview_id)
 
 
 @sensor_nodes_router.get('/api/sensor-nodes/output-message')
@@ -334,16 +261,6 @@ def get_sensor_node_output_message(topic_name: str) -> SensorNodeOutputMessage:
         received_age_s=time.monotonic() - latest_message_monotonic_s)
 
 
-def _read_profile_launch_section(profile_name):
-    profiles_api.check_profile_exists(profile_name)
-    profile_launch_context = profiles_api.create_profile_launch_context(profile_name)
-    try:
-        return read_launch_section(profile_launch_context)
-    except (RuntimeError, KeyError, OSError) as error:
-        raise HTTPException(status_code=409,
-                            detail=f'Cannot read the profile {profile_name}: {error}') from error
-
-
 def _get_selected_package_names(launch_section):
     """Return the installed sensor nodes the profile starts, with the nodes they need."""
     selected_package_names = []
@@ -367,12 +284,6 @@ def _start_run(profile_name, launch_section):
     return camera_preview_api.start_camera_launch(camera_name, profile_name,
                                                   SENSOR_NODES_LAUNCH_FILE_NAME,
                                                   RUN_LAUNCH_ARGUMENTS)
-
-
-def _check_installed_sensor_node(package_name):
-    """Reject names that are no installed sensor node; they end up in node names."""
-    if package_name not in get_sensor_node_package_names():
-        raise HTTPException(status_code=404, detail=f'No installed sensor node {package_name!r}')
 
 
 def _list_output_topics(frame_receiver, package_name):
