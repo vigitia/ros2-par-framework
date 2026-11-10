@@ -4407,3 +4407,17 @@ expected namespace and remappings.
 (every driver quirk would need a new field and code in core); the wildcard `/**/<node>` (would also reach the
 capture camera's driver, which must not get the main camera's image size and exposure); starting the framework
 nodes in the camera's namespace now (would move their outputs before the apps can follow).
+
+## 2026-11-10: Brio and CU40 sections as camera type defaults (multi-camera step 3)
+
+**What changed:** `par_setup.yaml` keys the Brio's and the CU40's driver sections as `/cameras/*/logitech_brio_node`
+and `/cameras/*/see3cam_cu40_node`, like the other camera types. Their entries and launch files live in their own
+repos (`logitech_brio`, `see3cam_cu40`), which now register the camera types `brio` and `cu40`.
+
+**Why:** step 3 of the multi-camera plan: the drivers the framework owns ship their own camera entry, and their
+nodes run in `/cameras/<camera>`, where these sections reach them. Checked: both start through `par.launch.py
+camera:=brio|cu40` in their namespace with these defaults and their unit's intrinsics URL (no camera connected, so
+the nodes stopped after opening; frames and streams not seen yet).
+
+**Alternatives considered:** core shipping the entries for its own drivers too (against the rule that a package
+useful outside the framework brings its own registration).
