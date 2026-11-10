@@ -36,6 +36,10 @@ CAMERA_STREAM_NAMES = ('image_raw', 'image_raw/compressed', 'camera_info', 'set_
                        'depth_sensor/depth/image_raw', 'depth_sensor/camera_info', 'events')
 # Every camera runs in CAMERAS_NAMESPACE/<camera name>, e.g. /cameras/blackfly
 CAMERAS_NAMESPACE = '/cameras'
+# Each camera's projection calibration server publishes and serves these below the camera's
+# namespace, because corners and mapping hold for one camera only (relative names, as the streams)
+CAMERA_PROJECTION_CALIBRATION_NAMES = ('projection_corners', 'projection_mapping',
+                                       'set_projection_corners', 'set_projection_mapping')
 
 # Camera types register in the ament index under this resource type, like PAR apps: a marker file
 # share/ament_index/resource_index/par_framework_cameras/<camera type> whose content is the type's
@@ -492,14 +496,19 @@ def get_camera_namespace(camera_name):
 
 # Written by Claude Code
 def create_camera_stream_remappings(camera_name):
-    """Return the remappings that point a framework node's camera streams at camera_name."""
-    # Simplification: the framework nodes run in the root namespace, where their relative stream
-    # names would resolve to /image_raw etc. Upgrade (the multi-camera plan): start each node in
-    # its camera's namespace, where they resolve without remappings
+    """
+    Return the remappings that point a framework node at camera_name's topics and services.
+
+    Its camera streams and its projection calibration (corners, mapping and their set services).
+    """
+    # Simplification: the framework nodes run in the root namespace, where their relative names
+    # would resolve to /image_raw etc. Upgrade (the multi-camera plan): start each node in its
+    # camera's namespace, where they resolve without remappings
     camera_namespace = get_camera_namespace(camera_name)
     camera_stream_remappings = []
-    for stream_name in CAMERA_STREAM_NAMES:
-        camera_stream_remappings.append((stream_name, f'{camera_namespace}/{stream_name}'))
+    for camera_topic_name in CAMERA_STREAM_NAMES + CAMERA_PROJECTION_CALIBRATION_NAMES:
+        camera_stream_remappings.append((camera_topic_name,
+                                         f'{camera_namespace}/{camera_topic_name}'))
     return camera_stream_remappings
 
 
@@ -783,7 +792,8 @@ def get_invalid_pose_keys(pose):
     return invalid_keys
 
 
-# Co-authored by Claude Code: name, the paths in named steps, the profile's extrinsics folder
+# Co-authored by Claude Code: name, the paths in named steps, the profile's extrinsics folder,
+# the camera's namespace
 def create_projection_calibration_server_node(context, camera):
     """Create the owner of the projection corners and mapping, with the camera's files."""
     # One file per camera each: the corners are pixels of one camera's image, so another camera's
@@ -792,10 +802,13 @@ def create_projection_calibration_server_node(context, camera):
     # Per profile as well: another setup has another table and projector
     corners_relative_path = get_extrinsics_relative_path(context, 'projection_corners', camera)
     mapping_relative_path = get_extrinsics_relative_path(context, 'projection_mapping', camera)
+    # In the camera's namespace, so each camera has its own server, topics and services, e.g.
+    # /cameras/overhead/projection_mapping
     return [Node(
         package='projection_calibration_server',
         executable='projection_calibration_server',
         name='projection_calibration_server_node',
+        namespace=get_camera_namespace(camera),
         output='screen',
         emulate_tty=True,
         parameters=[{

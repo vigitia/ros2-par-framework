@@ -5,7 +5,9 @@ Bring up the PAR framework as the parameter file's par_launch section describes 
 The framework's one entry point for every camera. par_launch.cameras names the setup's cameras,
 each with its unit, e.g. {overhead: 'blackfly:22260470'} (camera types are installed in the ament
 index, par_framework_cameras), and par_launch switches each node on or off. Every camera runs in
-/cameras/<name>, e.g. /cameras/overhead/image_raw. With another parameter file:
+/cameras/<name>, e.g. /cameras/overhead/image_raw. A sensor node runs once on each camera its
+par_launch key lists, e.g. fiducials_detector: [overhead], in that camera's namespace, so its
+outputs are the camera's too (/cameras/overhead/fiducials). With another parameter file:
 
     ros2 launch par_framework_core par.launch.py params_file:=/path/to/<file>.yaml
 
@@ -15,14 +17,16 @@ config/calibration/extrinsics/<name>/.
 
 Each of them can be overridden for one run, e.g. camera:=kinect rviz:=true hand_landmarks:=false;
 an argument left empty keeps the parameter file's value. camera:= starts one camera instead of all:
-a name of par_launch.cameras, or <type>[:<serial>] for a unit the profile does not name. The
-framework nodes, the projection calibration and RViz use the first camera (the main camera). With
-a camera that offers depth on its colour image's grid (depth_registered in its entry's streams)
-the detectors also use its depth. camera_only:=true starts just the cameras and their mount
-transforms, e.g. for a preview or a calibration. An event camera (event) delivers its events
-collected into images, and the raw events on /cameras/<name>/events; it has no calibration. Camera
-intrinsics are config/calibration/intrinsics/<profile>/camera_info_<type>[_<serial>].yaml, per
-unit; without profile:= the shared config/calibration/intrinsics/ folder.
+a name of par_launch.cameras, or <type>[:<serial>] for a unit the profile does not name. Every
+camera gets its own projection calibration (/cameras/<name>/projection_mapping and
+projection_corners). The projector app and RViz use the first camera (the main camera) and its
+projection calibration. With a camera that offers depth on its colour image's grid
+(depth_registered in its entry's streams) the detectors also use its depth. camera_only:=true
+starts just the cameras and their mount transforms, e.g. for a preview or a calibration. An event
+camera (event) delivers its events collected into images, and the raw events on
+/cameras/<name>/events; it has no calibration. Camera intrinsics are
+config/calibration/intrinsics/<profile>/camera_info_<type>[_<serial>].yaml, per unit; without
+profile:= the shared config/calibration/intrinsics/ folder.
 
 debug:=true turns on the debug windows of every started node that has one, e.g. for testing
 gestures: camera:=kinect hand_landmarks:=true gesture_detector:=true debug:=true.
@@ -57,9 +61,10 @@ from par_framework_core.launch_helpers import (add_required_sensor_nodes, create
                                                get_profile_name, get_projector_display_id,
                                                get_camera_namespace,
                                                get_sensor_node_package_names,
-                                               PROJECTOR_APP_NONE,
+                                               PAR_LAUNCH_CAMERAS_KEY, PROJECTOR_APP_NONE,
                                                read_camera_entry,
                                                read_launch_section, read_par_app_entry,
+                                               read_profile_cameras,
                                                RENDERING_MANAGER_APP_NAME,
                                                SENSOR_NODE_RESOURCE_TYPE)
 
@@ -202,18 +207,91 @@ def create_par_app_actions(context, app_package_name, par_app_entry, params_file
 
 
 # Written by Claude Code
-def create_uninstalled_switch_messages(launch_section, launch_switch_names):
-    """Name every par_launch switch that is true but belongs to no installed sensor node."""
+def create_uninstalled_switch_messages(launch_section, launch_switch_names, profile_camera_names):
+    """Name every par_launch key that lists cameras but belongs to no installed sensor node."""
     uninstalled_switch_messages = []
     for switch_name, switch_value in launch_section.items():
-        if switch_value is not True or switch_name in launch_switch_names:
+        if switch_name in launch_switch_names or not isinstance(switch_value, list):
+            continue
+        # Other par_launch lists (e.g. apps) hold no camera names
+        is_list_of_camera_names = bool(switch_value) and all(
+            camera_name in profile_camera_names for camera_name in switch_value)
+        if not is_list_of_camera_names:
             continue
         uninstalled_switch_messages.append(LogInfo(
-            msg=f'[par.launch]: par_launch.{switch_name} is true, but no installed package '
+            msg=f'[par.launch]: par_launch.{switch_name} lists cameras, but no installed package '
                 f'registers {switch_name} as a sensor node (ament index '
                 f'{SENSOR_NODE_RESOURCE_TYPE}): add its repo to config/nodes.list and run '
                 f'./scripts/local_build.sh'))
     return uninstalled_switch_messages
+
+
+# Written by Claude Code
+def read_sensor_node_camera_names(launch_section, sensor_node_name, profile_camera_names):
+    """Return the cameras par_launch.<sensor node> lists, checked against par_launch.cameras."""
+    listed_camera_names = launch_section.get(sensor_node_name, [])
+    is_list_of_texts = isinstance(listed_camera_names, list) and all(
+        isinstance(camera_name, str) for camera_name in listed_camera_names)
+    example_camera_name = 'overhead'
+    if profile_camera_names:
+        example_camera_name = profile_camera_names[0]
+    if not is_list_of_texts:
+        raise RuntimeError(f'[par.launch]: par_launch.{sensor_node_name}: '
+                           f'{listed_camera_names!r}: list the cameras of par_launch.cameras it '
+                           f'runs on, e.g. {sensor_node_name}: [{example_camera_name}], or [] for '
+                           f'none')
+    unknown_camera_names = []
+    for camera_name in listed_camera_names:
+        if camera_name not in profile_camera_names:
+            unknown_camera_names.append(camera_name)
+    if unknown_camera_names:
+        raise RuntimeError(f'[par.launch]: par_launch.{sensor_node_name} names '
+                           f'{unknown_camera_names}, which par_launch.cameras does not have; '
+                           f'known: {profile_camera_names}')
+    return listed_camera_names
+
+
+# Written by Claude Code
+def get_camera_names_by_sensor_node(context, launch_section, sensor_node_names,
+                                    profile_camera_names, started_camera_names,
+                                    app_required_switch_names):
+    """
+    Return, per sensor node, the started cameras it runs on, in the order of the started cameras.
+
+    par_launch.<sensor node> lists them. The launch argument <sensor node>:=false turns every
+    run off for one run, :=true runs the node on the only started camera. A sensor node the
+    projector app requires also runs on the main camera, the first started one.
+    """
+    camera_names_by_sensor_node = {}
+    for sensor_node_name in sensor_node_names:
+        argument_value = LaunchConfiguration(sensor_node_name).perform(context)
+        if argument_value == '':
+            listed_camera_names = read_sensor_node_camera_names(launch_section, sensor_node_name,
+                                                                profile_camera_names)
+        elif argument_value == 'false':
+            listed_camera_names = []
+        elif argument_value == 'true':
+            if len(started_camera_names) > 1:
+                raise RuntimeError(f'[par.launch]: {sensor_node_name}:=true runs the node on the '
+                                   f'only camera, but this run starts {started_camera_names}: '
+                                   f'list its cameras in par_launch.{sensor_node_name}, or start '
+                                   f'one camera with camera:=<name>')
+            listed_camera_names = list(started_camera_names)
+        else:
+            raise RuntimeError(f'[par.launch]: {sensor_node_name}:={argument_value}: use true or '
+                               f'false, or leave it out to keep par_launch.{sensor_node_name} '
+                               f'from the params_file')
+        # Cameras the profile lists but this run does not start (camera:=<name>) are left out
+        camera_names = []
+        for started_camera_name in started_camera_names:
+            if started_camera_name in listed_camera_names:
+                camera_names.append(started_camera_name)
+        main_camera_name = started_camera_names[0]
+        is_required_by_app = sensor_node_name in app_required_switch_names
+        if is_required_by_app and main_camera_name not in camera_names:
+            camera_names.insert(0, main_camera_name)
+        camera_names_by_sensor_node[sensor_node_name] = camera_names
+    return camera_names_by_sensor_node
 
 
 # Co-authored by Claude Code: starts every camera of the profile, the projector app and the
@@ -222,11 +300,15 @@ def launch_setup(context):
     params_file_paths = get_params_file_paths(context)
     launch_section = read_launch_section(context)
     cameras_to_start = get_cameras_to_start(context)
-    # Simplification: every framework node, the projection calibration and RViz use the first
-    # camera. Upgrade (multi-camera plan, steps 7-9): a calibration server per camera, sensor nodes
-    # run on the cameras the profile names, apps bind their inputs to cameras
+    # Simplification: the projector app and RViz use the first camera. Upgrade (multi-camera plan,
+    # step 9): apps bind their inputs to cameras
     camera = cameras_to_start[0].camera_name
-    camera_type = cameras_to_start[0].camera_type
+    # read_profile_cameras, not launch_section: the merged section would mix par_setup.yaml's
+    # default cameras into the profile's. Empty when camera:=<type> runs without a camera list
+    profile_camera_names = []
+    if PAR_LAUNCH_CAMERAS_KEY in launch_section:
+        for profile_camera in read_profile_cameras(context):
+            profile_camera_names.append(profile_camera.camera_name)
 
     def read_true_false_argument(argument_name):
         """Return True or False from a true/false launch argument, None when it is left empty."""
@@ -260,6 +342,7 @@ def launch_setup(context):
                                f'package is installed)')
 
     def is_enabled(switch):
+        """Return whether a true/false switch (rviz) is on."""
         # Simplification: the app's requirement wins over switch:=false. Upgrade: refuse the
         # combination with a message, if starting an app without its nodes turns out to be useful
         if switch in required_launch_switch_names:
@@ -275,7 +358,7 @@ def launch_setup(context):
     if LaunchConfiguration('camera_only').perform(context) == 'true':
         return launch_actions
     if len(cameras_to_start) > 1:
-        launch_actions.append(LogInfo(msg=f'[par.launch]: the framework nodes use the main '
+        launch_actions.append(LogInfo(msg=f'[par.launch]: the projector app and RViz use the main '
                                           f'camera {camera} (the first of par_launch.cameras)'))
 
     # Set for every framework node; nodes without a debug parameter ignore it
@@ -297,26 +380,57 @@ def launch_setup(context):
             remappings=create_camera_stream_remappings(camera),
         )
 
-    # A node that reads another one's output (required_sensor_nodes, e.g. page_locator reads
-    # /fiducials) starts that one along with it
-    switched_on_sensor_node_names = []
-    for sensor_node_name in sensor_node_names:
-        if is_enabled(sensor_node_name):
-            switched_on_sensor_node_names.append(sensor_node_name)
-    camera_stream_names = read_camera_entry(camera_type)['streams']
-    for sensor_node_name in add_required_sensor_nodes(switched_on_sensor_node_names):
-        sensor_node_overrides = {}
-        for stream_name, (parameter_name, detector_names) in (
-                DETECTOR_PARAMETER_BY_CAMERA_STREAM.items()):
-            if stream_name in camera_stream_names and sensor_node_name in detector_names:
-                sensor_node_overrides[parameter_name] = True
-        launch_actions.append(create_framework_node(sensor_node_name, sensor_node_overrides))
-    launch_actions += create_uninstalled_switch_messages(launch_section, launch_switch_names)
+    def create_sensor_node(package, camera_name, parameter_overrides):
+        """Create a sensor node in its camera's namespace; its sections are /cameras/*/<node>."""
+        node_parameters = list(params_file_paths)
+        node_parameters.append(parameter_overrides)
+        if debug_override is not None:
+            node_parameters.append({'debug': debug_override})
+        return Node(
+            package=package,
+            executable=package,
+            name=f'{package}_node',
+            namespace=get_camera_namespace(camera_name),
+            output='screen',
+            emulate_tty=True,
+            parameters=node_parameters,
+        )
 
-    # Publish the stored projection corners and table-to-projector mapping. Calibration is
-    # optional: without ros2-par-framework-calibration the framework runs in camera pixels.
+    # Each sensor node runs once per camera it is listed for, in the camera's namespace, where its
+    # relative names resolve to that camera's streams and its outputs stay apart from another
+    # camera's, e.g. /cameras/overhead/fiducials
+    started_camera_names = []
+    for camera_to_start in cameras_to_start:
+        started_camera_names.append(camera_to_start.camera_name)
+    camera_names_by_sensor_node = get_camera_names_by_sensor_node(
+        context, launch_section, sensor_node_names, profile_camera_names, started_camera_names,
+        required_launch_switch_names)
+    for camera_to_start in cameras_to_start:
+        listed_sensor_node_names = []
+        for sensor_node_name, camera_names in camera_names_by_sensor_node.items():
+            if camera_to_start.camera_name in camera_names:
+                listed_sensor_node_names.append(sensor_node_name)
+        camera_stream_names = read_camera_entry(camera_to_start.camera_type)['streams']
+        # A node that reads another one's output (required_sensor_nodes, e.g. page_locator reads
+        # fiducials) starts that one along with it, on the same camera
+        for sensor_node_name in add_required_sensor_nodes(listed_sensor_node_names):
+            sensor_node_overrides = {}
+            for stream_name, (parameter_name, detector_names) in (
+                    DETECTOR_PARAMETER_BY_CAMERA_STREAM.items()):
+                if stream_name in camera_stream_names and sensor_node_name in detector_names:
+                    sensor_node_overrides[parameter_name] = True
+            launch_actions.append(create_sensor_node(sensor_node_name,
+                                                     camera_to_start.camera_name,
+                                                     sensor_node_overrides))
+    launch_actions += create_uninstalled_switch_messages(launch_section, launch_switch_names,
+                                                         profile_camera_names)
+
+    # Publish each camera's stored projection corners and table-to-projector mapping. Calibration
+    # is optional: without ros2-par-framework-calibration the framework runs in camera pixels.
     if has_resource('packages', 'projection_calibration_server'):
-        launch_actions += create_projection_calibration_server_node(context, camera)
+        for started_camera in cameras_to_start:
+            launch_actions += create_projection_calibration_server_node(
+                context, started_camera.camera_name)
     else:
         launch_actions.append(LogInfo(msg='[par.launch]: projection_calibration_server is not '
                                           'installed (ros2-par-framework-calibration): running '
@@ -353,7 +467,14 @@ def generate_launch_description():
         get_package_share_directory(PACKAGE_NAME), 'config', 'par_setup.yaml')
 
     switch_arguments = []
-    for switch in tuple(get_sensor_node_package_names()) + NON_SENSOR_NODE_LAUNCH_SWITCH_NAMES:
+    for sensor_node_name in get_sensor_node_package_names():
+        switch_arguments.append(DeclareLaunchArgument(
+            sensor_node_name,
+            default_value='',
+            description=f'false: no {sensor_node_name} in this run; true: run it on the only '
+                        f'started camera. Empty runs it on the cameras par_launch.'
+                        f'{sensor_node_name} lists in params_file.'))
+    for switch in NON_SENSOR_NODE_LAUNCH_SWITCH_NAMES:
         switch_arguments.append(DeclareLaunchArgument(
             switch,
             default_value='',

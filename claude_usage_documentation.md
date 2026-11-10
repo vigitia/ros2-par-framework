@@ -4572,3 +4572,55 @@ of one type ended up under the same key, and the old one-camera request dropped 
 
 **Alternatives considered:** creating the profile with the first camera and adding the others one by one (several
 requests, a half-made profile when one fails, and the kept settings would still need the unit as key).
+
+## 2026-11-10: one projection calibration server per camera (multi-camera step 7)
+
+**What changed:** `create_projection_calibration_server_node` starts the server in the camera's namespace, so its
+topics and services are `/cameras/<camera>/projection_corners`, `.../projection_mapping`,
+`.../set_projection_corners` and `.../set_projection_mapping`. `par.launch.py` starts one server for every started
+camera instead of one for the main camera. `create_camera_stream_remappings` also remaps these four names
+(`CAMERA_PROJECTION_CALIBRATION_NAMES`), so every framework node, app and calibration node in the root namespace
+reads and sets the calibration of the camera it is pointed at. Docstrings of `par.launch.py`, the two calibration
+launch files and the server's row in `README.md` name the new topics.
+
+**Why:** corners and mapping hold for one camera only (corners are that camera's pixels; while poses are
+placeholders, each camera has its own table plane). With one server per camera, every camera of a profile keeps its
+calibration published, and step 8 can start sensor nodes per camera without another launch change.
+
+**Decisions:**
+- *Remap the consumers instead of changing their topic names.* The consumers already use relative names
+  (`projection_mapping`), and the same remapping helper already points their camera streams at the main camera;
+  extending it keeps one place that binds a node to a camera. Starting the consumers in the camera namespace is
+  step 8's job, after which the remappings fall away.
+- *A separate tuple instead of adding the names to `CAMERA_STREAM_NAMES`:* that tuple also validates the
+  `streams` key of camera entries, where a projection mapping is not something a driver offers.
+- *Calibration launch files unchanged in logic:* they start the server for the camera being calibrated, which now
+  lands in that camera's namespace, and their calibrator nodes reach it through the extended remappings.
+
+## 2026-11-10: sensor nodes run per camera in its namespace (multi-camera step 8a)
+
+**What changed:** `par_launch.<sensor node>` is a list of camera names (`fiducials_detector: [overhead]`, `[]` for
+none) instead of `true`/`false`. `par.launch.py` starts a sensor node once per listed camera, in `/cameras/<camera>`,
+so its relative names resolve to that camera's streams and its outputs are the camera's (`/cameras/overhead/fiducials`).
+`required_sensor_nodes` are added per camera. The launch argument `<sensor node>:=false` turns every run off,
+`:=true` runs the node on the only started camera and fails with several. A sensor node the projector app requires
+runs on the main camera. Cameras a list names but the run does not start (`camera:=<name>`) are skipped; names not in
+`par_launch.cameras` and the old `true` form fail with a message. Parameter sections of the sensor nodes and of
+`projection_calibrator_node` in `par_setup.yaml` are `/cameras/*/<node>`; a profile tunes one camera with
+`/cameras/<camera>/<node>`. `projection_calibration.launch.py` runs `fiducials_detector` and `projection_calibrator`
+in the camera's namespace. Profiles `ir-fast-markers` and `efwfwef` converted.
+
+**Why:** with several cameras, each detector run must read one camera and publish apart from the other runs; the
+namespace does both without remappings, following the ROS convention of relative names.
+
+**Decisions:**
+- *Apps and `rviz_bridge` read the root names and see no sensor output until step 9* (decided by Vitus, alpha rule).
+  Rejected: an `outputs` key in sensor node entries for interim remaps, and a hard-coded output list in core.
+- *No runs with several inputs* (decided by Vitus): no current node needs them; the format stays in the plan.
+- *`[]` for "off" instead of leaving the key out:* checked that C++ and Python nodes start with an empty list in
+  another node's section of their parameter file, so the earlier warning in `par_setup.yaml` did not apply.
+- *Calibration nodes in the camera namespace instead of remapping `fiducials`:* the detector needs its
+  `/cameras/*/` parameters anyway, and in the namespace the calibrator reaches the camera's streams, fiducials and
+  server without remappings.
+- *Profile camera names from `read_profile_cameras`,* not the merged `par_launch` section, which merges
+  `cameras` key by key with `par_setup.yaml`'s default camera.

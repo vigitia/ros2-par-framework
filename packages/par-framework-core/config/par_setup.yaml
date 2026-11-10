@@ -159,7 +159,7 @@
 # surface_selector_node (calibration.launch.py) has no section: its only parameter, display_id (the projector),
 # comes from par_launch.projector_display_id.
 
-object_detector_node:
+/cameras/*/object_detector_node:
   ros__parameters:
     # Only with use_depth (depth cameras: kinect, realsense).
     # objects lower than this above the table (metres) are not published,
@@ -167,7 +167,7 @@ object_detector_node:
     # about 0.015 is above the  noise of a camera like the Azure Kinect.
     min_object_height: 0.015
 
-hand_landmarks_node:
+/cameras/*/hand_landmarks_node:
   ros__parameters:
     # Maximum number of hands detected per frame (1 to 10), e.g. 2 for one person, more for several people at
     # the table. Every extra hand slows detection down.
@@ -179,9 +179,9 @@ hand_landmarks_node:
     # infrared on the colour grid (the camera's ir/image_raw, e.g. the CU40's).
     use_ir: false
 
-# Markers in the camera's image_raw (or its compressed variant), published on /fiducials.
+# Markers in the camera's image_raw (or its compressed variant), published on /cameras/<camera>/fiducials.
 # use_compressed and use_depth follow from the streams the camera offers: par.launch.py sets them.
-fiducials_detector_node:
+/cameras/*/fiducials_detector_node:
   ros__parameters:
     # aruco or apriltag
     marker_type: aruco
@@ -215,9 +215,9 @@ fiducials_detector_node:
     # accuracy. Slows detection down a little, so only for testing.
     debug: false
 
-# Pages of paper with an ArUco marker in each corner (page n: markers 4n .. 4n+3), from /fiducials.
+# Pages of paper with an ArUco marker in each corner (page n: markers 4n .. 4n+3), from the camera's fiducials.
 # Print them with: python src/page_locator/utils/make_page_template.py <page ids> --marker-size-mm <marker_size_mm>
-page_locator_node:
+/cameras/*/page_locator_node:
   ros__parameters:
     page_width_mm: 210.0
     page_height_mm: 297.0
@@ -252,7 +252,7 @@ page_locator_node:
     debug: false
 
 # Automatic table-to-projector calibration (projection_calibration.launch.py).
-projection_calibrator_node:
+/cameras/*/projection_calibrator_node:
   ros__parameters:
     # Its display_id (the projector, whose resolution is read from it) comes from
     # par_launch.projector_display_id.
@@ -268,8 +268,9 @@ projection_calibrator_node:
     max_center_ray_distance_m: 0.01
 
 # Mask of the projector pixels that would land on hands and objects (ros2-par-framework-projection-mask,
-# /projector/mask). Needs a depth camera and the projection calibration, ideally with the projector centre.
-projection_mask_node:
+# /cameras/<camera>/projector/mask). Needs a depth camera and the projection calibration, ideally with the projector
+# centre.
+/cameras/*/projection_mask_node:
   ros__parameters:
     # Points higher than this above the table (metres) are masked; below it, the depth noise of the bare table.
     min_height: 0.015
@@ -451,8 +452,10 @@ rendering_manager_bridge_node:
     rotation.w: 0.7071068
 
 # Which cameras and nodes par.launch.py starts; launch arguments override it for one run. No node has
-# this name, so the nodes ignore it. One switch per node instead of a list: every node parses this whole file,
-# and an empty list has no type a node could read.
+# this name, so the nodes ignore it (an empty list in it does not disturb them).
+# Sensor nodes: one key per node, listing the cameras (names from cameras) it runs on, e.g. fiducials_detector: [overhead];
+# [] for none. It runs once per listed camera, in /cameras/<camera>, with its parameters from the sections
+# /cameras/*/<node> (every camera) and /cameras/<camera>/<node> in a profile (that camera only).
 par_launch:
   ros__parameters:
     # Every camera of the setup: its name (lower case, digits and _) and its unit, '<type>' or '<type>:<serial>',
@@ -460,21 +463,21 @@ par_launch:
     #   cameras: {overhead: 'blackfly:22260470', capture: 'blackfly:25290614'}
     # The name makes its namespace (/cameras/<name>), frames (<name>_link, ...), placeholder pose
     # (/<name>_tf_publisher) and extrinsics files; the unit makes its intrinsics file. The first camera is the main
-    # camera the framework nodes use. A profile's cameras replace these instead of being merged with them.
+    # camera the projector app and RViz use. A profile's cameras replace these instead of being merged with them.
     cameras:
       kinect: kinect
-    object_detector: false
-    fiducials_detector: false
-    hand_landmarks: false
-    # Needs fiducials_detector
-    page_locator: false
-    # Needs hand_landmarks
-    gesture_detector: false
+    object_detector: []
+    fiducials_detector: []
+    hand_landmarks: []
+    # Needs fiducials_detector on the same camera (started along with it)
+    page_locator: []
+    # Needs hand_landmarks on the same camera (started along with it)
+    gesture_detector: []
     # RViz with rviz_bridge
     rviz: false
     # Keeps projected light off hands and objects (/projector/mask); needs a depth camera, the calibration and
     # ros2-par-framework-projection-mask in config/nodes.list
-    projection_mask: false
+    projection_mask: []
     # The one app that owns the projector: none, rendering_manager (Wayland compositor with its bridge, one app per
     # detected page; needs ros2-par-framework-rendering-manager in config/nodes.list and page_locator) or the
     # package of an installed PAR app, e.g. demo_app (ros2-par-framework-demo-application). A PAR app registers in

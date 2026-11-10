@@ -61,7 +61,7 @@ def create_camera_and_surface_selector(context):
         on_exit=Shutdown(reason='projection corners selected'),
     )
     # The corners owner stores what surface_selector sends, in the camera's own file, and
-    # publishes it on /projection_corners
+    # publishes it on /cameras/<camera>/projection_corners
     return [*create_camera_actions(context, camera_to_calibrate),
             *create_projection_calibration_server_node(context, camera),
             surface_selector_node]

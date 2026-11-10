@@ -7,8 +7,8 @@ or projector_display_id:=<n> for one run; the resolution is read from that displ
 fiducials_detector finds them in the camera image, and projection_calibrator fits the homography
 from the table plane to projector pixels. It is stored by projection_calibration_server_node in
 config/calibration/extrinsics/projection_mapping_<camera>.yaml, and published latched on
-/projection_mapping. The launch ends when the calibrator is done. camera:= picks the camera when
-the profile has several (a name of par_launch.cameras).
+/cameras/<camera>/projection_mapping. The launch ends when the calibrator is done. camera:= picks
+the camera when the profile has several (a name of par_launch.cameras).
 
 Needs the camera calibration and the camera pose (/<camera>_tf_publisher in par_setup.yaml), and
 a clear table. The camera calibration is
@@ -34,11 +34,11 @@ from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from par_framework_core.launch_helpers import (create_camera_actions,
                                                create_camera_choice_launch_argument,
-                                               create_camera_stream_remappings,
                                                create_profile_launch_argument,
                                                create_projection_calibration_server_node,
                                                create_projector_display_id_launch_argument,
-                                               get_camera_to_calibrate, get_params_file_paths,
+                                               get_camera_namespace, get_camera_to_calibrate,
+                                               get_params_file_paths,
                                                get_projector_display_id, read_camera_entry,
                                                read_launch_section)
 
@@ -83,28 +83,29 @@ def launch_setup(context):
         package='fiducials_detector',
         executable='fiducials_detector',
         name='fiducials_detector_node',
+        namespace=get_camera_namespace(camera),
         output='screen',
         emulate_tty=True,
         # The projector centre needs the markers in 3D (corners_3d)
         parameters=[*params_file_paths,
                     FIDUCIALS_DETECTOR_GENERAL_DETECTION_PARAMETERS,
                     {'use_depth': is_projector_center_run}],
-        remappings=create_camera_stream_remappings(camera),
     )
     projection_calibrator_node = Node(
         package='surface_selector',
         executable='projection_calibrator',
         name='projection_calibrator_node',
+        namespace=get_camera_namespace(camera),
         output='screen',
         emulate_tty=True,
         parameters=projection_calibrator_parameters,
-        remappings=create_camera_stream_remappings(camera),
         # Stored or failed: the camera and the projector are not needed any longer
         on_exit=Shutdown(reason='projection calibration finished'),
     )
     # The calibration converts camera pixels to the table plane, so the camera pose is needed.
-    # The camera publishes in /cameras/<camera>, where the remappings point both nodes' camera
-    # streams
+    # Both nodes run in the camera's namespace, /cameras/<camera>, like the camera's sensor nodes
+    # and its projection calibration server: their relative names resolve to its streams, its
+    # fiducials and its server, and they get the parameter sections /cameras/*/<node>
     return [*create_camera_actions(context, camera_to_calibrate),
             fiducials_detector_node,
             *create_projection_calibration_server_node(context, camera),
