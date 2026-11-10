@@ -180,10 +180,8 @@
     # time_slice: all events between two images; sharp: adapts the number of events per image for sharper edges.
     display_type: 'time_slice'
 
-surface_selector_node:
-  ros__parameters:
-    # Display the projector is connected to, as counted by pygame (0 = primary).
-    display_id: 2
+# surface_selector_node (calibration.launch.py) has no section: its only parameter, display_id (the projector),
+# comes from par_launch.projector_display_id.
 
 object_detector_node:
   ros__parameters:
@@ -311,7 +309,7 @@ projection_mask_node:
     # testing. There is no launch argument for it: switch it here.
     debug: false
     # Display the projector is connected to, as counted by pygame (0 = primary).
-    display_id: 2
+    display_id: 0
 
 # Demo application (ros2-par-framework-demo-application): lights every page on the table with the projector.
 demo_app_node:
@@ -513,4 +511,5 @@ par_launch:
     # projector_connector_name, from its EDID), and launches find the projector by it instead. It also stores the
     # display mode the projector was chosen with (projector_width_px, projector_height_px, projector_refresh_rate_hz),
     # so the wizard warns when it changed and the projector calibration may no longer fit
-    projector_display_id: 2
+    # 0 by default, so a computer without a projector can still start the launches that draw on it.
+    projector_display_id: 0

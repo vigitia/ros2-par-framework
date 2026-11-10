@@ -4451,3 +4451,35 @@ harder to read and write); no default camera in `par_setup.yaml` (a launch witho
 a fallback from `/<name>_tf_publisher` to the type's placeholder (a camera without its own pose would silently
 share another's); the capture camera's own mapping file chosen per camera (needs the launch file to read the
 parameter files; the trigger mapping is harmless for freely running cameras).
+
+## 2026-11-10: run_cameracalibrator.sh takes the camera's name (multi-camera step 5)
+
+**What changed:** `scripts/run_cameracalibrator.sh <camera> <inner corners> <square size in m>`: the first argument
+is the camera's name as in `camera:=` and `par_launch.cameras`, and stands for `/cameras/<camera>`; an argument
+starting with `/` is taken as the namespace of any other camera node. The environment variable `CAMERA_NAMESPACE`
+is gone. The header names the intrinsics file per unit (`camera_info_<type>[_<serial>].yaml`). The calibration launch
+files needed nothing more for step 5: they already take `camera:=<name>` and read `streams` / `body_frame` from the
+camera's entry since step 4.
+
+**Why:** with several cameras the calibrator has to be told which one, in the same words as every launch file.
+
+**Alternatives considered:** keeping `CAMERA_NAMESPACE` (a forgotten environment variable is only noticed when the
+script runs, a positional argument is part of the usage line, and the namespace is the same `/cameras/` prefix for
+every framework camera); only the name without the `/` form (would drop cameras started outside the framework, which
+the script supported before).
+
+## 2026-11-10: the corner selection draws on the projector display, display 0 by default
+
+**What changed:** `calibration.launch.py` takes `projector_display_id:=` and passes the projector's display to
+`surface_selector` as `display_id` (`get_projector_display_id`, as `projection_calibration.launch.py` and the apps
+already do). `par_setup.yaml` drops the `surface_selector_node` section (its only key was `display_id`; a
+`ros__parameters` left without keys is rejected by rcl and stops every node reading the file) and sets
+`par_launch.projector_display_id` and `projection_mask_node.display_id` to 0.
+
+**Why:** the selector had its own display number, which did not follow `projector_display_id:=` or the projector
+identity the setup wizard stores, and the default named a display that only exists with a projector connected:
+on a computer without one, the corner selection ended at once. Display 0, the primary display, exists everywhere,
+so the launches that draw on the projector can be tried without one; a real setup's profile sets its projector.
+
+**Alternatives considered:** only changing the default of the selector's own `display_id` (would keep two places
+for one display); a launch argument for the selector alone (the same display under another name).

@@ -2,8 +2,8 @@
 
 Start this once per physical setup to mark the projection area in the camera
 image; the resulting corners are what the rest of the framework warps against.
-The projector window opens on the display given by `display_id` in the
-parameter file.
+The projector window opens on the projector's display: par_launch.projector_display_id, or
+projector_display_id:=<n> for one run (added with the help of Claude Code).
 The selected corners are stored by projection_calibration_server_node in
 config/calibration/extrinsics/projection_corners_<camera>.yaml (added with the help of Claude
 Code).
@@ -28,23 +28,32 @@ from par_framework_core.launch_helpers import (create_camera_actions,
                                                create_camera_stream_remappings,
                                                create_profile_launch_argument,
                                                create_projection_calibration_server_node,
-                                               get_camera_to_calibrate, get_params_file_paths)
+                                               create_projector_display_id_launch_argument,
+                                               get_camera_to_calibrate, get_params_file_paths,
+                                               get_projector_display_id, read_launch_section)
 
 PACKAGE_NAME = 'par_framework_core'
 
 
-# Written by Claude Code; the remappings of the camera streams co-authored by Claude Code
+# Written by Claude Code; the remappings of the camera streams and the projector display
+# co-authored by Claude Code
 def create_camera_and_surface_selector(context):
     """Create the chosen camera, the surface selector on its image and the corners owner."""
     camera_to_calibrate = get_camera_to_calibrate(context)
     camera = camera_to_calibrate.camera_name
+    surface_selector_parameters = get_params_file_paths(context)
+    # The same display the projector app and the projection calibration get; without one, the
+    # selector's own default applies
+    projector_display_id = get_projector_display_id(context, read_launch_section(context))
+    if projector_display_id is not None:
+        surface_selector_parameters.append({'display_id': projector_display_id})
     surface_selector_node = Node(
         package='surface_selector',
         executable='surface_selector',
         name='surface_selector_node',
         output='screen',
         emulate_tty=True,
-        parameters=get_params_file_paths(context),
+        parameters=surface_selector_parameters,
         # Its relative camera stream names point at the camera started here
         remappings=create_camera_stream_remappings(camera),
         # Corners stored (projection_calibration_server_node writes them before it answers) or
@@ -69,6 +78,7 @@ def generate_launch_description():
             default_value=default_params_file_path,
             description='Parameter file describing this physical PAR setup.'),
         create_profile_launch_argument(),
+        create_projector_display_id_launch_argument(),
         create_camera_choice_launch_argument(),
 
         OpaqueFunction(function=create_camera_and_surface_selector),
