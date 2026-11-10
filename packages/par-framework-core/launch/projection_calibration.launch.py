@@ -32,17 +32,18 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction, Shutdown
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
-from par_framework_core.launch_helpers import (create_camera_nodes,
+from par_framework_core.launch_helpers import (create_camera_actions,
                                                create_camera_stream_remappings,
                                                create_profile_launch_argument,
                                                create_projection_calibration_server_node,
                                                create_projector_display_id_launch_argument,
                                                get_chosen_camera, get_params_file_paths,
-                                               get_projector_display_id, read_launch_section)
+                                               get_projector_display_id, read_camera_entry,
+                                               read_launch_section)
 
 PACKAGE_NAME = 'par_framework_core'
-# Cameras with depth registered to the colour image, which the projector centre step needs
-DEPTH_CAMERA_NAMES = ('kinect', 'realsense')
+# The stream the projector centre step needs: depth registered to the colour image
+DEPTH_REGISTERED_STREAM_NAME = 'depth_registered/image_raw'
 # The projected markers are large and lie still, unlike the printed ones a profile may tune
 # fiducials_detector for (small, moving, found by tracking): detection runs with its general
 # settings, whatever the profile sets. The values are those of par_setup.yaml
@@ -69,10 +70,12 @@ def launch_setup(context):
     projector_display_id = get_projector_display_id(context, read_launch_section(context))
     if projector_display_id is not None:
         projection_calibrator_parameters.append({'display_id': projector_display_id})
-    if is_projector_center_run and camera not in DEPTH_CAMERA_NAMES:
+    is_depth_camera = DEPTH_REGISTERED_STREAM_NAME in read_camera_entry(camera)['streams']
+    if is_projector_center_run and not is_depth_camera:
         raise RuntimeError(f'[projection_calibration.launch]: projector_center:=true needs a '
-                           f'depth camera, but the camera is {camera}: run it with '
-                           f'camera:=kinect or camera:=realsense')
+                           f'camera with depth on its colour image ({DEPTH_REGISTERED_STREAM_NAME} '
+                           f'in its entry\'s streams), but the camera is {camera}: run it with '
+                           f'e.g. camera:=kinect or camera:=realsense')
     fiducials_detector_node = Node(
         package='fiducials_detector',
         executable='fiducials_detector',
@@ -83,7 +86,7 @@ def launch_setup(context):
         parameters=[*params_file_paths,
                     FIDUCIALS_DETECTOR_GENERAL_DETECTION_PARAMETERS,
                     {'use_depth': is_projector_center_run}],
-        remappings=create_camera_stream_remappings(),
+        remappings=create_camera_stream_remappings(camera),
     )
     projection_calibrator_node = Node(
         package='surface_selector',
@@ -92,13 +95,14 @@ def launch_setup(context):
         output='screen',
         emulate_tty=True,
         parameters=projection_calibrator_parameters,
-        remappings=create_camera_stream_remappings(),
+        remappings=create_camera_stream_remappings(camera),
         # Stored or failed: the camera and the projector are not needed any longer
         on_exit=Shutdown(reason='projection calibration finished'),
     )
     # The calibration converts camera pixels to the table plane, so the camera pose is needed.
-    # The camera publishes on /camera/..., where the remappings point both nodes' camera streams
-    return [*create_camera_nodes(context, camera),
+    # The camera publishes in /cameras/<camera>, where the remappings point both nodes' camera
+    # streams
+    return [*create_camera_actions(context, camera),
             fiducials_detector_node,
             *create_projection_calibration_server_node(context, camera),
             projection_calibrator_node]
@@ -118,8 +122,8 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'camera',
             default_value='',
-            description='brio, kinect, realsense, webcam, blackfly, cu40 or event. Empty uses '
-                        'par_launch.camera from params_file.'),
+            description='Camera type, one installed in the ament index (par_framework_cameras), '
+                        'e.g. webcam or blackfly. Empty uses par_launch.camera from params_file.'),
         DeclareLaunchArgument(
             'projector_center',
             default_value='false',

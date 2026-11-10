@@ -8,10 +8,10 @@
 
 # Some cameras such as the Azure Kinect do not need this script. Their driver already publishes its factory calibration.
 
-# It works on the framework's camera topics /camera/image_raw and /camera/set_camera_info, which the launch
-# files remap every camera driver onto (launch_helpers.CAMERA_DRIVER_REMAPPINGS).
-# CAMERA_NAMESPACE points it at a camera node outside the framework, e.g.
-#   CAMERA_NAMESPACE=/my_camera scripts/run_cameracalibrator.sh 8x6 0.031
+# It works on a camera's image_raw and set_camera_info in the camera's namespace, which CAMERA_NAMESPACE names:
+# /cameras/<camera> for a framework camera (each camera's launch file maps its driver onto these names), e.g.
+#   CAMERA_NAMESPACE=/cameras/blackfly scripts/run_cameracalibrator.sh 8x6 0.031
+# or any other camera node's namespace.
 #
 # COMMIT stores the result through set_camera_info at the node's camera_info_url, which the framework's launch
 # files set to config/calibration/intrinsics/<profile>/camera_info_<camera>.yaml (without profile:=, the shared
@@ -34,7 +34,10 @@ fi
 board_size="$1"
 square_size_m="$2"
 shift 2    # the remaining arguments are passed on to cameracalibrator
-camera_namespace="${CAMERA_NAMESPACE:-/camera}"
+camera_namespace="${CAMERA_NAMESPACE:-}"
+if [[ -z "$camera_namespace" ]]; then
+    die "CAMERA_NAMESPACE is not set -- run e.g.: CAMERA_NAMESPACE=/cameras/blackfly $0 $board_size $square_size_m (ros2 topic list shows the cameras)"
+fi
 
 if [[ ! "$board_size" =~ ^[0-9]+x[0-9]+$ ]]; then
     die "inner corners must look like 8x6 (columns x rows), got '$board_size' -- run: $0 8x6 0.031"

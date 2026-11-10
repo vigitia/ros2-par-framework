@@ -4374,3 +4374,36 @@ projection calibration server): the same topics and services as before, frames a
 **Alternatives considered:** starting every node in `/camera` right away (would also move their outputs, e.g.
 `/fiducials` to `/camera/fiducials`, before the apps can follow); keeping absolute names and remapping per run
 (not the ROS 2 convention, a remap per topic and node).
+
+## 2026-11-10: camera registry, cameras in /cameras/<camera> (multi-camera step 2)
+
+**What changed:** camera types register in the ament index (resource type `par_framework_cameras`), like PAR apps
+and sensor nodes. An entry names the package and launch file that start the driver, the body frame, the streams the
+camera offers and where its intrinsics come from (`templates/par_camera/` is the blueprint, checked by
+`launch_helpers.read_camera_entry`). Core ships entries and launch files for the drivers it does not own:
+`camera_webcam`, `camera_blackfly`, `camera_realsense`, `camera_kinect`, `camera_event` (`launch/camera_*.launch.py`).
+`launch_helpers.create_camera_actions` includes a type's launch file with the arguments `namespace`, `camera_name`,
+`serial`, `camera_info_url`, `params_files`, and adds the mount transform `world -> <camera>_<body_frame>`. Every
+camera runs in `/cameras/<camera>` (the camera's name is its type until profiles name their cameras), with its
+frames named after it (the Kinect's through `tf_prefix`: `kinect_camera_base`, ...). Removed:
+`CAMERA_DRIVER_REMAPPINGS`, the `DEFAULT_TOPIC_NAME_*` constants, `create_camera_nodes` and the per-type `create_*`
+functions, `create_camera_serial_override_parameters`, `CAMERA_DETECTOR_PARAMETER_OVERRIDES`, `DEPTH_CAMERA_NAMES`,
+`get_camera_base_frame_id`. The detector options `use_depth` and `use_compressed` now follow from the camera's
+streams (`DETECTOR_PARAMETER_BY_CAMERA_STREAM`). The driver sections in `par_setup.yaml` are single-level
+wildcards (`/cameras/*/blackfly`, ...); a profile sets one camera under `/cameras/<camera>/<driver node>`. RViz
+gets its camera topics remapped onto the running camera. `run_cameracalibrator.sh` needs `CAMERA_NAMESPACE`.
+
+**Why:** step 2 of the multi-camera plan. A new camera type needs no change in core, and every camera gets its own
+namespace and frames, which several cameras need. The framework nodes stay in the root namespace for now, with their
+camera streams remapped onto `/cameras/<camera>/...`, so their outputs (`/fiducials`, `/pages`, ...) keep their
+names until apps can follow them (later steps). `/cameras/*/` matches exactly one namespace level, checked with a
+parameter test: type defaults reach every camera in `/cameras/` but not the capture camera (`/capture_camera/...`).
+Checked with a real start: Blackfly (detectors read `/cameras/blackfly/image_raw`, `/fiducials` arrives with
+`blackfly_optical_frame`, TF from `world` reaches it, the unit's intrinsics and pose files are used) and webcam
+(camera only); Kinect, RealSense and event camera were started without hardware, and their drivers came up with the
+expected namespace and remappings.
+
+**Alternatives considered:** a data-only entry (package, executable, remappings) with core building the node
+(every driver quirk would need a new field and code in core); the wildcard `/**/<node>` (would also reach the
+capture camera's driver, which must not get the main camera's image size and exposure); starting the framework
+nodes in the camera's namespace now (would move their outputs before the apps can follow).

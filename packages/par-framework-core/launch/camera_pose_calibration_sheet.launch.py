@@ -22,21 +22,15 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction, Shutdown
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
-from par_framework_core.launch_helpers import (create_camera_nodes,
+from par_framework_core.launch_helpers import (create_camera_actions,
                                                create_camera_stream_remappings,
                                                create_profile_launch_argument,
+                                               get_camera_body_frame_id,
                                                get_chosen_camera, get_extrinsics_relative_path,
                                                get_path_in_config_folder, POSE_ROTATION_KEYS,
-                                               read_merged_parameters)
+                                               read_camera_entry, read_merged_parameters)
 
 PACKAGE_NAME = 'par_framework_core'
-
-
-def get_camera_base_frame_id(camera):
-    """Return the camera's body frame, the child of its mount transform (create_camera_nodes)."""
-    if camera == 'kinect':
-        return 'camera_base'
-    return f'{camera}_link'
 
 
 # Co-authored by Claude Code: the pose file is per camera unit
@@ -51,7 +45,7 @@ def launch_setup(context):
     board_columns = int(LaunchConfiguration('board_columns').perform(context))
     board_rows = int(LaunchConfiguration('board_rows').perform(context))
     return [
-        *create_camera_nodes(context, camera),
+        *create_camera_actions(context, camera),
         Node(
             package='camera_pose_calibrator',
             executable='sheet_pose_calibrator',
@@ -60,15 +54,17 @@ def launch_setup(context):
             emulate_tty=True,
             parameters=[{
                 'camera_pose_file': camera_pose_file_path,
-                'base_frame': get_camera_base_frame_id(camera),
+                # The child of the camera's mount transform. Simplification: the camera's
+                # name is its type until profiles name their cameras
+                'base_frame': get_camera_body_frame_id(camera, read_camera_entry(camera)),
                 'placeholder_rotation': placeholder_rotation,
                 'square_size_m': square_size_mm / 1000.0,
                 'board_columns': board_columns,
                 'board_rows': board_rows,
             }],
-            # The driver is remapped onto /camera/..., where these remappings point the
+            # The camera publishes in /cameras/<camera>, where these remappings point the
             # calibrator's camera streams
-            remappings=create_camera_stream_remappings(),
+            remappings=create_camera_stream_remappings(camera),
             # Stored or failed: the camera is not needed any longer
             on_exit=Shutdown(reason='camera pose calibration finished'),
         ),

@@ -1,7 +1,7 @@
 # Co-authored by Claude Code: written by Claude Code, since edited by hand; Claude Code also added
 # the setup profiles (profile launch argument, merged parameter files, per-profile extrinsics,
-# per-unit Brio intrinsics, per-profile intrinsics and extrinsics) and the PAR app entries in the
-# ament index
+# per-unit Brio intrinsics, per-profile intrinsics and extrinsics), the PAR app entries in the
+# ament index, and the camera types registered there, each started by its own launch file
 """
 Start functions shared by the launch files of par_framework_core.
 
@@ -16,10 +16,10 @@ import re
 
 from ament_index_python.packages import get_package_share_directory
 from ament_index_python.resources import get_resource, get_resources
-from launch.actions import DeclareLaunchArgument, LogInfo
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
-from launch_ros.parameter_descriptions import ParameterValue
 from par_framework_core.connected_displays import (find_projector_display_ids,
                                                    get_projector_identity_title_text,
                                                    PROJECTOR_IDENTITY_PARAMETER_NAMES,
@@ -27,101 +27,33 @@ from par_framework_core.connected_displays import (find_projector_display_ids,
 import yaml
 
 
-# The framework's default camera interface, whichever camera runs.
-# The framework nodes subscribe to these names; each camera driver is remapped onto them
-DEFAULT_TOPIC_NAME_CAMERA_IMAGE = '/camera/image_raw'
-DEFAULT_TOPIC_NAME_CAMERA_IMAGE_COMPRESSED = DEFAULT_TOPIC_NAME_CAMERA_IMAGE + '/compressed'
-DEFAULT_TOPIC_NAME_CAMERA_INFO = '/camera/camera_info'
-# Depth registered to the colour image (same pixel grid), only from a depth camera
-DEFAULT_TOPIC_NAME_CAMERA_DEPTH = '/camera/depth_registered/image_raw'
-# Infrared on the colour image's pixel grid, only from a camera that has one. Unlike depth, the
-# name does not say "registered"; /camera/ir_registered/image_raw would be the consistent
-# alternative. Infrared on another grid (e.g. a depth camera's) is not mapped onto this name.
-DEFAULT_TOPIC_NAME_CAMERA_IR = '/camera/ir/image_raw'
-# A depth camera's infrared and depth on its own pixel grid, unregistered, with its intrinsics.
-# The depth sensor measures depth with this infrared, so both are aligned pixel by pixel; its pose
-# relative to the colour camera comes from TF. Co-authored by Claude Code
-DEFAULT_TOPIC_NAME_DEPTH_SENSOR_IR = '/camera/depth_sensor/ir/image_raw'
-DEFAULT_TOPIC_NAME_DEPTH_SENSOR_DEPTH = '/camera/depth_sensor/depth/image_raw'
-DEFAULT_TOPIC_NAME_DEPTH_SENSOR_CAMERA_INFO = '/camera/depth_sensor/camera_info'
-# Raw events (event_camera_msgs/EventPacket), only from an event camera
-DEFAULT_TOPIC_NAME_CAMERA_EVENTS = '/camera/events'
-
-# cameracalibrator's COMMIT stores the calibration through this service
-DEFAULT_SERVICE_NAME_CAMERA_SET_INFO = '/camera/set_camera_info'
-
 # Co-authored by Claude Code: the streams a camera may offer, named relative to its namespace by
-# the image_pipeline convention. Framework nodes subscribe to them by these relative names; the
-# camera started here offers them in CAMERA_NAMESPACE
+# the image_pipeline convention. Framework nodes subscribe to them by these relative names; a
+# camera's launch file maps its driver's own names onto them below the camera's namespace
 CAMERA_STREAM_NAMES = ('image_raw', 'image_raw/compressed', 'camera_info', 'set_camera_info',
                        'depth_registered/image_raw', 'ir/image_raw', 'depth_sensor/ir/image_raw',
                        'depth_sensor/depth/image_raw', 'depth_sensor/camera_info', 'events')
-CAMERA_NAMESPACE = '/camera'
+# Every camera runs in CAMERAS_NAMESPACE/<camera name>, e.g. /cameras/blackfly
+CAMERAS_NAMESPACE = '/cameras'
 
-
-# Per camera: (the driver's own name, the framework's name) pairs
-CAMERA_DRIVER_REMAPPINGS = {
-    # The Brio node from this framework. It can send the raw camera images or compressed ones, depending on the use case
-    'brio': [
-        ('/camera/brio/image_raw', DEFAULT_TOPIC_NAME_CAMERA_IMAGE),
-        ('/camera/brio/image_raw/compressed', DEFAULT_TOPIC_NAME_CAMERA_IMAGE_COMPRESSED),
-        ('/camera/brio/image_rect_color', '/camera/image_rect_color'),   # TODO: ADD Constant
-        ('/camera/brio/camera_info', DEFAULT_TOPIC_NAME_CAMERA_INFO),
-        ('/camera/brio/set_camera_info', DEFAULT_SERVICE_NAME_CAMERA_SET_INFO),
-    ],
-    # The Kinect driver we use from GitHub unfortunately publishes without a namespace
-    'kinect': [
-        ('/rgb/image_raw', DEFAULT_TOPIC_NAME_CAMERA_IMAGE),
-        ('/rgb/camera_info', DEFAULT_TOPIC_NAME_CAMERA_INFO),
-        ('/depth_to_rgb/image_raw', DEFAULT_TOPIC_NAME_CAMERA_DEPTH),
-        # Infrared transformed onto the colour image's grid by the driver (its ir/image_raw is on
-        # the depth grid)
-        ('/ir_to_rgb/image_raw', DEFAULT_TOPIC_NAME_CAMERA_IR),
-        # The depth sensor's own infrared and depth, e.g. for hand_landmarks with use_ir
-        ('/ir/image_raw', DEFAULT_TOPIC_NAME_DEPTH_SENSOR_IR),
-        ('/depth/image_raw', DEFAULT_TOPIC_NAME_DEPTH_SENSOR_DEPTH),
-        ('/depth/camera_info', DEFAULT_TOPIC_NAME_DEPTH_SENSOR_CAMERA_INFO),
-    ],
-    # Realsense driver from GitHub. aligned_depth_to_color is its
-    # depth on the colour image's pixel grid, published with align_depth.enable in params_file
-    'realsense': [
-        ('/camera/realsense/color/image_raw', DEFAULT_TOPIC_NAME_CAMERA_IMAGE),
-        ('/camera/realsense/color/camera_info', DEFAULT_TOPIC_NAME_CAMERA_INFO),
-        ('/camera/realsense/aligned_depth_to_color/image_raw', DEFAULT_TOPIC_NAME_CAMERA_DEPTH),
-    ],
-    # Generic v4l2_camera driver from GitHub. Like the Blackfly's, its calibration service ignores
-    # the node's namespace and is created at the root. Co-authored by Claude Code
-    'webcam': [
-        ('/camera/webcam/image_raw', DEFAULT_TOPIC_NAME_CAMERA_IMAGE),
-        ('/camera/webcam/camera_info', DEFAULT_TOPIC_NAME_CAMERA_INFO),
-        ('/set_camera_info', DEFAULT_SERVICE_NAME_CAMERA_SET_INFO),
-    ],
-    # FLIR Blackfly S through the released spinnaker_camera_driver. Its calibration service
-    # ignores the node's namespace and is created at the root
-    'blackfly': [
-        ('/camera/blackfly/image_raw', DEFAULT_TOPIC_NAME_CAMERA_IMAGE),
-        ('/camera/blackfly/camera_info', DEFAULT_TOPIC_NAME_CAMERA_INFO),
-        ('/set_camera_info', DEFAULT_SERVICE_NAME_CAMERA_SET_INFO),
-    ],
-    # e-con See3CAM_CU40 RGB-IR camera through its node from this framework. Its infrared pixels
-    # are part of the colour sensor, so the infrared image is on the colour image's grid
-    'cu40': [
-        ('/camera/cu40/image_raw', DEFAULT_TOPIC_NAME_CAMERA_IMAGE),
-        ('/camera/cu40/camera_info', DEFAULT_TOPIC_NAME_CAMERA_INFO),
-        ('/camera/cu40/ir/image_raw', DEFAULT_TOPIC_NAME_CAMERA_IR),
-        ('/camera/cu40/set_camera_info', DEFAULT_SERVICE_NAME_CAMERA_SET_INFO),
-    ],
-    # Event camera through the released metavision_driver: its renderer's images become the
-    # camera image, and the renderer reads the events from the neutral name as well. The
-    # driver publishes no camera_info
-    'event': [
-        ('/camera/event/events', DEFAULT_TOPIC_NAME_CAMERA_EVENTS),
-        ('/camera/event_renderer/events', DEFAULT_TOPIC_NAME_CAMERA_EVENTS),
-        ('/camera/event_renderer/image_raw', DEFAULT_TOPIC_NAME_CAMERA_IMAGE),
-    ],
-}
-# For error messages, so they list every camera CAMERA_DRIVER_REMAPPINGS knows
-CAMERA_NAMES_TEXT = ', '.join(CAMERA_DRIVER_REMAPPINGS)
+# Camera types register in the ament index under this resource type, like PAR apps: a marker file
+# share/ament_index/resource_index/par_framework_cameras/<camera type> whose content is the type's
+# entry, a YAML mapping (blueprint and format: templates/par_camera/ of ros2-par-framework). The
+# entry names the launch file that starts the driver; core never knows a driver itself
+CAMERA_RESOURCE_TYPE = 'par_framework_cameras'
+CAMERA_ENTRY_TEXT_KEYS = ('display_name', 'description')
+# package and launch_file: the launch file is share/<package>/launch/<launch_file>
+CAMERA_ENTRY_NAME_KEYS = ('package', 'launch_file')
+# The child frame of the camera's mount transform is <camera name>_<body_frame>
+CAMERA_ENTRY_BODY_FRAME_KEY = 'body_frame'
+CAMERA_ENTRY_STREAMS_KEY = 'streams'
+# calibratable: intrinsics file per unit, written by run_cameracalibrator.sh; factory: the driver
+# publishes its own; none: no camera_info
+CAMERA_ENTRY_INTRINSICS_KEY = 'intrinsics'
+CAMERA_INTRINSICS_SOURCES = ('calibratable', 'factory', 'none')
+# The launch arguments every camera launch file declares (templates/par_camera/)
+CAMERA_LAUNCH_ARGUMENT_NAMES = ('namespace', 'camera_name', 'serial', 'camera_info_url',
+                                'params_files')
 
 # The machine-local calibrations below config/ (gitignored), for get_path_in_config_folder: the
 # camera intrinsics, and where camera and projection sit relative to the table
@@ -133,25 +65,20 @@ FOLDER_PATH_EXTRINSICS = 'calibration/extrinsics'
 FOLDER_PATH_PROFILES = 'profiles'
 # Profile names and camera serials become parts of file names: nothing that could leave the folder
 FILE_NAME_PART_PATTERN = re.compile(r'[A-Za-z0-9_-]+')
-# The cameras' sections in the parameter files, which hold their serials
-BRIO_NODE_PARAMETERS_KEY = '/camera/brio/logitech_brio_node'
-BLACKFLY_NODE_PARAMETERS_KEY = '/camera/blackfly'
 CAPTURE_CAMERA_NODE_PARAMETERS_KEY = '/capture_camera/blackfly'
 # Driver mapping of the capture camera's ROS parameters onto its settings, next to par_setup.yaml
 CAPTURE_CAMERA_SETTINGS_MAPPING_FILE_NAME = 'blackfly_s_software_trigger.yaml'
-CU40_NODE_PARAMETERS_KEY = '/camera/cu40/see3cam_cu40_node'
-# Spelled as par_setup.yaml spells them: the Kinect driver sets its node name in code, without a leading /
-KINECT_NODE_PARAMETERS_KEY = 'k4a_ros_device_node'
-REALSENSE_NODE_PARAMETERS_KEY = '/camera/realsense'
-# The cameras whose driver opens one unit by its serial: the node section and the serial parameter
-# in it, which also make the intrinsics file name per unit (get_camera_info_file_name). Special
-# case: ROS has no convention for a serial parameter, so each driver's name is listed here
+# The cameras whose driver opens one unit by its serial: the driver's node name (its section in
+# the parameter files is /cameras/<camera name>/<node name>) and its serial parameter, which also
+# make the intrinsics file name per unit. Special case: ROS has no convention for a serial
+# parameter. Simplification until the profile lists its cameras as type:serial (multi-camera
+# plan, step 4); then only each camera's launch file knows the parameter name
 CAMERA_SERIAL_SOURCE_BY_CAMERA = {
-    'brio': (BRIO_NODE_PARAMETERS_KEY, 'serial'),
-    'cu40': (CU40_NODE_PARAMETERS_KEY, 'serial'),
-    'blackfly': (BLACKFLY_NODE_PARAMETERS_KEY, 'serial_number'),
-    'kinect': (KINECT_NODE_PARAMETERS_KEY, 'sensor_sn'),
-    'realsense': (REALSENSE_NODE_PARAMETERS_KEY, 'serial_no'),
+    'brio': ('logitech_brio_node', 'serial'),
+    'cu40': ('see3cam_cu40_node', 'serial'),
+    'blackfly': ('blackfly', 'serial_number'),
+    'kinect': ('k4a_ros_device_node', 'sensor_sn'),
+    'realsense': ('realsense', 'serial_no'),
 }
 # Launch argument that names the unit of camera:= to open for one run, instead of the serial in
 # the parameter files, e.g. to preview a unit before a profile names it
@@ -337,7 +264,9 @@ def get_camera_serial(context, camera):
     """
     if camera not in CAMERA_SERIAL_SOURCE_BY_CAMERA:
         return ''
-    node_parameters_key, serial_parameter_name = CAMERA_SERIAL_SOURCE_BY_CAMERA[camera]
+    driver_node_name, serial_parameter_name = CAMERA_SERIAL_SOURCE_BY_CAMERA[camera]
+    # Simplification: the camera's name is its type until profiles name their cameras
+    node_parameters_key = f'{get_camera_namespace(camera)}/{driver_node_name}'
     serial = get_camera_serial_launch_argument(context)
     serial_source_text = f'{CAMERA_SERIAL_LAUNCH_ARGUMENT_NAME}:='
     if not serial:
@@ -349,19 +278,6 @@ def get_camera_serial(context, camera):
         raise RuntimeError(f'[launch_helpers]: {camera} {serial_source_text} {serial!r} is no '
                            f'serial number: use only letters, digits, _ and -')
     return serial
-
-
-# Co-authored by Claude Code
-def create_camera_serial_override_parameters(context, camera):
-    """Return the driver parameters that open the unit camera_serial:= names, [] without it."""
-    if not get_camera_serial_launch_argument(context):
-        return []
-    if camera not in CAMERA_SERIAL_SOURCE_BY_CAMERA:
-        return []
-    _, serial_parameter_name = CAMERA_SERIAL_SOURCE_BY_CAMERA[camera]
-    serial = get_camera_serial(context, camera)
-    # As text: launch would read a serial of digits as a number, which the drivers refuse
-    return [{serial_parameter_name: ParameterValue(serial, value_type=str)}]
 
 
 # Co-authored by Claude Code
@@ -495,106 +411,173 @@ def read_projector_identity(launch_section):
     return projector_identity
 
 
-# Co-authored by Claude Code: the camera list in the message comes from CAMERA_DRIVER_REMAPPINGS
+# Co-authored by Claude Code: the camera types come from the ament index
 def get_chosen_camera(context):
     """Return the camera launch argument, or else the camera of the parameter files' par_launch."""
     camera = LaunchConfiguration('camera').perform(context)
     if not camera:
         camera = read_launch_section(context)['camera']
     # Without this, an empty or misspelt camera would end as a KeyError deep in a launch file
-    if camera not in CAMERA_DRIVER_REMAPPINGS:
+    camera_type_names = get_camera_type_names()
+    if camera not in camera_type_names:
+        camera_type_names_text = ', '.join(camera_type_names) or 'none'
         raise RuntimeError(f'[launch_helpers]: unknown camera {camera!r}: pass camera:= with one '
-                           f'of {CAMERA_NAMES_TEXT}, or set par_launch.camera in the params_file')
+                           f'of the installed camera types ({camera_type_names_text}), or set '
+                           f'par_launch.camera in the params_file. A camera type is installed '
+                           f'with the package that registers it ({CAMERA_RESOURCE_TYPE})')
     return camera
 
 
 # Written by Claude Code
-def create_camera_stream_remappings():
-    """Return the remappings that point a framework node's camera streams at the started camera."""
-    # Simplification: one camera in CAMERA_NAMESPACE, and the framework nodes run in the root
-    # namespace, where their relative stream names would resolve to /image_raw etc. Upgrade (the
-    # multi-camera plan): start each node in its camera's namespace, where they resolve without
-    # remappings
-    camera_stream_remappings = []
-    for stream_name in CAMERA_STREAM_NAMES:
-        camera_stream_remappings.append((stream_name, f'{CAMERA_NAMESPACE}/{stream_name}'))
-    return camera_stream_remappings
-
-
-# Co-authored by Claude Code: the final error names the gap it catches, the Blackfly
-def create_camera_nodes(context, camera):
-    """Create the camera's driver and its mount transform, for each of CAMERA_DRIVER_REMAPPINGS."""
-    if camera == 'brio':
-        # The Brio node itself publishes brio_link -> brio_optical_frame
-        return [*create_logitech_brio_node(context),
-                *create_mount_tf_publisher(context, 'brio_tf_publisher', 'brio_link')]
-    if camera == 'kinect':
-        # The driver itself publishes camera_base -> depth_camera_link -> rgb_camera_link
-        return [create_kinect_driver_node(context),
-                *create_mount_tf_publisher(context, 'kinect_tf_publisher', 'camera_base')]
-    if camera == 'realsense':
-        # The driver itself publishes realsense_link -> realsense_color_frame ->
-        # realsense_color_optical_frame
-        return [create_realsense_driver_node(context),
-                *create_mount_tf_publisher(context, 'realsense_tf_publisher', 'realsense_link')]
-    if camera == 'webcam':
-        return [*create_webcam_nodes(context),
-                *create_mount_tf_publisher(context, 'webcam_tf_publisher', 'webcam_link')]
-    if camera == 'blackfly':
-        return [*create_blackfly_nodes(context),
-                *create_mount_tf_publisher(context, 'blackfly_tf_publisher', 'blackfly_link')]
-    if camera == 'cu40':
-        # The CU40 node itself publishes cu40_link -> cu40_optical_frame
-        return [*create_see3cam_cu40_node(context),
-                *create_mount_tf_publisher(context, 'cu40_tf_publisher', 'cu40_link')]
-    if camera == 'event':
-        return [*create_event_camera_nodes(context),
-                *create_mount_tf_publisher(context, 'event_tf_publisher', 'event_link')]
-    # get_chosen_camera already rejects unknown cameras, so this is a camera in
-    # CAMERA_DRIVER_REMAPPINGS without a start above
-    raise ValueError(f'[launch_helpers]: create_camera_nodes cannot start camera {camera!r}: add '
-                     f'it next to the others ({CAMERA_NAMES_TEXT})')
-
-
-# Co-authored by Claude Code: builds the calibration path in named steps, one file per Brio unit
-# in the profile's intrinsics folder
-def create_logitech_brio_node(context):
-    """Create the Brio with the parameter files and its unit's calibration."""
-    # cameracalibrator's COMMIT writes it there
-    camera_info_file_name = get_camera_info_file_name_of_unit(
-        'brio', get_camera_serial(context, 'brio'))
-    camera_info_url = get_camera_info_url(context, camera_info_file_name)
-    return [Node(
-        package='logitech_brio',
-        executable='logitech_brio',
-        name='logitech_brio_node',
-        output='screen',
-        emulate_tty=True,
-        parameters=[*get_params_file_paths(context),
-                    {'camera_info_url': camera_info_url},
-                    *create_camera_serial_override_parameters(context, 'brio')],
-        remappings=CAMERA_DRIVER_REMAPPINGS['brio'],
-    )]
+def get_camera_namespace(camera_name):
+    """Return the namespace a camera runs in: /cameras/<camera name>."""
+    return f'{CAMERAS_NAMESPACE}/{camera_name}'
 
 
 # Written by Claude Code
-def create_see3cam_cu40_node(context):
-    """Create the See3CAM_CU40 with the parameter files and its unit's calibration."""
-    # In the profile's intrinsics folder like the Brio's, per unit through serial
-    camera_info_file_name = get_camera_info_file_name_of_unit(
-        'cu40', get_camera_serial(context, 'cu40'))
-    camera_info_url = get_camera_info_url(context, camera_info_file_name)
-    return [Node(
-        package='see3cam_cu40',
-        executable='see3cam_cu40',
-        name='see3cam_cu40_node',
-        output='screen',
-        emulate_tty=True,
-        parameters=[*get_params_file_paths(context),
-                    {'camera_info_url': camera_info_url},
-                    *create_camera_serial_override_parameters(context, 'cu40')],
-        remappings=CAMERA_DRIVER_REMAPPINGS['cu40'],
-    )]
+def create_camera_stream_remappings(camera_name):
+    """Return the remappings that point a framework node's camera streams at camera_name."""
+    # Simplification: the framework nodes run in the root namespace, where their relative stream
+    # names would resolve to /image_raw etc. Upgrade (the multi-camera plan): start each node in
+    # its camera's namespace, where they resolve without remappings
+    camera_namespace = get_camera_namespace(camera_name)
+    camera_stream_remappings = []
+    for stream_name in CAMERA_STREAM_NAMES:
+        camera_stream_remappings.append((stream_name, f'{camera_namespace}/{stream_name}'))
+    return camera_stream_remappings
+
+
+# Written by Claude Code
+def get_camera_type_names():
+    """Return the camera types registered in the ament index, sorted."""
+    return sorted(get_resources(CAMERA_RESOURCE_TYPE))
+
+
+# Written by Claude Code
+def read_camera_entry(camera_type):
+    """
+    Return the checked entry of an installed camera type, a dict with every key of the format.
+
+    Raises RuntimeError naming the fix when the type is not installed or its entry is malformed.
+    """
+    entry = _read_ament_index_entry(CAMERA_RESOURCE_TYPE, camera_type, 'camera type',
+                                    get_camera_type_names(), 'templates/par_camera/')
+    error_start_text = (f'[launch_helpers]: the camera entry of {camera_type} '
+                        f'(share/ament_index/resource_index/{CAMERA_RESOURCE_TYPE}/{camera_type})')
+    other_keys = (CAMERA_ENTRY_BODY_FRAME_KEY, CAMERA_ENTRY_STREAMS_KEY,
+                  CAMERA_ENTRY_INTRINSICS_KEY)
+    known_keys = CAMERA_ENTRY_TEXT_KEYS + CAMERA_ENTRY_NAME_KEYS + other_keys
+    unknown_keys = sorted(set(entry) - set(known_keys))
+    if unknown_keys:
+        raise RuntimeError(f'{error_start_text} has unknown keys {unknown_keys}; known: '
+                           f'{list(known_keys)}')
+    for text_key in CAMERA_ENTRY_TEXT_KEYS:
+        if not isinstance(entry.get(text_key), str):
+            raise RuntimeError(f'{error_start_text} needs {text_key} as text')
+    # A package, a file in it and a frame name part, never a path that could point elsewhere
+    for name_key in CAMERA_ENTRY_NAME_KEYS + (CAMERA_ENTRY_BODY_FRAME_KEY,):
+        name_value = entry.get(name_key)
+        if not isinstance(name_value, str) or not PAR_APP_START_NAME_PATTERN.fullmatch(name_value):
+            raise RuntimeError(f'{error_start_text}: {name_key} must be a plain name without a '
+                               f'path, e.g. blackfly.launch.py or link')
+    streams = entry.get(CAMERA_ENTRY_STREAMS_KEY)
+    is_list_of_texts = isinstance(streams, list) and all(
+        isinstance(stream_name, str) for stream_name in streams)
+    if not is_list_of_texts:
+        raise RuntimeError(f'{error_start_text}: {CAMERA_ENTRY_STREAMS_KEY} must be a list of '
+                           f'stream names')
+    unknown_stream_names = sorted(set(streams) - set(CAMERA_STREAM_NAMES))
+    if unknown_stream_names:
+        raise RuntimeError(f'{error_start_text}: unknown {CAMERA_ENTRY_STREAMS_KEY} '
+                           f'{unknown_stream_names}; known: {list(CAMERA_STREAM_NAMES)}')
+    if entry.get(CAMERA_ENTRY_INTRINSICS_KEY) not in CAMERA_INTRINSICS_SOURCES:
+        raise RuntimeError(f'{error_start_text}: {CAMERA_ENTRY_INTRINSICS_KEY} must be one of '
+                           f'{list(CAMERA_INTRINSICS_SOURCES)}')
+
+    checked_entry = {}
+    for known_key in known_keys:
+        checked_entry[known_key] = entry[known_key]
+    checked_entry[CAMERA_ENTRY_STREAMS_KEY] = list(streams)
+    return checked_entry
+
+
+# Written by Claude Code
+def get_camera_body_frame_id(camera_name, camera_entry):
+    """Return the camera's body frame, the child of its mount transform: <name>_<body_frame>."""
+    return f'{camera_name}_{camera_entry[CAMERA_ENTRY_BODY_FRAME_KEY]}'
+
+
+# Written by Claude Code
+def create_camera_actions(context, camera_type):
+    """
+    Create a camera of camera_type from its entry: its launch file and its mount transform.
+
+    The camera runs in /cameras/<camera name>; its name is its type for now.
+    """
+    # Simplification: one camera per run, named after its type, until profiles name their
+    # cameras (multi-camera plan, step 4)
+    camera_name = camera_type
+    camera_entry = read_camera_entry(camera_type)
+    launch_file_path = os.path.join(get_package_share_directory(camera_entry['package']),
+                                    'launch', camera_entry['launch_file'])
+    if not os.path.isfile(launch_file_path):
+        raise RuntimeError(f'[launch_helpers]: the camera type {camera_type} names the launch file '
+                           f'{launch_file_path}, which is not installed: install launch/ in the '
+                           f'setup.py data_files of {camera_entry["package"]} '
+                           f'(templates/par_camera/) and run ./scripts/local_build.sh')
+    serial = get_camera_serial(context, camera_type)
+    camera_info_url = ''
+    if camera_entry[CAMERA_ENTRY_INTRINSICS_KEY] == 'calibratable':
+        camera_info_url = get_camera_info_url(
+            context, get_camera_info_file_name_of_unit(camera_type, serial))
+    camera_launch_arguments = {
+        'namespace': get_camera_namespace(camera_name),
+        'camera_name': camera_name,
+        'serial': serial,
+        'camera_info_url': camera_info_url,
+        'params_files': os.pathsep.join(get_params_file_paths(context)),
+    }
+    return [IncludeLaunchDescription(PythonLaunchDescriptionSource(launch_file_path),
+                                     launch_arguments=camera_launch_arguments.items()),
+            *create_mount_tf_publisher(context, f'{camera_name}_tf_publisher',
+                                       get_camera_body_frame_id(camera_name, camera_entry))]
+
+
+# Written by Claude Code
+def create_camera_launch_arguments():
+    """Create the launch arguments every camera launch file of this package declares."""
+    descriptions = {
+        'namespace': 'Namespace of the camera: its streams are <namespace>/image_raw, ...',
+        'camera_name': 'Prefix of every TF frame the camera publishes: <camera_name>_link, ...',
+        'serial': 'Serial of the unit to open; empty opens the first one found.',
+        'camera_info_url': 'file:// URL of the intrinsics; empty for none.',
+        'params_files': f'Parameter files joined with {os.pathsep!r}, applied in this order.',
+    }
+    launch_arguments = []
+    for argument_name in CAMERA_LAUNCH_ARGUMENT_NAMES:
+        default_value = None
+        # Optional ones, so the file can also be started alone
+        if argument_name in ('serial', 'camera_info_url', 'params_files'):
+            default_value = ''
+        launch_arguments.append(DeclareLaunchArgument(
+            argument_name, default_value=default_value,
+            description=descriptions[argument_name]))
+    return launch_arguments
+
+
+# Written by Claude Code
+def read_camera_launch_arguments(context):
+    """Return the camera launch arguments as a dict; params_files as a list of paths."""
+    camera_launch_argument_values = {}
+    for argument_name in CAMERA_LAUNCH_ARGUMENT_NAMES:
+        camera_launch_argument_values[argument_name] = LaunchConfiguration(
+            argument_name).perform(context)
+    params_files_text = camera_launch_argument_values['params_files']
+    params_file_paths = []
+    if params_files_text:
+        params_file_paths = params_files_text.split(os.pathsep)
+    camera_launch_argument_values['params_files'] = params_file_paths
+    return camera_launch_argument_values
 
 
 # Co-authored by Claude Code: one function for every camera whose driver takes a serial
@@ -618,99 +601,6 @@ def get_camera_info_file_name(context, camera, node_parameters_key, serial_param
 def get_camera_info_file_name_of_unit(camera, serial):
     """Return the intrinsics file name of one unit: camera_info_<camera id>.yaml."""
     return f'camera_info_{get_camera_id(camera, serial)}.yaml'
-
-
-# Co-authored by Claude Code: name, and the parameter files with the profile
-def create_kinect_driver_node(context):
-    """Create the Azure Kinect driver with the parameter files."""
-    # No name override: the driver runs several rclcpp nodes in one process, and name= would
-    # rename all of them
-    return Node(
-        package='azure_kinect_ros_driver',
-        executable='node',
-        output='screen',
-        emulate_tty=True,
-        parameters=[*get_params_file_paths(context),
-                    *create_camera_serial_override_parameters(context, 'kinect')],
-        remappings=CAMERA_DRIVER_REMAPPINGS['kinect'],
-    )
-
-
-# Co-authored by Claude Code: name, and the parameter files with the profile
-def create_realsense_driver_node(context):
-    """Create an Intel RealSense (e.g. D435) with the parameter files, as /camera/realsense."""
-    return Node(
-        package='realsense2_camera',
-        executable='realsense2_camera_node',
-        name='realsense',
-        namespace='/camera',
-        output='screen',
-        emulate_tty=True,
-        # camera_name prefixes the driver's TF frames (realsense_link, ...), which the mount
-        # transform below attaches to, so it is set here and not in params_file
-        parameters=[*get_params_file_paths(context),
-                    {'camera_name': 'realsense'},
-                    *create_camera_serial_override_parameters(context, 'realsense')],
-        remappings=CAMERA_DRIVER_REMAPPINGS['realsense'],
-    )
-
-
-# Co-authored by Claude Code: builds the calibration path in the profile's intrinsics folder,
-# resolves the parameter files, the optical frame transform from create_optical_frame_tf_publisher
-def create_webcam_nodes(context):
-    """Create a generic UVC webcam with v4l2_camera, and its body -> optical frame transform."""
-    # In the profile's intrinsics folder like the Brio's; cameracalibrator's COMMIT writes it
-    # there. Simplification: v4l2_camera exposes no serial, so the ID is just 'webcam' and every
-    # webcam shares one file. Upgrade: key it by the /dev/v4l/by-id/ name of video_device
-    camera_info_url = get_camera_info_url(context,
-                                          get_camera_info_file_name_of_unit('webcam', ''))
-    return [
-        # Settings (device, size, encoding, frame) under /camera/webcam/webcam_node in params_file
-        Node(
-            package='v4l2_camera',
-            executable='v4l2_camera_node',
-            name='webcam_node',
-            namespace='/camera/webcam',
-            output='screen',
-            emulate_tty=True,
-            parameters=[*get_params_file_paths(context),
-                        {'camera_info_url': camera_info_url}],
-            remappings=CAMERA_DRIVER_REMAPPINGS['webcam'],
-        ),
-        create_optical_frame_tf_publisher('webcam'),
-    ]
-
-
-# Written by Claude Code
-def create_blackfly_nodes(context):
-    """Create a FLIR Blackfly S with spinnaker_camera_driver, and its optical frame transform."""
-    # In the profile's intrinsics folder like the Brio's, per unit through serial_number
-    camera_info_file_name = get_camera_info_file_name_of_unit(
-        'blackfly', get_camera_serial(context, 'blackfly'))
-    camera_info_url = get_camera_info_url(context, camera_info_file_name)
-    # The driver maps its ROS parameters onto the camera's settings with this file, which ships
-    # with the driver for the whole Blackfly S series
-    camera_settings_mapping_path = os.path.join(
-        get_package_share_directory('spinnaker_camera_driver'), 'config', 'blackfly_s.yaml')
-    return [
-        Node(
-            package='spinnaker_camera_driver',
-            executable='camera_driver_node',
-            name='blackfly',
-            namespace='/camera',
-            output='screen',
-            emulate_tty=True,
-            # frame_id must match the optical frame transform below, so it is set here and not in
-            # params_file. The driver spells its calibration parameter camerainfo_url
-            parameters=[*get_params_file_paths(context),
-                        {'parameter_file': camera_settings_mapping_path,
-                         'camerainfo_url': camera_info_url,
-                         'frame_id': 'blackfly_optical_frame'},
-                        *create_camera_serial_override_parameters(context, 'blackfly')],
-            remappings=CAMERA_DRIVER_REMAPPINGS['blackfly'],
-        ),
-        create_optical_frame_tf_publisher('blackfly'),
-    ]
 
 
 # Written by Claude Code
@@ -750,67 +640,18 @@ def create_capture_camera_node(context):
     )
 
 
-# Written by Claude Code
-def create_event_camera_nodes(context):
-    """Create an event camera, a renderer of its events as images, and its optical frame."""
-    # TODO: intrinsic calibration. The driver publishes no camera_info and offers no
-    # set_camera_info, so scripts/run_cameracalibrator.sh cannot store a calibration yet:
-    # 1. A node that loads camera_info_event.yaml from FOLDER_PATH_CAMERA_INTRINSICS (as
-    #    camera_info_url, like the other cameras), publishes /camera/camera_info with each image's
-    #    header and serves /camera/set_camera_info. First check whether ROS 2 already ships one;
-    #    otherwise a small node built on camera_info_manager.
-    # 2. A blink source: utils/checkerboard.png full screen on a movable display (not the
-    #    projector, the board needs many poses), alternating with black at a few Hz, slower than
-    #    the renderer's fps. Only the white squares fire, so each rendered image shows the board.
-    #    Not board and inverse: then every square fires, and a slice with two switches is uniform
-    event_camera_actions = []
-    # OpenEB finds plugins that a camera maker ships separately only through this variable.
-    # Without it such a camera fails with "cannot open default camera", which names no cause
-    if not os.environ.get('MV_HAL_PLUGIN_PATH'):
-        event_camera_actions.append(LogInfo(
-            msg='[launch_helpers]: MV_HAL_PLUGIN_PATH is not set: an event camera whose maker '
-                'ships its own OpenEB plugin is not found. Set it in this shell, e.g. for a '
-                'SilkyEvCam: export MV_HAL_PLUGIN_PATH=/usr/lib/CenturyArks/hal/plugins'))
-    # Settings (serial, biases, trigger) under /camera/event in params_file. Publishes the
-    # events only while something subscribes. frame_id must match the optical frame transform
-    # below, so it is set here and not in params_file
-    event_camera_actions.append(Node(
-        package='metavision_driver',
-        executable='driver_node',
-        name='event',
-        namespace='/camera',
-        output='screen',
-        emulate_tty=True,
-        parameters=[*get_params_file_paths(context),
-                    {'frame_id': 'event_optical_frame'}],
-        remappings=CAMERA_DRIVER_REMAPPINGS['event'],
-    ))
-    # Collects the events into the camera images (rate and style under /camera/event_renderer in
-    # params_file). It reads events only while something subscribes to the images, and its
-    # images carry the events' frame_id
-    event_camera_actions.append(Node(
-        package='event_camera_renderer',
-        executable='renderer_node',
-        name='event_renderer',
-        namespace='/camera',
-        output='screen',
-        emulate_tty=True,
-        parameters=get_params_file_paths(context),
-        remappings=CAMERA_DRIVER_REMAPPINGS['event'],
-    ))
-    event_camera_actions.append(create_optical_frame_tf_publisher('event'))
-    return event_camera_actions
-
-
-# Co-authored by Claude Code: one transform for every driver that does not publish it itself
-def create_optical_frame_tf_publisher(camera):
-    """Create the publisher of <camera>_link -> <camera>_optical_frame."""
+# Co-authored by Claude Code: one transform for every driver that does not publish it itself,
+# named after the camera
+def create_optical_frame_tf_publisher(camera_name, namespace):
+    """Create the publisher of <camera_name>_link -> <camera_name>_optical_frame in namespace."""
     # What the Brio node publishes itself: z forward, y down (REP 103), roll -90, yaw -90 deg
     return Node(
         package='tf2_ros',
         executable='static_transform_publisher',
-        name=f'{camera}_optical_tf_publisher',
-        arguments=['--frame-id', f'{camera}_link', '--child-frame-id', f'{camera}_optical_frame',
+        name='optical_tf_publisher',
+        namespace=namespace,
+        arguments=['--frame-id', f'{camera_name}_link',
+                   '--child-frame-id', f'{camera_name}_optical_frame',
                    '--qx', '-0.5', '--qy', '0.5', '--qz', '-0.5', '--qw', '0.5'],
     )
 

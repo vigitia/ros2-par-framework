@@ -32,26 +32,27 @@
     # Publish image_rect_color, needs that calibration.
     undistort_frame: false
 
-# Camera: Generic webcam (camera: webcam), any UVC camera through v4l2_camera.
+# Camera: Generic webcam (camera: webcam), any UVC camera through v4l2_camera, started as
+# /cameras/<camera>/webcam_node by launch/camera_webcam.launch.py. The type's defaults are under /cameras/*/...
+# (every camera of the type); a profile overrides one camera under /cameras/<camera>/... Within one file the later
+# section wins, so a /cameras/*/ section must come before any exact section of the same node.
 # The camera's own controls (exposure, focus, ...) depend on the actual camera. Find available parameters with:
-# ros2 param list /camera/webcam/webcam_node
-/camera/webcam/webcam_node:
+# ros2 param list /cameras/webcam/webcam_node
+/cameras/*/webcam_node:
   ros__parameters:
     # Find it with: v4l2-ctl --list-devices. A /dev/v4l/by-id path stays the same across replugs.
     video_device: /dev/video0
     # Must be a size the camera offers in pixel_format: v4l2-ctl -d <device> --list-formats-ext
     image_size: [640, 480]
     pixel_format: YUYV
-    # Like the Brio's encoding
+    # Like the Brio's encoding. The optical frame (<camera>_optical_frame) and the calibration
+    # (calibration/intrinsics/[<profile>/]camera_info_webcam.yaml below this file) are set by the launch files.
     output_encoding: bgr8
-    # Must match the launch files' webcam_link -> webcam_optical_frame. The calibration is
-    # calibration/intrinsics/[<profile>/]camera_info_webcam.yaml below this file, set by the launch files.
-    camera_frame_id: webcam_optical_frame
 
-# Camera: Intel RealSense, e.g. the D435, through realsense2_camera; the launch files start it as
-# /camera/realsense. It publishes its factory calibration, so it needs no camera_info_<camera>.yaml.
-# More options: ros2 param list /camera/realsense
-/camera/realsense:
+# Camera: Intel RealSense, e.g. the D435, through realsense2_camera; launch/camera_realsense.launch.py starts it as
+# /cameras/<camera>/realsense. It publishes its factory calibration, so it needs no camera_info_<camera>.yaml.
+# More options: ros2 param list /cameras/realsense/realsense
+/cameras/*/realsense:
   ros__parameters:
     # The streams explicitly: newer drivers start only the streams the device marks as default, and the node
     # without rs_launch.py also streams the two infrared images, which nothing in the framework uses.
@@ -65,20 +66,22 @@
       color_profile: 1280x720x30
       # Like the Brio's encoding; the driver's default is RGB8.
       color_format: BGR8
-    # Depth on the colour image's pixel grid, which the framework uses (/camera/depth_registered/image_raw).
+    # Depth on the colour image's pixel grid, which the framework uses (/cameras/<camera>/depth_registered/image_raw).
     align_depth:
       enable: true
 
-# FLIR Blackfly S (camera: blackfly), e.g. the monochrome BFS-U3-23S3M-C, through spinnaker_camera_driver; the
-# launch files start it as /camera/blackfly. A monochrome model publishes mono8 frames. The calibration is
+# FLIR Blackfly S (camera: blackfly), e.g. the monochrome BFS-U3-23S3M-C, through spinnaker_camera_driver;
+# launch/camera_blackfly.launch.py starts it as /cameras/<camera>/blackfly. A monochrome model publishes mono8
+# frames. The calibration is
 # calibration/intrinsics/[<profile>/]camera_info_blackfly_<serial_number>.yaml below this file, set by the launch
 # files.
-# More options: ros2 param list /camera/blackfly. USB3 models need a larger USB buffer than Linux's default
+# More options: ros2 param list /cameras/blackfly/blackfly. USB3 models need a larger USB buffer than Linux's default
 # (usbcore.usbfs_memory_mb, e.g. 1000), otherwise frames are dropped at high frame rates.
 # Write string values in quotes: YAML reads a bare Off as false, which the driver ignores.
-/camera/blackfly:
+/cameras/*/blackfly:
   ros__parameters:
-    # Printed on the camera, shown in SpinView. The driver opens only this camera.
+    # Printed on the camera, shown in SpinView. The driver opens only this camera. Set per unit in a profile, under
+    # /cameras/blackfly/blackfly: the launch files name the unit's intrinsics file after it.
     serial_number: ''  # '22260470', '22260466'
     # The frame interval at frame_rate must be longer than the exposure; the gain (dB) makes up for the short
     # exposure at the cost of noise.
@@ -155,24 +158,24 @@
     # would also saturate the colour pixels. Noise is amplified with it.
     ir_gain: 16.0
 
-# Event camera (camera: event) through metavision_driver, started as /camera/event. It publishes the raw events on
-# /camera/events (event_camera_msgs/EventPacket) only while something subscribes; /camera/event_renderer collects
-# them into the camera images. No camera_info: the driver has no calibration. A SilkyEvCam needs its maker's OpenEB
+# Event camera (camera: event) through metavision_driver, started as /cameras/<camera>/event by
+# launch/camera_event.launch.py. It publishes the raw events on /cameras/<camera>/events (event_camera_msgs/EventPacket)
+# only while something subscribes; /cameras/<camera>/event_renderer collects them into the camera images. No camera_info: the driver has no calibration. A SilkyEvCam needs its maker's OpenEB
 # plugin, in the version of the driver's bundled OpenEB, and MV_HAL_PLUGIN_PATH set in the shell (README). Needs
 # USB 3: on USB 2, changing a bias while events stream can abort the driver, and the camera then only opens again
-# after replugging. More options: ros2 param list /camera/event.
-/camera/event:
+# after replugging. More options: ros2 param list /cameras/event/event.
+/cameras/*/event:
   ros__parameters:
     # The camera to open; empty opens the first one found. The driver logs the serial at start.
     serial: ''
     # Biases (contrast thresholds, filters), left out for the camera's defaults. Ranges depend on the sensor:
-    # ros2 param describe /camera/event <bias>, e.g. on a Gen3.1 sensor bias_diff_on 374-499, bias_diff_off
+    # ros2 param describe /cameras/event/event <bias>, e.g. on a Gen3.1 sensor bias_diff_on 374-499, bias_diff_off
     # 100-234. They can also be changed while running, with ros2 param set.
     # bias_diff_on: 400
     # bias_diff_off: 200
 
 # Turns the event camera's events into its camera images.
-/camera/event_renderer:
+/cameras/*/event_renderer:
   ros__parameters:
     # Images per second; each collects the events since the one before.
     fps: 25.0
@@ -198,12 +201,12 @@ hand_landmarks_node:
     # true: detect hands on the infrared frames instead of the colour frames; projected light on the hands does not
     # show in infrared. Only the chosen frames are used: a camera without infrared publishes no hands. With a depth
     # camera (use_depth, set by par.launch.py) the depth sensor's own infrared and depth
-    # (/camera/depth_sensor/..., e.g. the Kinect's), with the landmarks moved into the colour image; otherwise the
-    # infrared on the colour grid (/camera/ir/image_raw, e.g. the CU40's).
+    # (the camera's depth_sensor/..., e.g. the Kinect's), with the landmarks moved into the colour image; otherwise the
+    # infrared on the colour grid (the camera's ir/image_raw, e.g. the CU40's).
     use_ir: false
 
-# Markers in /camera/image_raw (or its compressed variant), published on /fiducials.
-# use_compressed and use_depth follow from the camera: par.launch.py sets them.
+# Markers in the camera's image_raw (or its compressed variant), published on /fiducials.
+# use_compressed and use_depth follow from the streams the camera offers: par.launch.py sets them.
 fiducials_detector_node:
   ros__parameters:
     # aruco or apriltag
@@ -431,8 +434,9 @@ rendering_manager_bridge_node:
     rotation.z: 0.0
     rotation.w: 0.7071068
 
-# Azure Kinect driver (the *_kinect launch files). The node sets this name in code.
-k4a_ros_device_node:
+# Azure Kinect driver, started in /cameras/<camera> by launch/camera_kinect.launch.py. The node sets this name in
+# code. Its frames are prefixed with the camera's name (tf_prefix, set by the launch file): kinect_camera_base, ...
+/cameras/*/k4a_ros_device_node:
   ros__parameters:
     # Serial number of the Kinect to open. Empty: the first one found.
     sensor_sn: ""
@@ -457,7 +461,7 @@ k4a_ros_device_node:
     rgb_point_cloud: false
     point_cloud_in_depth_frame: true
 
-# Pose of the Kinect body frame (camera_base, x forward, z up) in world, in metres.
+# Pose of the Kinect body frame (kinect_camera_base, x forward, z up) in world, in metres.
 # PLACEHOLDER -- DO NOT EDIT, see /brio_tf_publisher. Front glass to table 1.0 m, looking straight down.
 # The real pose is calibration/extrinsics/camera_pose_kinect.yaml below this file, measured by
 # camera_pose_calibrator (camera_pose_calibration_kinect.launch.py): height and tilt from the

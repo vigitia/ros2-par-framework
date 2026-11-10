@@ -18,14 +18,17 @@ from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction, Shutdown
 from launch_ros.actions import Node
-from par_framework_core.launch_helpers import (create_camera_stream_remappings,
-                                               create_kinect_driver_node,
+from par_framework_core.launch_helpers import (create_camera_actions,
+                                               create_camera_stream_remappings,
                                                create_profile_launch_argument,
+                                               get_camera_body_frame_id,
                                                get_extrinsics_relative_path,
                                                get_path_in_config_folder, POSE_ROTATION_KEYS,
-                                               read_merged_parameters)
+                                               read_camera_entry, read_merged_parameters)
 
 PACKAGE_NAME = 'par_framework_core'
+# The camera type this launch measures; the camera's name is its type for now
+KINECT_CAMERA_TYPE = 'kinect'
 
 
 # Co-authored by Claude Code: the pose file is named after the Kinect's ID
@@ -36,7 +39,7 @@ def launch_setup(context):
     camera_pose_relative_path = get_extrinsics_relative_path(context, 'camera_pose', 'kinect')
     camera_pose_file_path = get_path_in_config_folder(camera_pose_relative_path)
     return [
-        create_kinect_driver_node(context),
+        *create_camera_actions(context, KINECT_CAMERA_TYPE),
         Node(
             package='camera_pose_calibrator',
             executable='camera_pose_calibrator',
@@ -45,12 +48,13 @@ def launch_setup(context):
             emulate_tty=True,
             parameters=[{
                 'camera_pose_file': camera_pose_file_path,
-                'base_frame': 'camera_base',
+                'base_frame': get_camera_body_frame_id(KINECT_CAMERA_TYPE,
+                                                       read_camera_entry(KINECT_CAMERA_TYPE)),
                 'placeholder_rotation': placeholder_rotation,
             }],
-            # The driver is remapped onto /camera/..., where these remappings point the
+            # The camera publishes in /cameras/kinect, where these remappings point the
             # calibrator's camera streams
-            remappings=create_camera_stream_remappings(),
+            remappings=create_camera_stream_remappings(KINECT_CAMERA_TYPE),
             # Stored or failed: the camera is not needed any longer
             on_exit=Shutdown(reason='camera pose calibration finished'),
         ),

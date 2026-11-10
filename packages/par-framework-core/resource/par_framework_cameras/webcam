@@ -1,0 +1,10 @@
+# Written by Claude Code
+# Camera type entry in the ament index (resource type par_framework_cameras); format:
+# templates/par_camera/ of ros2-par-framework. The file name is the camera type.
+display_name: Webcam
+description: Any UVC camera through v4l2_camera.
+package: par_framework_core
+launch_file: camera_webcam.launch.py
+body_frame: link
+streams: [image_raw, camera_info, set_camera_info]
+intrinsics: calibratable

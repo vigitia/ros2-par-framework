@@ -2,9 +2,11 @@
 """
 Bring up the PAR framework as the parameter file's par_launch section describes it.
 
-The framework's one entry point for every camera. par_launch names the camera (brio, kinect,
-realsense, webcam, blackfly, cu40 or event) and switches each node on or off. With another
-parameter file:
+The framework's one entry point for every camera. par_launch names the camera, one of the camera
+types installed in the ament index (par_framework_cameras, e.g. webcam, blackfly, kinect), and
+switches each node on or off. The camera runs in /cameras/<camera>, e.g.
+/cameras/blackfly/image_raw.
+With another parameter file:
 
     ros2 launch par_framework_core par.launch.py params_file:=/path/to/<file>.yaml
 
@@ -13,10 +15,11 @@ physical setup, which also gets its own camera pose and projection calibration i
 config/calibration/extrinsics/<name>/.
 
 Each of them can be overridden for one run, e.g. camera:=kinect rviz:=true hand_landmarks:=false;
-an argument left empty keeps the parameter file's value. With a depth camera (kinect, realsense)
-the detectors also use its depth. camera_only:=true starts just the camera and its mount transform,
-e.g. for a preview or a calibration. An event camera (event) delivers its events collected into
-images, and the raw events on /camera/events; it has no calibration. Camera calibrations are
+an argument left empty keeps the parameter file's value. With a camera that offers depth on its
+colour image's grid (depth_registered in its entry's streams) the detectors also use its depth.
+camera_only:=true starts just the camera and its mount transform, e.g. for a preview or a
+calibration. An event camera (event) delivers its events collected into images, and the raw events
+on /cameras/event/events; it has no calibration. Camera calibrations are
 config/calibration/intrinsics/<profile>/camera_info_<camera>.yaml (a Brio or Blackfly with its
 serial set: camera_info_<camera>_<serial>.yaml), each profile's own; without profile:= the shared
 config/calibration/intrinsics/ folder.
@@ -45,7 +48,7 @@ from launch.actions import (DeclareLaunchArgument, ExecuteProcess, GroupAction,
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node, SetRemap
-from par_framework_core.launch_helpers import (add_required_sensor_nodes, create_camera_nodes,
+from par_framework_core.launch_helpers import (add_required_sensor_nodes, create_camera_actions,
                                                create_camera_serial_launch_argument,
                                                create_camera_stream_remappings,
                                                create_capture_camera_node,
@@ -54,8 +57,10 @@ from par_framework_core.launch_helpers import (add_required_sensor_nodes, create
                                                create_projector_display_id_launch_argument,
                                                get_chosen_camera, get_params_file_paths,
                                                get_profile_name, get_projector_display_id,
+                                               get_camera_namespace,
                                                get_sensor_node_package_names,
                                                PROJECTOR_APP_NONE,
+                                               read_camera_entry,
                                                read_launch_section, read_par_app_entry,
                                                RENDERING_MANAGER_APP_NAME,
                                                SENSOR_NODE_RESOURCE_TYPE)
@@ -65,26 +70,24 @@ PACKAGE_NAME = 'par_framework_core'
 # per installed sensor processing node (get_sensor_node_package_names, from the ament index) and
 # these
 NON_SENSOR_NODE_LAUNCH_SWITCH_NAMES = ('rviz', 'capture_camera')
-# Per camera: parameter overrides for each detector. Every camera
-# publishes on the same /camera/... topics (launch_helpers.CAMERA_DRIVER_REMAPPINGS); the overrides
-# cover what the cameras offer differently.
-DEPTH_CAMERA_OVERRIDES = {
-    'object_detector': {'use_depth': True},
-    'fiducials_detector': {'use_depth': True},
-    'hand_landmarks': {'use_depth': True},
+# Co-authored by Claude Code: per stream a camera may offer (its entry's streams), the parameter
+# that makes a detector use it, and the detectors that have that parameter. A camera passing its
+# own JPEGs through (image_raw/compressed) lets the detectors decode them themselves, so its
+# driver only decodes for raw subscribers; depth on the colour grid adds the third dimension.
+# Simplification: the detectors are listed here; upgrade: each sensor node's entry names the
+# streams it can use
+DETECTOR_PARAMETER_BY_CAMERA_STREAM = {
+    'image_raw/compressed': ('use_compressed',
+                             ('object_detector', 'fiducials_detector', 'page_locator')),
+    'depth_registered/image_raw': ('use_depth',
+                                   ('object_detector', 'fiducials_detector', 'hand_landmarks')),
 }
-CAMERA_DETECTOR_PARAMETER_OVERRIDES = {
-    # The Brio's driver passes the camera's own JPEGs through on /camera/image_raw/compressed:
-    # object_detector, fiducials_detector and page_locator's debug preview decode them
-    # themselves, so the driver only decodes for raw subscribers
-    'brio': {'object_detector': {'use_compressed': True},
-             'fiducials_detector': {'use_compressed': True},
-             'page_locator': {'use_compressed': True}},
-    'kinect': DEPTH_CAMERA_OVERRIDES,
-    'realsense': DEPTH_CAMERA_OVERRIDES,
-}
-# One RViz configuration for every camera, since they all publish on the same topics
+# One RViz configuration for every camera. The camera topics its displays name are remapped onto
+# the running camera: (name in the configuration, name relative to the camera's namespace)
 RVIZ_CONFIG_FILE_NAME = 'par_framework.rviz'
+RVIZ_CAMERA_TOPIC_NAMES = (('/camera/image_raw', 'image_raw'),
+                           ('/camera/camera_info', 'camera_info'),
+                           ('/points2', 'points2'))
 # The rendering manager is a Rust program in the repo of its ROS bridge, built by cargo
 # (scripts/local_build.sh)
 RENDERING_MANAGER_BRIDGE_PACKAGE_NAME = 'rendering_manager_bridge'
@@ -109,7 +112,7 @@ def get_rendering_manager_binary_path():
 
 
 # Co-authored by Claude Code: the display comes from par_launch.projector_display_id
-def create_rendering_manager_actions(params_file_paths, projector_display_id):
+def create_rendering_manager_actions(params_file_paths, projector_display_id, camera_name):
     """Create the rendering manager, fullscreen on the projector, and its ROS bridge."""
     if not has_resource('packages', RENDERING_MANAGER_BRIDGE_PACKAGE_NAME):
         return [LogInfo(msg='[par.launch]: rendering_manager is not installed: add '
@@ -144,7 +147,7 @@ def create_rendering_manager_actions(params_file_paths, projector_display_id):
              output='screen',
              emulate_tty=True,
              parameters=bridge_parameters,
-             remappings=create_camera_stream_remappings()),
+             remappings=create_camera_stream_remappings(camera_name)),
     ]
 
 
@@ -159,7 +162,7 @@ def get_projector_app_name(context, launch_section):
 
 # Written by Claude Code
 def create_par_app_actions(context, app_package_name, par_app_entry, params_file_paths,
-                           projector_display_id, debug_override):
+                           projector_display_id, debug_override, camera_name):
     """Start a PAR app from its ament index entry: its executable as a node, or its launch file."""
     if par_app_entry['executable'] is not None:
         app_node_parameters = list(params_file_paths)
@@ -174,7 +177,7 @@ def create_par_app_actions(context, app_package_name, par_app_entry, params_file
                      output='screen',
                      emulate_tty=True,
                      parameters=app_node_parameters,
-                     remappings=create_camera_stream_remappings())]
+                     remappings=create_camera_stream_remappings(camera_name))]
 
     launch_file_path = os.path.join(get_package_share_directory(app_package_name), 'launch',
                                     par_app_entry['launch_file'])
@@ -191,7 +194,7 @@ def create_par_app_actions(context, app_package_name, par_app_entry, params_file
     }
     # The remappings reach every node the app's launch file starts
     camera_stream_remap_actions = []
-    for stream_name, camera_topic_name in create_camera_stream_remappings():
+    for stream_name, camera_topic_name in create_camera_stream_remappings(camera_name):
         camera_stream_remap_actions.append(SetRemap(src=stream_name, dst=camera_topic_name))
     return [GroupAction([
         *camera_stream_remap_actions,
@@ -263,7 +266,7 @@ def launch_setup(context):
             return launch_section.get(switch, False)
         return switch_value
 
-    launch_actions = create_camera_nodes(context, camera)
+    launch_actions = create_camera_actions(context, camera)
     if LaunchConfiguration('camera_only').perform(context) == 'true':
         return launch_actions
 
@@ -287,7 +290,7 @@ def launch_setup(context):
             output='screen',
             emulate_tty=True,
             parameters=node_parameters,
-            remappings=create_camera_stream_remappings(),
+            remappings=create_camera_stream_remappings(camera),
         )
 
     # A node that reads another one's output (required_sensor_nodes, e.g. page_locator reads
@@ -296,9 +299,13 @@ def launch_setup(context):
     for sensor_node_name in sensor_node_names:
         if is_enabled(sensor_node_name):
             switched_on_sensor_node_names.append(sensor_node_name)
+    camera_stream_names = read_camera_entry(camera)['streams']
     for sensor_node_name in add_required_sensor_nodes(switched_on_sensor_node_names):
-        camera_overrides = CAMERA_DETECTOR_PARAMETER_OVERRIDES.get(camera, {})
-        sensor_node_overrides = camera_overrides.get(sensor_node_name)
+        sensor_node_overrides = {}
+        for stream_name, (parameter_name, detector_names) in (
+                DETECTOR_PARAMETER_BY_CAMERA_STREAM.items()):
+            if stream_name in camera_stream_names and sensor_node_name in detector_names:
+                sensor_node_overrides[parameter_name] = True
         launch_actions.append(create_framework_node(sensor_node_name, sensor_node_overrides))
     launch_actions += create_uninstalled_switch_messages(launch_section, launch_switch_names)
 
@@ -315,18 +322,24 @@ def launch_setup(context):
     if is_par_app:
         launch_actions += create_par_app_actions(context, projector_app_name, par_app_entry,
                                                  params_file_paths, projector_display_id,
-                                                 debug_override)
+                                                 debug_override, camera)
     elif projector_app_name == RENDERING_MANAGER_APP_NAME:
-        launch_actions += create_rendering_manager_actions(params_file_paths, projector_display_id)
+        launch_actions += create_rendering_manager_actions(params_file_paths, projector_display_id,
+                                                           camera)
 
     if is_enabled('rviz'):
         launch_actions.append(create_framework_node('rviz_bridge'))
         rviz_config_path = os.path.join(get_package_share_directory(PACKAGE_NAME), 'config',
                                         'rviz', RVIZ_CONFIG_FILE_NAME)
+        rviz_remappings = []
+        for configured_topic_name, camera_topic_name in RVIZ_CAMERA_TOPIC_NAMES:
+            rviz_remappings.append((configured_topic_name,
+                                    f'{get_camera_namespace(camera)}/{camera_topic_name}'))
         launch_actions.append(Node(
             package='rviz2',
             executable='rviz2',
             arguments=['-d', rviz_config_path],
+            remappings=rviz_remappings,
         ))
     return launch_actions
 
@@ -354,8 +367,8 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'camera',
             default_value='',
-            description='brio, kinect, realsense, webcam, blackfly, cu40 or event. Empty uses '
-                        'par_launch.camera from params_file.'),
+            description='Camera type, one installed in the ament index (par_framework_cameras), '
+                        'e.g. webcam or blackfly. Empty uses par_launch.camera from params_file.'),
         DeclareLaunchArgument(
             'camera_only',
             default_value='false',

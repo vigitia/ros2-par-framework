@@ -1,0 +1,10 @@
+# Written by Claude Code
+# Camera type entry in the ament index (resource type par_framework_cameras); format:
+# templates/par_camera/ of ros2-par-framework. The file name is the camera type.
+display_name: Intel RealSense
+description: Depth camera such as the D435 through realsense2_camera, with its factory calibration.
+package: par_framework_core
+launch_file: camera_realsense.launch.py
+body_frame: link
+streams: [image_raw, camera_info, depth_registered/image_raw]
+intrinsics: factory

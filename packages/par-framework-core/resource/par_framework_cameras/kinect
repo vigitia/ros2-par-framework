@@ -1,0 +1,12 @@
+# Written by Claude Code
+# Camera type entry in the ament index (resource type par_framework_cameras); format:
+# templates/par_camera/ of ros2-par-framework. The file name is the camera type.
+display_name: Azure Kinect
+description: Depth camera through azure_kinect_ros_driver, with its factory calibration.
+package: par_framework_core
+launch_file: camera_kinect.launch.py
+# The driver's own body frame, x forward and z up
+body_frame: camera_base
+streams: [image_raw, camera_info, depth_registered/image_raw, ir/image_raw,
+          depth_sensor/ir/image_raw, depth_sensor/depth/image_raw, depth_sensor/camera_info]
+intrinsics: factory
