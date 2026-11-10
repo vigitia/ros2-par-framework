@@ -15,7 +15,8 @@ file instead (e.g. `blackfly`, `kinect` in `packages/par-framework-core/`).
 
 ## What the framework does with it
 
-For a camera of this type with the name `<camera>` (the type itself, until profiles name their cameras), core:
+For a camera of this type that a profile names `<camera>` (`par_launch.cameras: {<camera>: '<type>:<serial>'}`;
+`camera:=<type>[:<serial>]` names it after its type), core:
 
 1. reads the entry (`launch_helpers.read_camera_entry`, which checks every key and fails with a message naming the
    fix);

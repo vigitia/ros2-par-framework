@@ -4421,3 +4421,33 @@ the nodes stopped after opening; frames and streams not seen yet).
 
 **Alternatives considered:** core shipping the entries for its own drivers too (against the rule that a package
 useful outside the framework brings its own registration).
+
+## 2026-11-10: cameras named in the profile, every camera started (multi-camera step 4)
+
+**What changed:** `par_launch.cameras` maps each camera's name to its unit, `'<type>'` or `'<type>:<serial>'`, e.g.
+`{overhead: 'blackfly:22260470', capture: 'blackfly:25290614'}` (`launch_helpers.read_profile_cameras`, checked
+with messages naming the fix; the last parameter file that sets it sets all cameras, so a profile's list replaces
+`par_setup.yaml`'s default `{kinect: kinect}` instead of being merged with it). `par.launch.py` starts every camera
+in `/cameras/<name>`; the framework nodes, the projection calibration server and RViz use the first one (the main
+camera). `camera:=` starts one camera: a name of the list, or `<type>[:<serial>]` for a unit no profile names
+(named after its type). The calibration launch files measure one camera (`get_camera_to_calibrate`, `camera:=`
+among several); the depth pose launch works for any camera offering `depth_registered/image_raw`. Extrinsics
+files and placeholder poses are per camera name (`camera_pose_<name>.yaml`, `/<name>_tf_publisher`), intrinsics stay
+per unit (`camera_info_<type>_<serial>.yaml`). Removed: `par_launch.camera`, `additional_cameras`, `capture_camera`
+(refused with a message), `camera_serial:=`, `CAMERA_SERIAL_SOURCE_BY_CAMERA` (the serial goes to the camera's
+launch file, which alone knows the driver's parameter name), `create_capture_camera_node` and its section. Every
+Blackfly uses `config/blackfly_s_software_trigger.yaml` (the driver's mapping plus a software trigger), so a camera
+in trigger mode is an ordinary camera whose own section switches the trigger on (example in `par_setup.yaml`).
+
+**Why:** step 4 of the multi-camera plan, with cameras named by role as ROS 2 robots name their sensors: a
+replaced unit keeps its name, topics, pose and projection mapping; only its intrinsics belong to the unit. Starting
+every camera already here (planned for a later step) keeps the capture camera working once its special case is
+gone. Checked with a scratch profile and both Blackflys: two namespaces, two TF chains, separate `set_camera_info`
+services, the detectors on the main camera, and one frame per software trigger on the second camera (0 Hz between
+triggers, the main camera at its full rate); the camera choice and the error messages with a few profiles.
+
+**Alternatives considered:** a list of `'<name>=<type>:<serial>'` texts (replaced as a whole by ROS's merge, but
+harder to read and write); no default camera in `par_setup.yaml` (a launch without profile would need `camera:=`);
+a fallback from `/<name>_tf_publisher` to the type's placeholder (a camera without its own pose would silently
+share another's); the capture camera's own mapping file chosen per camera (needs the launch file to read the
+parameter files; the trigger mapping is harmless for freely running cameras).

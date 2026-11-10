@@ -2,11 +2,10 @@
 """
 Bring up the PAR framework as the parameter file's par_launch section describes it.
 
-The framework's one entry point for every camera. par_launch names the camera, one of the camera
-types installed in the ament index (par_framework_cameras, e.g. webcam, blackfly, kinect), and
-switches each node on or off. The camera runs in /cameras/<camera>, e.g.
-/cameras/blackfly/image_raw.
-With another parameter file:
+The framework's one entry point for every camera. par_launch.cameras names the setup's cameras,
+each with its unit, e.g. {overhead: 'blackfly:22260470'} (camera types are installed in the ament
+index, par_framework_cameras), and par_launch switches each node on or off. Every camera runs in
+/cameras/<name>, e.g. /cameras/overhead/image_raw. With another parameter file:
 
     ros2 launch par_framework_core par.launch.py params_file:=/path/to/<file>.yaml
 
@@ -15,14 +14,15 @@ physical setup, which also gets its own camera pose and projection calibration i
 config/calibration/extrinsics/<name>/.
 
 Each of them can be overridden for one run, e.g. camera:=kinect rviz:=true hand_landmarks:=false;
-an argument left empty keeps the parameter file's value. With a camera that offers depth on its
-colour image's grid (depth_registered in its entry's streams) the detectors also use its depth.
-camera_only:=true starts just the camera and its mount transform, e.g. for a preview or a
-calibration. An event camera (event) delivers its events collected into images, and the raw events
-on /cameras/event/events; it has no calibration. Camera calibrations are
-config/calibration/intrinsics/<profile>/camera_info_<camera>.yaml (a Brio or Blackfly with its
-serial set: camera_info_<camera>_<serial>.yaml), each profile's own; without profile:= the shared
-config/calibration/intrinsics/ folder.
+an argument left empty keeps the parameter file's value. camera:= starts one camera instead of all:
+a name of par_launch.cameras, or <type>[:<serial>] for a unit the profile does not name. The
+framework nodes, the projection calibration and RViz use the first camera (the main camera). With
+a camera that offers depth on its colour image's grid (depth_registered in its entry's streams)
+the detectors also use its depth. camera_only:=true starts just the cameras and their mount
+transforms, e.g. for a preview or a calibration. An event camera (event) delivers its events
+collected into images, and the raw events on /cameras/<name>/events; it has no calibration. Camera
+intrinsics are config/calibration/intrinsics/<profile>/camera_info_<type>[_<serial>].yaml, per
+unit; without profile:= the shared config/calibration/intrinsics/ folder.
 
 debug:=true turns on the debug windows of every started node that has one, e.g. for testing
 gestures: camera:=kinect hand_landmarks:=true gesture_detector:=true debug:=true.
@@ -33,9 +33,8 @@ index under par_framework_apps, see templates/par_app/; the framework nodes it r
 started too), or rendering_manager, the Wayland compositor whose ROS bridge shows one app on every
 detected page.
 
-capture_camera:=true also starts a second Blackfly S as /capture_camera/blackfly in software
-trigger mode, for single high-resolution frames on request (see /capture_camera/blackfly in
-par_setup.yaml); it needs its serial_number there or in the profile.
+A camera taking single high-resolution frames on request (e.g. a Blackfly S in software trigger
+mode, see par_setup.yaml) is an ordinary camera of par_launch.cameras with its own settings.
 """
 
 import os
@@ -49,13 +48,12 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node, SetRemap
 from par_framework_core.launch_helpers import (add_required_sensor_nodes, create_camera_actions,
-                                               create_camera_serial_launch_argument,
+                                               create_camera_choice_launch_argument,
                                                create_camera_stream_remappings,
-                                               create_capture_camera_node,
                                                create_profile_launch_argument,
                                                create_projection_calibration_server_node,
                                                create_projector_display_id_launch_argument,
-                                               get_chosen_camera, get_params_file_paths,
+                                               get_cameras_to_start, get_params_file_paths,
                                                get_profile_name, get_projector_display_id,
                                                get_camera_namespace,
                                                get_sensor_node_package_names,
@@ -69,7 +67,7 @@ PACKAGE_NAME = 'par_framework_core'
 # The node switches of par_launch, each also a launch argument that overrides it for one run: one
 # per installed sensor processing node (get_sensor_node_package_names, from the ament index) and
 # these
-NON_SENSOR_NODE_LAUNCH_SWITCH_NAMES = ('rviz', 'capture_camera')
+NON_SENSOR_NODE_LAUNCH_SWITCH_NAMES = ('rviz',)
 # Co-authored by Claude Code: per stream a camera may offer (its entry's streams), the parameter
 # that makes a detector use it, and the detectors that have that parameter. A camera passing its
 # own JPEGs through (image_raw/compressed) lets the detectors decode them themselves, so its
@@ -218,12 +216,17 @@ def create_uninstalled_switch_messages(launch_section, launch_switch_names):
     return uninstalled_switch_messages
 
 
-# Co-authored by Claude Code: starts the capture camera, the projector app and the sensor
-# processing nodes registered in the ament index
+# Co-authored by Claude Code: starts every camera of the profile, the projector app and the
+# sensor processing nodes registered in the ament index
 def launch_setup(context):
     params_file_paths = get_params_file_paths(context)
     launch_section = read_launch_section(context)
-    camera = get_chosen_camera(context)
+    cameras_to_start = get_cameras_to_start(context)
+    # Simplification: every framework node, the projection calibration and RViz use the first
+    # camera. Upgrade (multi-camera plan, steps 7-9): a calibration server per camera, sensor nodes
+    # run on the cameras the profile names, apps bind their inputs to cameras
+    camera = cameras_to_start[0].camera_name
+    camera_type = cameras_to_start[0].camera_type
 
     def read_true_false_argument(argument_name):
         """Return True or False from a true/false launch argument, None when it is left empty."""
@@ -266,13 +269,14 @@ def launch_setup(context):
             return launch_section.get(switch, False)
         return switch_value
 
-    launch_actions = create_camera_actions(context, camera)
+    launch_actions = []
+    for camera_to_start in cameras_to_start:
+        launch_actions += create_camera_actions(context, camera_to_start)
     if LaunchConfiguration('camera_only').perform(context) == 'true':
         return launch_actions
-
-    # A second camera next to the main one, for single high-resolution frames on request
-    if is_enabled('capture_camera'):
-        launch_actions.append(create_capture_camera_node(context))
+    if len(cameras_to_start) > 1:
+        launch_actions.append(LogInfo(msg=f'[par.launch]: the framework nodes use the main '
+                                          f'camera {camera} (the first of par_launch.cameras)'))
 
     # Set for every framework node; nodes without a debug parameter ignore it
     debug_override = read_true_false_argument('debug')
@@ -299,7 +303,7 @@ def launch_setup(context):
     for sensor_node_name in sensor_node_names:
         if is_enabled(sensor_node_name):
             switched_on_sensor_node_names.append(sensor_node_name)
-    camera_stream_names = read_camera_entry(camera)['streams']
+    camera_stream_names = read_camera_entry(camera_type)['streams']
     for sensor_node_name in add_required_sensor_nodes(switched_on_sensor_node_names):
         sensor_node_overrides = {}
         for stream_name, (parameter_name, detector_names) in (
@@ -363,16 +367,11 @@ def generate_launch_description():
             description='Parameter file describing this physical PAR setup, with a par_launch '
                         'section.'),
         create_profile_launch_argument(),
-        create_camera_serial_launch_argument(),
-        DeclareLaunchArgument(
-            'camera',
-            default_value='',
-            description='Camera type, one installed in the ament index (par_framework_cameras), '
-                        'e.g. webcam or blackfly. Empty uses par_launch.camera from params_file.'),
+        create_camera_choice_launch_argument(),
         DeclareLaunchArgument(
             'camera_only',
             default_value='false',
-            description='true: start only the camera and its mount transform.'),
+            description='true: start only the cameras and their mount transforms.'),
         *switch_arguments,
         DeclareLaunchArgument(
             'projector_app',

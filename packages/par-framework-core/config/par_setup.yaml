@@ -81,9 +81,6 @@
 # Write string values in quotes: YAML reads a bare Off as false, which the driver ignores.
 /cameras/*/blackfly:
   ros__parameters:
-    # Printed on the camera, shown in SpinView. The driver opens only this camera. Set per unit in a profile, under
-    # /cameras/blackfly/blackfly: the launch files name the unit's intrinsics file after it.
-    serial_number: ''  # '22260470', '22260466'
     # The frame interval at frame_rate must be longer than the exposure; the gain (dB) makes up for the short
     # exposure at the cost of noise.
     exposure_auto: 'Off'
@@ -108,28 +105,27 @@
     image_height: 1200
 
 # Added by Claude Code:
-# Capture camera (par_launch capture_camera): a second FLIR Blackfly S in software trigger mode, started as
-# /capture_camera/blackfly next to the main camera and not remapped onto /camera/..., so its frames stay on
-# /capture_camera/blackfly/image_raw. It sends no frames by itself: every
-#   ros2 param set /capture_camera/blackfly trigger_software true
-# makes it take one (config/blackfly_s_software_trigger.yaml maps that command). Subscribe RELIABLE: a best-effort
-# subscriber can lose a whole full-resolution frame, and no other follows. After a USB reconnect the driver keeps
-# running but the camera is back on its power-on settings (e.g. Bayer frames): restart the driver.
-# The calibration is calibration/intrinsics/[<profile>/]camera_info_blackfly_<serial_number>.yaml, as for the
-# main Blackfly.
-/capture_camera/blackfly:
-  ros__parameters:
-    # Required: without it the driver would open whichever Blackfly it finds first, possibly the main camera.
-    serial_number: ''
-    trigger_selector: 'FrameStart'
-    trigger_source: 'Software'
-    trigger_mode: 'On'
-    # In trigger mode the trigger decides when a frame is taken, not the frame rate
-    frame_rate_enable: false
-    # The driver restarts streaming when its last frame is older than this (s). Captures can be minutes apart, and a
-    # restart between them can lose the next trigger, so effectively never (one day).
-    acquisition_timeout: 86400.0
-    buffer_queue_size: 1
+# A Blackfly in software trigger mode, e.g. a camera that takes single high-resolution frames on request, is an
+# ordinary camera of par_launch.cameras whose own section switches the trigger on. It sends no frames by itself:
+# every
+#   ros2 param set /cameras/<camera>/blackfly trigger_software true
+# makes it take one (config/blackfly_s_software_trigger.yaml, which every Blackfly uses, maps that command).
+# Subscribe RELIABLE: a best-effort subscriber can lose a whole full-resolution frame, and no other follows. It
+# gets the defaults above too, so its section also sets its own image size and exposure. After a USB reconnect the
+# driver keeps running but the camera is back on its power-on settings (e.g. Bayer frames): restart the driver.
+# Example section in a profile, for a camera named capture:
+# /cameras/capture/blackfly:
+#   ros__parameters:
+#     trigger_selector: 'FrameStart'
+#     trigger_source: 'Software'
+#     trigger_mode: 'On'
+#     # In trigger mode the trigger decides when a frame is taken, not the frame rate
+#     frame_rate_enable: false
+#     # The driver restarts streaming when its last frame is older than this (s). Captures can be minutes apart,
+#     # and a restart between them can lose the next trigger, so effectively never (one day).
+#     acquisition_timeout: 86400.0
+#     image_width: 4000
+#     image_height: 3000
 
 # e-con See3CAM_CU40 RGB-IR camera (camera: cu40) through see3cam_cu40, started as /cameras/<camera>/see3cam_cu40_node
 # by that package's launch file. It also publishes its infrared image, on the colour image's pixel grid
@@ -478,13 +474,19 @@ rendering_manager_bridge_node:
     rotation.z: 0.0
     rotation.w: 0.7071068
 
-# Which camera and nodes par.launch.py starts; launch arguments override it for one run. No node has
+# Which cameras and nodes par.launch.py starts; launch arguments override it for one run. No node has
 # this name, so the nodes ignore it. One switch per node instead of a list: every node parses this whole file,
 # and an empty list has no type a node could read.
 par_launch:
   ros__parameters:
-    # brio, kinect, realsense, webcam, blackfly, cu40 or event
-    camera: kinect
+    # Every camera of the setup: its name (lower case, digits and _) and its unit, '<type>' or '<type>:<serial>',
+    # with a camera type installed in the ament index (ament_index par_framework_cameras), e.g.
+    #   cameras: {overhead: 'blackfly:22260470', capture: 'blackfly:25290614'}
+    # The name makes its namespace (/cameras/<name>), frames (<name>_link, ...), placeholder pose
+    # (/<name>_tf_publisher) and extrinsics files; the unit makes its intrinsics file. The first camera is the main
+    # camera the framework nodes use. A profile's cameras replace these instead of being merged with them.
+    cameras:
+      kinect: kinect
     object_detector: false
     fiducials_detector: false
     hand_landmarks: false
@@ -512,6 +514,3 @@ par_launch:
     # display mode the projector was chosen with (projector_width_px, projector_height_px, projector_refresh_rate_hz),
     # so the wizard warns when it changed and the projector calibration may no longer fit
     projector_display_id: 2
-    # Second FLIR Blackfly S next to the main camera, which takes single high-resolution frames on request
-    # (/capture_camera/blackfly, see there); needs its serial_number
-    capture_camera: false

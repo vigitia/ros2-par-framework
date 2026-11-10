@@ -2,7 +2,7 @@
 """
 Measure a camera's pose from a checkerboard on the table and store it.
 
-Starts the camera (camera:=, else par_launch.camera) and sheet_pose_calibrator, which fits the
+Starts the camera (camera:= among several) and sheet_pose_calibrator, which fits the
 plane of a checkerboard lying flat on the table and writes
 config/calibration/extrinsics/camera_pose_<camera>.yaml (with profile:=<name>, in
 extrinsics/<name>/ instead). The launch files then use it instead of the placeholder
@@ -23,19 +23,22 @@ from launch.actions import DeclareLaunchArgument, OpaqueFunction, Shutdown
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from par_framework_core.launch_helpers import (create_camera_actions,
+                                               create_camera_choice_launch_argument,
                                                create_camera_stream_remappings,
                                                create_profile_launch_argument,
                                                get_camera_body_frame_id,
-                                               get_chosen_camera, get_extrinsics_relative_path,
+                                               get_camera_to_calibrate,
+                                               get_extrinsics_relative_path,
                                                get_path_in_config_folder, POSE_ROTATION_KEYS,
                                                read_camera_entry, read_merged_parameters)
 
 PACKAGE_NAME = 'par_framework_core'
 
 
-# Co-authored by Claude Code: the pose file is per camera unit
+# Co-authored by Claude Code: the pose file is per camera name
 def launch_setup(context):
-    camera = get_chosen_camera(context)
+    camera_to_calibrate = get_camera_to_calibrate(context)
+    camera = camera_to_calibrate.camera_name
     merged_parameters = read_merged_parameters(context)
     placeholder_pose = merged_parameters[f'/{camera}_tf_publisher']['ros__parameters']
     placeholder_rotation = [float(placeholder_pose[key]) for key in POSE_ROTATION_KEYS]
@@ -45,7 +48,7 @@ def launch_setup(context):
     board_columns = int(LaunchConfiguration('board_columns').perform(context))
     board_rows = int(LaunchConfiguration('board_rows').perform(context))
     return [
-        *create_camera_actions(context, camera),
+        *create_camera_actions(context, camera_to_calibrate),
         Node(
             package='camera_pose_calibrator',
             executable='sheet_pose_calibrator',
@@ -54,9 +57,9 @@ def launch_setup(context):
             emulate_tty=True,
             parameters=[{
                 'camera_pose_file': camera_pose_file_path,
-                # The child of the camera's mount transform. Simplification: the camera's
-                # name is its type until profiles name their cameras
-                'base_frame': get_camera_body_frame_id(camera, read_camera_entry(camera)),
+                # The child of the camera's mount transform
+                'base_frame': get_camera_body_frame_id(
+                    camera, read_camera_entry(camera_to_calibrate.camera_type)),
                 'placeholder_rotation': placeholder_rotation,
                 'square_size_m': square_size_mm / 1000.0,
                 'board_columns': board_columns,
@@ -81,11 +84,7 @@ def generate_launch_description():
             default_value=default_params_file_path,
             description='Parameter file describing this physical PAR setup.'),
         create_profile_launch_argument(),
-        DeclareLaunchArgument(
-            'camera',
-            default_value='',
-            description='Camera to calibrate; empty takes par_launch.camera from the parameter '
-                        'files.'),
+        create_camera_choice_launch_argument(),
         DeclareLaunchArgument(
             'square_size_mm',
             description='Side of one square of the printed board, measured on the sheet, in '

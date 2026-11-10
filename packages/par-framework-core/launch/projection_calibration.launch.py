@@ -7,13 +7,13 @@ or projector_display_id:=<n> for one run; the resolution is read from that displ
 fiducials_detector finds them in the camera image, and projection_calibrator fits the homography
 from the table plane to projector pixels. It is stored by projection_calibration_server_node in
 config/calibration/extrinsics/projection_mapping_<camera>.yaml, and published latched on
-/projection_mapping. The launch ends when the calibrator is done. camera:= (brio, kinect,
-realsense, webcam, blackfly, cu40 or event) picks the camera; without it, par_launch.camera
-from params_file.
+/projection_mapping. The launch ends when the calibrator is done. camera:= picks the camera when
+the profile has several (a name of par_launch.cameras).
 
 Needs the camera calibration and the camera pose (/<camera>_tf_publisher in par_setup.yaml), and
-a clear table. The camera calibration is config/calibration/intrinsics/camera_info_<camera>.yaml;
-the Kinect and the RealSense publish their factory calibrations. With profile:=<name>, the camera
+a clear table. The camera calibration is
+config/calibration/intrinsics/camera_info_<type>[_<serial>].yaml; the Kinect and the RealSense
+publish their factory calibrations. With profile:=<name>, the camera
 calibration and the mapping are that setup's own, in config/calibration/intrinsics/<name>/ and
 config/calibration/extrinsics/<name>/.
 
@@ -33,11 +33,12 @@ from launch.actions import DeclareLaunchArgument, OpaqueFunction, Shutdown
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from par_framework_core.launch_helpers import (create_camera_actions,
+                                               create_camera_choice_launch_argument,
                                                create_camera_stream_remappings,
                                                create_profile_launch_argument,
                                                create_projection_calibration_server_node,
                                                create_projector_display_id_launch_argument,
-                                               get_chosen_camera, get_params_file_paths,
+                                               get_camera_to_calibrate, get_params_file_paths,
                                                get_projector_display_id, read_camera_entry,
                                                read_launch_section)
 
@@ -57,7 +58,8 @@ FIDUCIALS_DETECTOR_GENERAL_DETECTION_PARAMETERS = {
 
 
 def launch_setup(context):
-    camera = get_chosen_camera(context)
+    camera_to_calibrate = get_camera_to_calibrate(context)
+    camera = camera_to_calibrate.camera_name
     params_file_paths = get_params_file_paths(context)
     projector_center_argument = LaunchConfiguration('projector_center').perform(context)
     if projector_center_argument not in ('true', 'false'):
@@ -70,7 +72,8 @@ def launch_setup(context):
     projector_display_id = get_projector_display_id(context, read_launch_section(context))
     if projector_display_id is not None:
         projection_calibrator_parameters.append({'display_id': projector_display_id})
-    is_depth_camera = DEPTH_REGISTERED_STREAM_NAME in read_camera_entry(camera)['streams']
+    camera_stream_names = read_camera_entry(camera_to_calibrate.camera_type)['streams']
+    is_depth_camera = DEPTH_REGISTERED_STREAM_NAME in camera_stream_names
     if is_projector_center_run and not is_depth_camera:
         raise RuntimeError(f'[projection_calibration.launch]: projector_center:=true needs a '
                            f'camera with depth on its colour image ({DEPTH_REGISTERED_STREAM_NAME} '
@@ -102,7 +105,7 @@ def launch_setup(context):
     # The calibration converts camera pixels to the table plane, so the camera pose is needed.
     # The camera publishes in /cameras/<camera>, where the remappings point both nodes' camera
     # streams
-    return [*create_camera_actions(context, camera),
+    return [*create_camera_actions(context, camera_to_calibrate),
             fiducials_detector_node,
             *create_projection_calibration_server_node(context, camera),
             projection_calibrator_node]
@@ -119,11 +122,7 @@ def generate_launch_description():
             description='Parameter file describing this physical PAR setup.'),
         create_profile_launch_argument(),
         create_projector_display_id_launch_argument(),
-        DeclareLaunchArgument(
-            'camera',
-            default_value='',
-            description='Camera type, one installed in the ament index (par_framework_cameras), '
-                        'e.g. webcam or blackfly. Empty uses par_launch.camera from params_file.'),
+        create_camera_choice_launch_argument(),
         DeclareLaunchArgument(
             'projector_center',
             default_value='false',

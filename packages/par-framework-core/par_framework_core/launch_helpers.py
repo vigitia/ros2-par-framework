@@ -10,6 +10,7 @@ need the resolved value of a launch argument (params_file, profile, camera) to d
 is started.
 """
 
+import collections
 import math
 import os
 import re
@@ -65,27 +66,20 @@ FOLDER_PATH_EXTRINSICS = 'calibration/extrinsics'
 FOLDER_PATH_PROFILES = 'profiles'
 # Profile names and camera serials become parts of file names: nothing that could leave the folder
 FILE_NAME_PART_PATTERN = re.compile(r'[A-Za-z0-9_-]+')
-CAPTURE_CAMERA_NODE_PARAMETERS_KEY = '/capture_camera/blackfly'
-# Driver mapping of the capture camera's ROS parameters onto its settings, next to par_setup.yaml
-CAPTURE_CAMERA_SETTINGS_MAPPING_FILE_NAME = 'blackfly_s_software_trigger.yaml'
-# The cameras whose driver opens one unit by its serial: the driver's node name (its section in
-# the parameter files is /cameras/<camera name>/<node name>) and its serial parameter, which also
-# make the intrinsics file name per unit. Special case: ROS has no convention for a serial
-# parameter. Simplification until the profile lists its cameras as type:serial (multi-camera
-# plan, step 4); then only each camera's launch file knows the parameter name
-CAMERA_SERIAL_SOURCE_BY_CAMERA = {
-    'brio': ('logitech_brio_node', 'serial'),
-    'cu40': ('see3cam_cu40_node', 'serial'),
-    'blackfly': ('blackfly', 'serial_number'),
-    'kinect': ('k4a_ros_device_node', 'sensor_sn'),
-    'realsense': ('realsense', 'serial_no'),
-}
-# Launch argument that names the unit of camera:= to open for one run, instead of the serial in
-# the parameter files, e.g. to preview a unit before a profile names it
-CAMERA_SERIAL_LAUNCH_ARGUMENT_NAME = 'camera_serial'
-# par_launch key listing the cameras beyond par_launch.camera that the setup wizard configured and
-# calibrated, as '<camera>' or '<camera>:<serial>'. Only par_launch.camera is started
-ADDITIONAL_CAMERAS_KEY = 'additional_cameras'
+# Co-authored by Claude Code: par_launch.cameras maps each camera's name to its unit,
+# '<camera type>' or '<camera type>:<serial>', e.g. {overhead: 'blackfly:22260470'}. The name
+# makes the camera's namespace (/cameras/<name>), its frames (<name>_link, ...) and its extrinsics
+# files; the unit makes its intrinsics file (camera_info_<type>_<serial>.yaml), since they belong
+# to the lens. A replaced unit keeps its name, topics, pose and projection mapping
+PAR_LAUNCH_CAMERAS_KEY = 'cameras'
+# A camera name is part of ROS names and file names: lower case, digits and _, starting with a
+# letter (ROS names may not contain - or start with a digit)
+CAMERA_NAME_PATTERN = re.compile(r'[a-z][a-z0-9_]*')
+# The par_launch keys of the one-camera format, refused with a message naming the fix
+OLD_PAR_LAUNCH_CAMERA_KEYS = ('camera', 'additional_cameras', 'capture_camera')
+# A camera to start: its name, its type (an entry in CAMERA_RESOURCE_TYPE) and its unit's serial
+# ('' opens the first unit found)
+ProfileCamera = collections.namedtuple('ProfileCamera', ['camera_name', 'camera_type', 'serial'])
 # What a camera pose needs, in the measured camera_pose_<camera>.yaml and in the placeholder
 POSE_TRANSLATION_KEYS = [f'translation.{axis}' for axis in 'xyz']
 POSE_ROTATION_KEYS = [f'rotation.{axis}' for axis in 'xyzw']
@@ -238,58 +232,113 @@ def get_extrinsics_folder_path(context):
     return FOLDER_PATH_EXTRINSICS
 
 
-# Co-authored by Claude Code
-def create_camera_serial_launch_argument():
-    """Create the camera_serial launch argument of a launch that starts a camera by serial."""
-    return DeclareLaunchArgument(
-        CAMERA_SERIAL_LAUNCH_ARGUMENT_NAME,
-        default_value='',
-        description='Serial of the unit of camera:= to open for this run, e.g. to preview a unit '
-                    'no profile names yet. Empty uses the serial in the parameter files.')
-
-
-# Co-authored by Claude Code
-def get_camera_serial_launch_argument(context):
-    """Return camera_serial:= of this launch, '' when it is empty or the launch has none."""
-    # Not every launch file declares it, so it is looked up instead of performed
-    return context.launch_configurations.get(CAMERA_SERIAL_LAUNCH_ARGUMENT_NAME, '')
-
-
-# Co-authored by Claude Code: the camera units of a profile, told apart by serial
-def get_camera_serial(context, camera):
+# Written by Claude Code
+def read_profile_cameras(context):
     """
-    Return the serial of the unit of this camera type the launch opens, or ''.
+    Return the cameras par_launch.cameras names, in its order, as ProfileCamera tuples.
 
-    camera_serial:= wins for one run, otherwise the serial the parameter files name.
+    Raises RuntimeError naming the fix when the list is missing or malformed, or when the
+    parameter files still use the one-camera keys.
     """
-    if camera not in CAMERA_SERIAL_SOURCE_BY_CAMERA:
-        return ''
-    driver_node_name, serial_parameter_name = CAMERA_SERIAL_SOURCE_BY_CAMERA[camera]
-    # Simplification: the camera's name is its type until profiles name their cameras
-    node_parameters_key = f'{get_camera_namespace(camera)}/{driver_node_name}'
-    serial = get_camera_serial_launch_argument(context)
-    serial_source_text = f'{CAMERA_SERIAL_LAUNCH_ARGUMENT_NAME}:='
-    if not serial:
-        node_section = read_merged_parameters(context).get(node_parameters_key) or {}
-        node_parameters = node_section.get('ros__parameters') or {}
-        serial = str(node_parameters.get(serial_parameter_name, ''))
-        serial_source_text = f'{serial_parameter_name} under {node_parameters_key}'
-    if serial and not FILE_NAME_PART_PATTERN.fullmatch(serial):
-        raise RuntimeError(f'[launch_helpers]: {camera} {serial_source_text} {serial!r} is no '
-                           f'serial number: use only letters, digits, _ and -')
-    return serial
-
-
-# Co-authored by Claude Code
-def get_additional_camera_units(context):
-    """Return par_launch.additional_cameras as a list of (camera, serial); serial may be ''."""
     launch_section = read_launch_section(context)
-    camera_unit_texts = launch_section.get(ADDITIONAL_CAMERAS_KEY) or []
-    camera_units = []
-    for camera_unit_text in camera_unit_texts:
-        camera, _, serial = str(camera_unit_text).partition(':')
-        camera_units.append((camera, serial))
-    return camera_units
+    old_keys = [key for key in OLD_PAR_LAUNCH_CAMERA_KEYS if key in launch_section]
+    if old_keys:
+        raise RuntimeError(f'[launch_helpers]: par_launch.{", par_launch.".join(old_keys)}: no '
+                           f'longer read; name every camera in par_launch.{PAR_LAUNCH_CAMERAS_KEY} '
+                           f'instead, e.g. {PAR_LAUNCH_CAMERAS_KEY}: {{overhead: '
+                           f"'blackfly:22260470'}}, and remove {', '.join(old_keys)}")
+    # The last parameter file that names cameras sets all of them: a profile's cameras replace
+    # par_setup.yaml's default instead of being merged with it key by key
+    camera_unit_text_by_name = None
+    cameras_source_path = None
+    for params_file_path in get_params_file_paths(context):
+        with open(params_file_path) as params_file:
+            file_parameters = yaml.safe_load(params_file) or {}
+        launch_parameters = (file_parameters.get('par_launch') or {}).get('ros__parameters') or {}
+        if PAR_LAUNCH_CAMERAS_KEY in launch_parameters:
+            camera_unit_text_by_name = launch_parameters[PAR_LAUNCH_CAMERAS_KEY]
+            cameras_source_path = params_file_path
+    if not isinstance(camera_unit_text_by_name, dict) or not camera_unit_text_by_name:
+        raise RuntimeError(f'[launch_helpers]: no cameras: map each camera\'s name to its unit in '
+                           f'par_launch.{PAR_LAUNCH_CAMERAS_KEY} of the profile, e.g. '
+                           f"{PAR_LAUNCH_CAMERAS_KEY}: {{overhead: 'blackfly:22260470'}}, or pass "
+                           f'camera:=<type>[:<serial>]')
+
+    profile_cameras = []
+    for camera_name, camera_unit_text in camera_unit_text_by_name.items():
+        source_text = f'par_launch.{PAR_LAUNCH_CAMERAS_KEY}.{camera_name} in {cameras_source_path}'
+        if not isinstance(camera_name, str) or not CAMERA_NAME_PATTERN.fullmatch(camera_name):
+            raise RuntimeError(f'[launch_helpers]: {source_text}: a camera name may only hold '
+                               f'lower case letters, digits and _, starting with a letter')
+        camera_type, serial = parse_camera_unit_text(camera_unit_text, source_text)
+        profile_cameras.append(ProfileCamera(camera_name, camera_type, serial))
+    return profile_cameras
+
+
+# Written by Claude Code
+def parse_camera_unit_text(camera_unit_text, source_text):
+    """Return (camera type, serial) of '<type>' or '<type>:<serial>'; the serial may be ''."""
+    # str(): YAML reads a unit written as a bare number, e.g. a serial alone, as an int
+    camera_type, _, serial = str(camera_unit_text).partition(':')
+    camera_type_names = get_camera_type_names()
+    if camera_type not in camera_type_names:
+        camera_type_names_text = ', '.join(camera_type_names) or 'none'
+        raise RuntimeError(f'[launch_helpers]: {source_text}: unknown camera type '
+                           f'{camera_type!r} in {camera_unit_text!r}; write <type> or '
+                           f'<type>:<serial> with one of the installed camera types '
+                           f'({camera_type_names_text}). A camera type is installed with the '
+                           f'package that registers it ({CAMERA_RESOURCE_TYPE})')
+    if serial and not FILE_NAME_PART_PATTERN.fullmatch(serial):
+        raise RuntimeError(f'[launch_helpers]: {source_text}: {serial!r} is no serial number: '
+                           f'use only letters, digits, _ and -')
+    return camera_type, serial
+
+
+# Written by Claude Code
+def get_cameras_to_start(context):
+    """
+    Return the cameras a launch starts, as ProfileCamera tuples; the first one is the main camera.
+
+    Without camera:=, every camera of par_launch.cameras. camera:=<name> starts that camera of
+    the profile; camera:=<type>[:<serial>] starts a unit the profile does not name, named after
+    its type, e.g. to preview or calibrate it.
+    """
+    camera_argument = context.launch_configurations.get('camera', '')
+    if not camera_argument:
+        return read_profile_cameras(context)
+    # A camera:= without a profile list must not fail on the missing list
+    launch_section = read_launch_section(context)
+    if PAR_LAUNCH_CAMERAS_KEY in launch_section:
+        for profile_camera in read_profile_cameras(context):
+            if profile_camera.camera_name == camera_argument:
+                return [profile_camera]
+    camera_type, serial = parse_camera_unit_text(camera_argument, f'camera:={camera_argument}')
+    return [ProfileCamera(camera_type, camera_type, serial)]
+
+
+# Written by Claude Code
+def create_camera_choice_launch_argument():
+    """Create the camera launch argument, read by get_cameras_to_start."""
+    return DeclareLaunchArgument(
+        'camera',
+        default_value='',
+        description=f'One camera for this run: <name> of par_launch.{PAR_LAUNCH_CAMERAS_KEY}, or '
+                    f'<type>[:<serial>] of a camera the profile does not name (a type installed '
+                    f'in the ament index, {CAMERA_RESOURCE_TYPE}, e.g. webcam or '
+                    f'blackfly:22260470). Empty starts every camera of par_launch.'
+                    f'{PAR_LAUNCH_CAMERAS_KEY}.')
+
+
+# Written by Claude Code
+def get_camera_to_calibrate(context):
+    """Return the one camera a calibration launch measures; camera:= chooses it among several."""
+    cameras_to_start = get_cameras_to_start(context)
+    if len(cameras_to_start) > 1:
+        camera_names_text = ', '.join(camera.camera_name for camera in cameras_to_start)
+        raise RuntimeError(f'[launch_helpers]: the profile has several cameras '
+                           f'({camera_names_text}): choose the one to calibrate with '
+                           f'camera:=<name>')
+    return cameras_to_start[0]
 
 
 # Co-authored by Claude Code: the one identifier of a camera unit
@@ -297,26 +346,23 @@ def get_camera_id(camera, serial):
     """
     Return the identifier of a camera unit: '<camera>_<serial>', or '<camera>' without a serial.
 
-    It ends the name of every file that belongs to one unit (intrinsics, camera pose, projection
-    mapping and corners), so two units of one type never share or overwrite a file.
+    It ends the name of the unit's intrinsics file, so two units of one type never share or
+    overwrite one.
     """
     if not serial:
         return camera
     return f'{camera}_{serial}'
 
 
-# Co-authored by Claude Code: calibration files per camera unit
-def get_extrinsics_relative_path(context, file_prefix, camera, serial=None):
+# Co-authored by Claude Code: calibration files per camera name
+def get_extrinsics_relative_path(context, file_prefix, camera_name):
     """
-    Return the extrinsics file <file_prefix>_<camera id>.yaml of a camera unit.
+    Return the extrinsics file <file_prefix>_<camera name>.yaml of a camera.
 
-    file_prefix is camera_pose, projection_mapping or projection_corners. serial None means the
-    unit the parameter files name (the one par_launch.camera starts).
+    file_prefix is camera_pose, projection_mapping or projection_corners. Named after the camera,
+    not its unit: the pose belongs to the mount, so a replaced unit keeps it.
     """
-    if serial is None:
-        serial = get_camera_serial(context, camera)
-    camera_id = get_camera_id(camera, serial)
-    return f'{get_extrinsics_folder_path(context)}/{file_prefix}_{camera_id}.yaml'
+    return f'{get_extrinsics_folder_path(context)}/{file_prefix}_{camera_name}.yaml'
 
 
 # Co-authored by Claude Code: reads the merged parameter files
@@ -411,23 +457,6 @@ def read_projector_identity(launch_section):
     return projector_identity
 
 
-# Co-authored by Claude Code: the camera types come from the ament index
-def get_chosen_camera(context):
-    """Return the camera launch argument, or else the camera of the parameter files' par_launch."""
-    camera = LaunchConfiguration('camera').perform(context)
-    if not camera:
-        camera = read_launch_section(context)['camera']
-    # Without this, an empty or misspelt camera would end as a KeyError deep in a launch file
-    camera_type_names = get_camera_type_names()
-    if camera not in camera_type_names:
-        camera_type_names_text = ', '.join(camera_type_names) or 'none'
-        raise RuntimeError(f'[launch_helpers]: unknown camera {camera!r}: pass camera:= with one '
-                           f'of the installed camera types ({camera_type_names_text}), or set '
-                           f'par_launch.camera in the params_file. A camera type is installed '
-                           f'with the package that registers it ({CAMERA_RESOURCE_TYPE})')
-    return camera
-
-
 # Written by Claude Code
 def get_camera_namespace(camera_name):
     """Return the namespace a camera runs in: /cameras/<camera name>."""
@@ -508,15 +537,14 @@ def get_camera_body_frame_id(camera_name, camera_entry):
 
 
 # Written by Claude Code
-def create_camera_actions(context, camera_type):
+def create_camera_actions(context, profile_camera):
     """
-    Create a camera of camera_type from its entry: its launch file and its mount transform.
+    Create a camera (a ProfileCamera) from its type's entry: its launch file and mount transform.
 
-    The camera runs in /cameras/<camera name>; its name is its type for now.
+    The camera runs in /cameras/<camera name>, its frames are named after it, and its unit opens
+    with the unit's intrinsics.
     """
-    # Simplification: one camera per run, named after its type, until profiles name their
-    # cameras (multi-camera plan, step 4)
-    camera_name = camera_type
+    camera_name, camera_type, serial = profile_camera
     camera_entry = read_camera_entry(camera_type)
     launch_file_path = os.path.join(get_package_share_directory(camera_entry['package']),
                                     'launch', camera_entry['launch_file'])
@@ -525,7 +553,6 @@ def create_camera_actions(context, camera_type):
                            f'{launch_file_path}, which is not installed: install launch/ in the '
                            f'setup.py data_files of {camera_entry["package"]} '
                            f'(templates/par_camera/) and run ./scripts/local_build.sh')
-    serial = get_camera_serial(context, camera_type)
     camera_info_url = ''
     if camera_entry[CAMERA_ENTRY_INTRINSICS_KEY] == 'calibratable':
         camera_info_url = get_camera_info_url(
@@ -580,64 +607,10 @@ def read_camera_launch_arguments(context):
     return camera_launch_argument_values
 
 
-# Co-authored by Claude Code: one function for every camera whose driver takes a serial
-def get_camera_info_file_name(context, camera, node_parameters_key, serial_parameter_name):
-    """Return the camera's intrinsics file name: per unit when its serial is set, else shared."""
-    # The intrinsics belong to the lens, so each unit has its own; without a serial the shared
-    # file is only unambiguous with one unit in use
-    node_section = read_merged_parameters(context).get(node_parameters_key) or {}
-    node_parameters = node_section.get('ros__parameters') or {}
-    serial = str(node_parameters.get(serial_parameter_name, ''))
-    if not serial:
-        return f'camera_info_{camera}.yaml'
-    if not FILE_NAME_PART_PATTERN.fullmatch(serial):
-        raise RuntimeError(f'[launch_helpers]: {camera} {serial_parameter_name} {serial!r} under '
-                           f'{node_parameters_key} is no serial number: use only letters, '
-                           f'digits, _ and -')
-    return get_camera_info_file_name_of_unit(camera, serial)
-
-
 # Co-authored by Claude Code
 def get_camera_info_file_name_of_unit(camera, serial):
     """Return the intrinsics file name of one unit: camera_info_<camera id>.yaml."""
     return f'camera_info_{get_camera_id(camera, serial)}.yaml'
-
-
-# Written by Claude Code
-def create_capture_camera_node(context):
-    """
-    Create the capture camera, a second Blackfly S in software trigger mode.
-
-    It runs as /capture_camera/blackfly. Not remapped onto /camera/..., so it runs next to the main camera. No transforms yet: nothing
-    maps its pixels onto the table so far.
-    """
-    node_section = read_merged_parameters(context).get(CAPTURE_CAMERA_NODE_PARAMETERS_KEY) or {}
-    node_parameters = node_section.get('ros__parameters') or {}
-    if not str(node_parameters.get('serial_number', '')):
-        raise RuntimeError(f'[launch_helpers]: capture_camera needs serial_number under '
-                           f'{CAPTURE_CAMERA_NODE_PARAMETERS_KEY} ros__parameters in the '
-                           f'parameter files; without it the driver opens whichever Blackfly it finds '
-                           f'first, possibly the main camera')
-    # Same file name as for the main Blackfly: the intrinsics belong to the unit, whichever role
-    # it has, in the profile's intrinsics folder
-    camera_info_file_name = get_camera_info_file_name(
-        context, 'blackfly', CAPTURE_CAMERA_NODE_PARAMETERS_KEY, 'serial_number')
-    camera_info_url = get_camera_info_url(context, camera_info_file_name)
-    camera_settings_mapping_path = os.path.join(
-        get_package_share_directory('par_framework_core'), 'config',
-        CAPTURE_CAMERA_SETTINGS_MAPPING_FILE_NAME)
-    return Node(
-        package='spinnaker_camera_driver',
-        executable='camera_driver_node',
-        name='blackfly',
-        namespace='/capture_camera',
-        output='screen',
-        emulate_tty=True,
-        parameters=[*get_params_file_paths(context),
-                    {'parameter_file': camera_settings_mapping_path,
-                     'camerainfo_url': camera_info_url,
-                     'frame_id': 'capture_camera_optical_frame'}],
-    )
 
 
 # Co-authored by Claude Code: one transform for every driver that does not publish it itself,
