@@ -1,19 +1,21 @@
 # ROS2 Projected Augmented Reality Framework
 
-Readme written together with Claude Code. Comments in the Code indicate where Claude Code was used. 
+> Readme written together with Claude Code. Comments in the Code indicate where Claude Code was used while creating this framework. 
 
 A Framework for people who want to build their own Projected Augmented Reality (PAR) setups. 
-It uses the Robot Operating System 2 (ROS2).
+It is built on the Robot Operating System 2 (ROS2). Most components are fully interchangable ROS 2 packages that make it modular.
 
-This repository contains the core components. Depending on your hardware and use case, additional components are required (see list below).
+This repository contains the frameworks' core components. Depending on your hardware and use case, additional components are required (see list below).
 
-### Hardware requirements
+### Minimum Hardware requirements
 - A Projector
 - A camera (Webcam is fine to get started. Some applications/use cases require a depth camera such as the Azure Kinect or Realsense D435 or even other camera types such as IR, Thermal, etc.)
 
+Certain applications might require special camera types (e.g. Depth, IR, Thermal, ...) or multiple projectors (currently not yet supported).
+
 ### Hardware setup
 
-Camera and pointed at the same physical surface
+Camera and projector pointed at the same surface. Optimal: Camera sees the entire projected image.
 
 ### Quick start on a new computer (without Docker)
 
@@ -43,7 +45,7 @@ Run the calibration process:
 ros2 launch par_framework_core calibration.launch.py
 ```
 
-Launch the framwork
+Launch the framework:
 ```bash
 ros2 launch par_framework_core par.launch.py
 ```
@@ -296,7 +298,7 @@ Four coordinate systems, and every value in the framework is in exactly one of t
 | Table, frame `world` | m | z = 0 is the tabletop, z points up, the origin lies below the camera | `Gesture.position`, `/projection_mapping` and the projector centre, the RViz markers |
 | Projector pixels | px | origin top left of the projected image, at the projector's resolution | `/projector/mask`, `/projector/content_mask`, what an app draws |
 
-**`world` is the table.** The tabletop is the plane z = 0 of `world`, in metres, with z pointing away from the
+**`world` is the primary projection surface.** For PAR tabletops this means the tabletop is the plane z = 0 of `world`, in metres, with z pointing away from the
 table. Every node that needs table coordinates uses the frame name `world`; there is no separate table frame. The
 TF tree is `world` → the camera's body frame (the mount transform, see above) → its optical frame (published by
 the driver). The camera pose calibration measures height and tilt; x, y and the rotation about the vertical come
