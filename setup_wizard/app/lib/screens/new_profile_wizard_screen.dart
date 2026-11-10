@@ -1,17 +1,19 @@
 // Written by Claude Code
 //
 // Step-by-step wizard for a new hardware setup (profile): hardware, camera image, projector, intrinsics, camera
-// pose, projector calibration. Each step lives in its own file and only talks to this shell through NewProfileDraft
-// and onCanContinueChanged, so the steps can be built independently. The projector is chosen before the
-// calibrations, since they project onto it. The profile is created when leaving the Projector step, because every
-// calibration after it (intrinsics, camera pose, projector calibration) is stored per profile. The step after them
-// (camera to sensor node mapping) is decided on the card "Setup Wizard" but not built yet.
+// pose, projector calibration. Every step that works per camera has one page per camera, and the camera image has
+// two (focus, then the other image settings), so each page handles one topic for one camera; Next names the page
+// that follows. Each step lives in its own file and only talks to this shell through NewProfileDraft and
+// onCanContinueChanged, so the steps can be built independently. The projector is chosen before the calibrations,
+// since they project onto it. The profile is created when leaving the Projector page, because every calibration
+// after it (intrinsics, camera pose, projector calibration) is stored per profile. The step after them (camera to
+// sensor node mapping) is decided on the card "Setup Wizard" but not built yet.
 
 import 'package:flutter/material.dart';
 
 import '../camera_preview_api.dart';
 import '../setup_wizard_backend_client.dart';
-import '../extrinsics_calibration_view.dart';
+import '../camera_section_view.dart';
 import 'camera_image_step.dart';
 import 'extrinsics_calibration_step.dart';
 import 'intrinsics_calibration_step.dart';
@@ -84,6 +86,33 @@ class CameraInstanceDraft {
   String instanceName;
 }
 
+/// What one page of the wizard is about; several pages can belong to one stepper step.
+enum WizardPageTopic {
+  hardware('Hardware'),
+  focus('Focus'),
+  imageSettings('Image settings'),
+  projector('Projector'),
+  intrinsics('Intrinsics'),
+  cameraPose('Camera pose'),
+  projectorCalibration('Projector calibration');
+
+  const WizardPageTopic(this.titleText);
+
+  final String titleText;
+}
+
+/// One page: its topic, the stepper step it belongs to and, for per-camera topics, which camera.
+class WizardPage {
+  const WizardPage({required this.pageTopic, required this.stepIndex, this.cameraInstanceIndex});
+
+  final WizardPageTopic pageTopic;
+  final int stepIndex;
+
+  /// Index into NewProfileDraft.cameraInstances; null for pages that are not per camera, and for a per-camera
+  /// step while the profile has no camera (that page says so).
+  final int? cameraInstanceIndex;
+}
+
 class NewProfileWizardScreen extends StatefulWidget {
   const NewProfileWizardScreen({super.key, required this.backendClient});
 
@@ -95,12 +124,15 @@ class NewProfileWizardScreen extends StatefulWidget {
 
 class _NewProfileWizardScreenState extends State<NewProfileWizardScreen> {
   static const int stepCount = 6;
-
-  /// Leaving this step (Projector) creates the profile; the calibrations after it store into the saved profile.
-  static const int profileCreatingStepIndex = 2;
+  static const int hardwareStepIndex = 0;
+  static const int cameraImageStepIndex = 1;
+  static const int projectorStepIndex = 2;
+  static const int intrinsicsStepIndex = 3;
+  static const int cameraPoseStepIndex = 4;
+  static const int projectorCalibrationStepIndex = 5;
 
   final NewProfileDraft _newProfileDraft = NewProfileDraft();
-  int _currentStepIndex = 0;
+  int _currentPageIndex = 0;
 
   /// Per step whether Next is allowed. A step reports false while its input is incomplete, by calling its
   /// onCanContinueChanged (not during build: e.g. from initState through WidgetsBinding.addPostFrameCallback).
@@ -109,7 +141,7 @@ class _NewProfileWizardScreenState extends State<NewProfileWizardScreen> {
   /// True while the backend creates the profile.
   bool _isCreatingProfile = false;
 
-  /// Why creating the profile failed; shown below the step's buttons.
+  /// Why creating the profile failed; shown below the page's buttons.
   String? _createProfileErrorText;
 
   /// The saved profile's name once it is created; null before.
@@ -124,6 +156,53 @@ class _NewProfileWizardScreenState extends State<NewProfileWizardScreen> {
     });
   }
 
+  /// The pages for the cameras chosen so far. Built again on every change, since the Hardware page changes the
+  /// cameras; the pages after it only exist once it is left, so the current index stays valid.
+  List<WizardPage> _createWizardPages() {
+    final int cameraCount = _newProfileDraft.cameraInstances.length;
+    final List<WizardPage> wizardPages = [
+      const WizardPage(pageTopic: WizardPageTopic.hardware, stepIndex: hardwareStepIndex),
+    ];
+    // Focus and image settings of one camera follow each other, so its preview keeps running between them
+    if (cameraCount == 0) {
+      wizardPages.add(const WizardPage(pageTopic: WizardPageTopic.focus, stepIndex: cameraImageStepIndex));
+    }
+    for (int cameraInstanceIndex = 0; cameraInstanceIndex < cameraCount; cameraInstanceIndex += 1) {
+      wizardPages.add(WizardPage(
+        pageTopic: WizardPageTopic.focus,
+        stepIndex: cameraImageStepIndex,
+        cameraInstanceIndex: cameraInstanceIndex,
+      ));
+      wizardPages.add(WizardPage(
+        pageTopic: WizardPageTopic.imageSettings,
+        stepIndex: cameraImageStepIndex,
+        cameraInstanceIndex: cameraInstanceIndex,
+      ));
+    }
+    wizardPages.add(const WizardPage(pageTopic: WizardPageTopic.projector, stepIndex: projectorStepIndex));
+    wizardPages.addAll(_createOnePagePerCamera(WizardPageTopic.intrinsics, intrinsicsStepIndex));
+    wizardPages.addAll(_createOnePagePerCamera(WizardPageTopic.cameraPose, cameraPoseStepIndex));
+    wizardPages.addAll(_createOnePagePerCamera(WizardPageTopic.projectorCalibration, projectorCalibrationStepIndex));
+    return wizardPages;
+  }
+
+  /// One page per camera, or one page that says there is no camera.
+  List<WizardPage> _createOnePagePerCamera(WizardPageTopic pageTopic, int stepIndex) {
+    final int cameraCount = _newProfileDraft.cameraInstances.length;
+    if (cameraCount == 0) {
+      return [WizardPage(pageTopic: pageTopic, stepIndex: stepIndex)];
+    }
+    final List<WizardPage> cameraPages = [];
+    for (int cameraInstanceIndex = 0; cameraInstanceIndex < cameraCount; cameraInstanceIndex += 1) {
+      cameraPages.add(WizardPage(pageTopic: pageTopic, stepIndex: stepIndex, cameraInstanceIndex: cameraInstanceIndex));
+    }
+    return cameraPages;
+  }
+
+  int _findProjectorPageIndex(List<WizardPage> wizardPages) {
+    return wizardPages.indexWhere((WizardPage wizardPage) => wizardPage.pageTopic == WizardPageTopic.projector);
+  }
+
   void _setCanContinue(int stepIndex, bool canContinue) {
     if (_canContinueByStepIndex[stepIndex] == canContinue) {
       return;
@@ -133,22 +212,24 @@ class _NewProfileWizardScreenState extends State<NewProfileWizardScreen> {
     });
   }
 
-  Future<void> _goToNextStep() async {
-    if (!_canContinueByStepIndex[_currentStepIndex]) {
+  Future<void> _goToNextPage() async {
+    final List<WizardPage> wizardPages = _createWizardPages();
+    final WizardPage currentPage = wizardPages[_currentPageIndex];
+    if (!_canContinueByStepIndex[currentPage.stepIndex]) {
       return;
     }
-    if (_currentStepIndex == stepCount - 1) {
+    if (_currentPageIndex == wizardPages.length - 1) {
       Navigator.of(context).pop(_createdProfileName);
       return;
     }
-    if (_currentStepIndex == profileCreatingStepIndex && _createdProfileName == null) {
+    if (currentPage.pageTopic == WizardPageTopic.projector && _createdProfileName == null) {
       final bool isProfileCreated = await _createProfile();
       if (!isProfileCreated || !mounted) {
         return;
       }
     }
     setState(() {
-      _currentStepIndex += 1;
+      _currentPageIndex += 1;
     });
   }
 
@@ -203,31 +284,31 @@ class _NewProfileWizardScreenState extends State<NewProfileWizardScreen> {
     return true;
   }
 
-  /// Whether Back may leave the current step: not back into the steps the saved profile was created from.
-  bool _canGoBackFrom(int stepIndex) {
-    // Simplification: a saved profile is not updated from the earlier steps, so they are closed once it exists.
+  /// Whether Back may leave the page: not back into the pages the saved profile was created from.
+  bool _canGoBackFrom(int pageIndex, List<WizardPage> wizardPages) {
+    // Simplification: a saved profile is not updated from the earlier pages, so they are closed once it exists.
     // Upgrade: write hardware and projector changes into the saved profile (POST /api/profiles only creates).
-    return _createdProfileName == null || stepIndex > profileCreatingStepIndex + 1;
+    return _createdProfileName == null || pageIndex - 1 > _findProjectorPageIndex(wizardPages);
   }
 
-  void _goToPreviousStep() {
-    if (_currentStepIndex == 0) {
+  void _goToPreviousPage() {
+    if (_currentPageIndex == 0) {
       Navigator.of(context).pop();
       return;
     }
-    if (!_canGoBackFrom(_currentStepIndex)) {
+    if (!_canGoBackFrom(_currentPageIndex, _createWizardPages())) {
       return;
     }
     setState(() {
-      _currentStepIndex -= 1;
+      _currentPageIndex -= 1;
     });
   }
 
-  StepState _getStepState(int stepIndex) {
-    if (stepIndex < _currentStepIndex) {
+  StepState _getStepState(int stepIndex, int currentStepIndex) {
+    if (stepIndex < currentStepIndex) {
       return StepState.complete;
     }
-    if (stepIndex == _currentStepIndex) {
+    if (stepIndex == currentStepIndex) {
       return StepState.editing;
     }
     return StepState.indexed;
@@ -235,88 +316,34 @@ class _NewProfileWizardScreenState extends State<NewProfileWizardScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final List<Step> wizardSteps = [
-      Step(
-        title: const Text('Hardware'),
-        state: _getStepState(0),
-        isActive: _currentStepIndex >= 0,
-        content: _buildOnlyWhenCurrentStep(
-          0,
-          NewProfileHardwareStep(
-            backendClient: widget.backendClient,
-            newProfileDraft: _newProfileDraft,
-            onCanContinueChanged: (bool canContinue) => _setCanContinue(0, canContinue),
-          ),
-        ),
-      ),
-      Step(
-        title: const Text('Camera image'),
-        state: _getStepState(1),
-        isActive: _currentStepIndex >= 1,
-        content: _buildOnlyWhenCurrentStep(
-          1,
-          CameraImageStep(
-            backendClient: widget.backendClient,
-            newProfileDraft: _newProfileDraft,
-            onCanContinueChanged: (bool canContinue) => _setCanContinue(1, canContinue),
-          ),
-        ),
-      ),
-      Step(
-        title: const Text('Projector'),
-        state: _getStepState(2),
-        isActive: _currentStepIndex >= 2,
-        content: _buildOnlyWhenCurrentStep(
-          2,
-          ProjectorDisplayStep(
-            backendClient: widget.backendClient,
-            newProfileDraft: _newProfileDraft,
-            onCanContinueChanged: (bool canContinue) => _setCanContinue(2, canContinue),
-          ),
-        ),
-      ),
-      Step(
-        title: const Text('Intrinsics'),
-        state: _getStepState(3),
-        isActive: _currentStepIndex >= 3,
-        content: _buildOnlyWhenCurrentStep(
-          3,
-          IntrinsicsCalibrationStep(
-            backendClient: widget.backendClient,
-            newProfileDraft: _newProfileDraft,
-            onCanContinueChanged: (bool canContinue) => _setCanContinue(3, canContinue),
-          ),
-        ),
-      ),
-      Step(
-        title: const Text('Camera pose'),
-        state: _getStepState(4),
-        isActive: _currentStepIndex >= 4,
-        content: _buildOnlyWhenCurrentStep(
-          4,
-          ExtrinsicsCalibrationStep(
-            backendClient: widget.backendClient,
-            newProfileDraft: _newProfileDraft,
-            calibrationTopic: ExtrinsicsCalibrationTopic.cameraPose,
-          ),
-        ),
-      ),
-      Step(
-        title: const Text('Projector calibration'),
-        state: _getStepState(5),
-        isActive: _currentStepIndex >= 5,
-        content: _buildOnlyWhenCurrentStep(
-          5,
-          ExtrinsicsCalibrationStep(
-            backendClient: widget.backendClient,
-            newProfileDraft: _newProfileDraft,
-            calibrationTopic: ExtrinsicsCalibrationTopic.projectorMapping,
-          ),
-        ),
-      ),
+    final List<WizardPage> wizardPages = _createWizardPages();
+    final WizardPage currentPage = wizardPages[_currentPageIndex];
+    const List<String> stepTitleTexts = [
+      'Hardware',
+      'Camera image',
+      'Projector',
+      'Intrinsics',
+      'Camera pose',
+      'Projector calibration',
     ];
+    final List<Step> wizardSteps = [];
+    for (int stepIndex = 0; stepIndex < stepCount; stepIndex += 1) {
+      Widget stepContent = const SizedBox.shrink();
+      // Flutter's Stepper keeps every step's content alive, hidden ones included, so a hidden step's camera preview
+      // would run and fight the shown one over the camera. Only the current page gets built; a page coming back
+      // restores itself from NewProfileDraft.
+      if (stepIndex == currentPage.stepIndex) {
+        stepContent = _buildPage(currentPage);
+      }
+      wizardSteps.add(Step(
+        title: Text(stepTitleTexts[stepIndex]),
+        state: _getStepState(stepIndex, currentPage.stepIndex),
+        isActive: currentPage.stepIndex >= stepIndex,
+        content: stepContent,
+      ));
+    }
 
-    // Once the profile is saved, leaving the wizard in any way hands it to the start screen, which shows it
+    // Once the profile is saved, leaving the wizard in any way hands it to the hub, which shows it
     return PopScope<String>(
       canPop: _createdProfileName == null,
       onPopInvokedWithResult: (bool didPop, String? popResult) {
@@ -324,32 +351,124 @@ class _NewProfileWizardScreenState extends State<NewProfileWizardScreen> {
           Navigator.of(context).pop(_createdProfileName);
         }
       },
-      child: _buildWizardScaffold(context, wizardSteps),
-    );
-  }
-
-  Widget _buildWizardScaffold(BuildContext context, List<Step> wizardSteps) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('New profile')),
-      body: Stepper(
-        type: _chooseStepperType(context),
-        currentStep: _currentStepIndex,
-        steps: wizardSteps,
-        onStepContinue: _goToNextStep,
-        onStepCancel: _goToPreviousStep,
-        controlsBuilder: _buildStepControls,
+      child: Scaffold(
+        appBar: AppBar(title: const Text('New profile')),
+        body: Stepper(
+          type: _chooseStepperType(context),
+          currentStep: currentPage.stepIndex,
+          steps: wizardSteps,
+          onStepContinue: _goToNextPage,
+          onStepCancel: _goToPreviousPage,
+          controlsBuilder: (BuildContext context, ControlsDetails controlsDetails) =>
+              _buildPageControls(context, wizardPages),
+        ),
       ),
     );
   }
 
-  /// Flutter's Stepper keeps every step's content alive, hidden ones included, so a hidden step's camera preview
-  /// would run and fight the shown one over the camera. Only the current step gets its content; a step coming
-  /// back restores itself from NewProfileDraft.
-  Widget _buildOnlyWhenCurrentStep(int stepIndex, Widget stepContent) {
-    if (stepIndex != _currentStepIndex) {
-      return const SizedBox.shrink();
+  /// The page's header (topic and camera) above its content. Every page of a step has the same layout, so going
+  /// from one page to the next of the same step updates its content instead of building it anew: the camera
+  /// preview keeps running from Focus to Image settings.
+  Widget _buildPage(WizardPage wizardPage) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildPageHeader(wizardPage),
+        const SizedBox(height: 12),
+        _buildPageContent(wizardPage),
+      ],
+    );
+  }
+
+  Widget _buildPageHeader(WizardPage wizardPage) {
+    final int? cameraInstanceIndex = wizardPage.cameraInstanceIndex;
+    final TextTheme textTheme = Theme.of(context).textTheme;
+    final Color mutedTextColor = Theme.of(context).colorScheme.onSurfaceVariant;
+    if (cameraInstanceIndex == null) {
+      return Text(wizardPage.pageTopic.titleText, style: textTheme.titleLarge);
     }
-    return stepContent;
+    final List<CameraInstanceDraft> cameraInstances = _newProfileDraft.cameraInstances;
+    final CameraInstanceDraft cameraInstance = cameraInstances[cameraInstanceIndex];
+    final List<Widget> headerRows = [
+      Text('${wizardPage.pageTopic.titleText}: ${cameraInstance.instanceName}', style: textTheme.titleLarge),
+      Text('Camera ${cameraInstanceIndex + 1} of ${cameraInstances.length}', style: TextStyle(color: mutedTextColor)),
+    ];
+    final String? sameTypeNoteText = _getSameTypeNoteText(cameraInstance);
+    if (sameTypeNoteText != null) {
+      headerRows.add(Text(sameTypeNoteText, style: TextStyle(color: mutedTextColor)));
+    }
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: headerRows);
+  }
+
+  /// A note while the profile has several cameras of this one's type: they cannot be told apart yet.
+  String? _getSameTypeNoteText(CameraInstanceDraft cameraInstance) {
+    if (_newProfileDraft.countCameraInstancesOfType(cameraInstance.cameraType) < 2) {
+      return null;
+    }
+    // Simplification: the preview starts a camera by type with par_setup.yaml's settings, so every instance of a
+    // type opens the same unit. Upgrade: choose the unit (serial or USB port) per instance.
+    return 'Every ${cameraInstance.cameraType} shows the same camera for now: choosing which unit belongs to which '
+        'camera comes later.';
+  }
+
+  Widget _buildPageContent(WizardPage wizardPage) {
+    final int? cameraInstanceIndex = wizardPage.cameraInstanceIndex;
+    CameraInstanceDraft? cameraInstance;
+    if (cameraInstanceIndex != null) {
+      cameraInstance = _newProfileDraft.cameraInstances[cameraInstanceIndex];
+    }
+    switch (wizardPage.pageTopic) {
+      case WizardPageTopic.hardware:
+        return NewProfileHardwareStep(
+          backendClient: widget.backendClient,
+          newProfileDraft: _newProfileDraft,
+          onCanContinueChanged: (bool canContinue) => _setCanContinue(hardwareStepIndex, canContinue),
+        );
+      case WizardPageTopic.projector:
+        return ProjectorDisplayStep(
+          backendClient: widget.backendClient,
+          newProfileDraft: _newProfileDraft,
+          onCanContinueChanged: (bool canContinue) => _setCanContinue(projectorStepIndex, canContinue),
+        );
+      case WizardPageTopic.focus:
+      case WizardPageTopic.imageSettings:
+        if (cameraInstance == null) {
+          return const Text('No camera was chosen in the Hardware step, so there is no camera image to set up.');
+        }
+        CameraImagePageTopic cameraImagePageTopic = CameraImagePageTopic.focus;
+        if (wizardPage.pageTopic == WizardPageTopic.imageSettings) {
+          cameraImagePageTopic = CameraImagePageTopic.imageSettings;
+        }
+        return CameraImageStep(
+          backendClient: widget.backendClient,
+          cameraInstance: cameraInstance,
+          cameraImagePageTopic: cameraImagePageTopic,
+        );
+      case WizardPageTopic.intrinsics:
+        if (cameraInstance == null) {
+          return const Text('No camera was chosen in the Hardware step, so there is nothing to calibrate.');
+        }
+        return IntrinsicsCalibrationStep(
+          backendClient: widget.backendClient,
+          newProfileDraft: _newProfileDraft,
+          cameraInstance: cameraInstance,
+        );
+      case WizardPageTopic.cameraPose:
+      case WizardPageTopic.projectorCalibration:
+        if (cameraInstance == null) {
+          return const Text('No camera was chosen in the Hardware step, so there is nothing to calibrate.');
+        }
+        CameraSection cameraSection = CameraSection.cameraPose;
+        if (wizardPage.pageTopic == WizardPageTopic.projectorCalibration) {
+          cameraSection = CameraSection.projectorCalibration;
+        }
+        return ExtrinsicsCalibrationStep(
+          backendClient: widget.backendClient,
+          newProfileDraft: _newProfileDraft,
+          cameraInstance: cameraInstance,
+          cameraSection: cameraSection,
+        );
+    }
   }
 
   StepperType _chooseStepperType(BuildContext context) {
@@ -360,29 +479,44 @@ class _NewProfileWizardScreenState extends State<NewProfileWizardScreen> {
     return StepperType.horizontal;
   }
 
-  Widget _buildStepControls(BuildContext context, ControlsDetails controlsDetails) {
-    final int stepIndex = controlsDetails.stepIndex;
-    final bool isLastStep = stepIndex == stepCount - 1;
-    final bool canContinue = _canContinueByStepIndex[stepIndex];
-    final bool isProfileCreatingStep = stepIndex == profileCreatingStepIndex && _createdProfileName == null;
-    String nextButtonText = 'Next';
-    if (isLastStep) {
-      nextButtonText = 'Finish';
-    } else if (isProfileCreatingStep) {
-      nextButtonText = 'Save profile and continue';
+  /// What Next leads to, e.g. 'Image settings: brio_1'.
+  String _getPageLabelText(WizardPage wizardPage) {
+    final int? cameraInstanceIndex = wizardPage.cameraInstanceIndex;
+    if (cameraInstanceIndex == null) {
+      return wizardPage.pageTopic.titleText;
     }
+    final String instanceName = _newProfileDraft.cameraInstances[cameraInstanceIndex].instanceName;
+    return '${wizardPage.pageTopic.titleText}: $instanceName';
+  }
+
+  Widget _buildPageControls(BuildContext context, List<WizardPage> wizardPages) {
+    final WizardPage currentPage = wizardPages[_currentPageIndex];
+    final bool isLastPage = _currentPageIndex == wizardPages.length - 1;
+    final bool canContinue = _canContinueByStepIndex[currentPage.stepIndex];
+    final bool isProfileCreatingPage = currentPage.pageTopic == WizardPageTopic.projector && _createdProfileName == null;
+    String nextButtonText;
     if (_isCreatingProfile) {
       nextButtonText = 'Saving …';
+    } else if (isLastPage) {
+      nextButtonText = 'Finish';
+    } else if (isProfileCreatingPage) {
+      nextButtonText = 'Save profile, next: ${_getPageLabelText(wizardPages[_currentPageIndex + 1])}';
+    } else {
+      nextButtonText = 'Next: ${_getPageLabelText(wizardPages[_currentPageIndex + 1])}';
     }
-    final String backButtonText = stepIndex == 0 ? 'Cancel' : 'Back';
+    String backButtonText = 'Back';
+    if (_currentPageIndex == 0) {
+      backButtonText = 'Cancel';
+    }
 
     VoidCallback? onNextPressed;
     if (canContinue && !_isCreatingProfile) {
-      onNextPressed = controlsDetails.onStepContinue;
+      onNextPressed = _goToNextPage;
     }
     VoidCallback? onBackPressed;
-    if (_canGoBackFrom(stepIndex)) {
-      onBackPressed = controlsDetails.onStepCancel;
+    final bool canGoBack = _canGoBackFrom(_currentPageIndex, wizardPages);
+    if (canGoBack) {
+      onBackPressed = _goToPreviousPage;
     }
     final List<Widget> controlRows = [
       Row(
@@ -393,7 +527,7 @@ class _NewProfileWizardScreenState extends State<NewProfileWizardScreen> {
         ],
       ),
     ];
-    if (onBackPressed == null) {
+    if (!canGoBack) {
       controlRows.add(Padding(
         padding: const EdgeInsets.only(top: 8),
         child: Text(
@@ -403,7 +537,7 @@ class _NewProfileWizardScreenState extends State<NewProfileWizardScreen> {
       ));
     }
     final String? createProfileErrorText = _createProfileErrorText;
-    if (stepIndex == profileCreatingStepIndex && createProfileErrorText != null) {
+    if (isProfileCreatingPage && createProfileErrorText != null) {
       controlRows.add(Padding(
         padding: const EdgeInsets.only(top: 8),
         child: Text(createProfileErrorText, style: TextStyle(color: Theme.of(context).colorScheme.error)),
