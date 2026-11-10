@@ -9,6 +9,7 @@ remembers the one selected last time, and writes node settings changed in the wi
 
 import datetime
 import os
+import re
 import shutil
 import tempfile
 import threading
@@ -20,7 +21,7 @@ from par_framework_core.connected_displays import (
     ConnectedDisplay, find_projector_display_ids, get_display_mode_text, get_display_title_text,
     get_projector_display_mode, get_projector_identity, get_projector_identity_title_text,
     PROJECTOR_DISPLAY_MODE_PARAMETER_NAME_BY_ATTRIBUTE, read_connected_displays)
-from par_framework_core.launch_helpers import (CAMERA_ENTRY_INTRINSICS_KEY,
+from par_framework_core.launch_helpers import (CAMERA_ENTRY_INTRINSICS_KEY, CAMERA_POSE_KEYS,
                                                CAMERA_ENTRY_SERIAL_KEY, CAMERA_NAME_PATTERN,
                                                CAMERA_SERIAL_SOURCE_NONE, CAMERAS_NAMESPACE,
                                                FILE_NAME_PART_PATTERN,
@@ -35,7 +36,8 @@ from par_framework_core.launch_helpers import (CAMERA_ENTRY_INTRINSICS_KEY,
                                                get_sensor_node_package_names,
                                                PAR_LAUNCH_CAMERAS_KEY, ProfileCamera,
                                                PROJECTOR_APP_NONE, read_camera_entry,
-                                               read_launch_section, read_par_app_entry,
+                                               read_launch_section, read_merged_parameters,
+                                               read_par_app_entry,
                                                read_profile_cameras, read_projector_identity,
                                                read_stored_projector_display_id,
                                                RENDERING_MANAGER_APP_NAME)
@@ -83,6 +85,15 @@ POSE_STATE_MEASURED = 'measured'
 POSE_STATE_PLACEHOLDER = 'placeholder'
 # The measured pose file exists but lacks keys or numbers; a launch would stop on it.
 POSE_STATE_INVALID = 'invalid'
+# Every camera needs a placeholder pose /<camera name>_tf_publisher until it is measured, or a
+# launch refuses to start it. The wizard writes it when it adds a camera: the type's placeholder
+# from par_setup.yaml (/<camera type>_tf_publisher), else this one, 1 m above the world origin,
+# looking straight down at the table (the body frame's x axis pointing down)
+TF_PUBLISHER_NAME_SUFFIX = '_tf_publisher'
+GENERIC_PLACEHOLDER_POSE = {
+    'translation.x': 0.0, 'translation.y': 0.0, 'translation.z': 1.0,
+    'rotation.x': 0.0, 'rotation.y': 0.7071068, 'rotation.z': 0.0, 'rotation.w': 0.7071068,
+}
 
 # The key under each node section of a ROS 2 parameter file
 ROS_PARAMETERS_KEY = 'ros__parameters'
@@ -159,22 +170,6 @@ class DeletedProfileResponse(BaseModel):
     deleted_profile_folder_path: str
 
 
-class NewProfileRequest(BaseModel):
-    # The file name without .yaml and the value of profile:=
-    profile_name: str
-    # As the user typed it, kept as a comment at the top of the file
-    profile_display_name: str
-    # The profile's first camera, set up in the Hardware step; more are added in the Cameras area.
-    # Its name in par_launch.cameras (a camera name: lower case letters, digits and _)
-    camera_name: str
-    # A camera type from GET /api/cameras
-    camera_type: str
-    # The camera unit chosen in the Hardware step; '' for a camera type without serials
-    camera_serial: str = ''
-    # SDL/pygame display index of the projector; None when the profile has no projector yet
-    projector_display_id: int | None
-
-
 class NewCameraRequest(BaseModel):
     # Its name in par_launch.cameras (lower case letters, digits and _), e.g. overhead
     camera_name: str
@@ -182,6 +177,17 @@ class NewCameraRequest(BaseModel):
     camera_type: str
     # The unit's serial; '' for a camera type that has none
     serial: str = ''
+
+
+class NewProfileRequest(BaseModel):
+    # The file name without .yaml and the value of profile:=
+    profile_name: str
+    # As the user typed it, kept as a comment at the top of the file
+    profile_display_name: str
+    # The profile's cameras from the Hardware step, in their order (the first is the main camera)
+    cameras: list[NewCameraRequest]
+    # SDL/pygame display index of the projector; None when the profile has no projector yet
+    projector_display_id: int | None
 
 
 class ProjectorDisplayChoiceRequest(BaseModel):
@@ -238,18 +244,20 @@ def set_last_selected_profile(request: LastSelectedProfileRequest) -> None:
 
 @profiles_router.post('/api/profiles')
 def create_profile(request: NewProfileRequest) -> NewProfileResponse:
-    """Create config/profiles/<name>.yaml: camera, projector and the wizard's setting changes."""
+    """Create config/profiles/<name>.yaml: cameras, projector and the wizard's setting changes."""
     # The name becomes a file name and profile:=, so only what profile:= accepts
     if not FILE_NAME_PART_PATTERN.fullmatch(request.profile_name):
         raise HTTPException(status_code=422,
                             detail=f'{request.profile_name!r} is no valid profile name: use only '
                                    f'letters, digits, _ and -')
-    if not request.camera_type:
+    if not request.cameras:
         # Without a camera the launch would silently take par_setup.yaml's camera
         raise HTTPException(status_code=422,
                             detail='Add a camera to the profile first (Hardware step)')
-    new_camera = _check_new_camera([], request.camera_name, request.camera_type,
-                                   request.camera_serial)
+    new_cameras = []
+    for camera_request in request.cameras:
+        new_cameras.append(_check_new_camera(new_cameras, camera_request.camera_name,
+                                             camera_request.camera_type, camera_request.serial))
     # Checked before the file exists, so a display that went away leaves no half-made profile
     projector_display = None
     if request.projector_display_id is not None:
@@ -267,8 +275,10 @@ def create_profile(request: NewProfileRequest) -> NewProfileResponse:
         'par_launch:',
         f'  {ROS_PARAMETERS_KEY}:',
         f'    {PAR_LAUNCH_CAMERAS_KEY}:',
-        f"      {new_camera.camera_name}: '{_create_camera_unit_text(new_camera)}'",
     ]
+    for new_camera in new_cameras:
+        profile_lines.append(
+            f"      {new_camera.camera_name}: '{_create_camera_unit_text(new_camera)}'")
     try:
         # 'x' creates the file only if it does not exist, so an existing profile is never
         # overwritten, even by two requests at once
@@ -277,23 +287,26 @@ def create_profile(request: NewProfileRequest) -> NewProfileResponse:
     except FileExistsError:
         raise HTTPException(status_code=409,
                             detail=f'A profile named {request.profile_name!r} exists already')
+    for new_camera in new_cameras:
+        _write_camera_placeholder_pose(request.profile_name, new_camera)
 
     # Imported here: camera_preview_api imports this module, so a module-level import would be
     # circular
     import camera_preview_api
     written_setting_names_by_node_name = {}
-    # The preview ran without a profile, so its camera was named after its type
-    new_profile_setting_values = camera_preview_api.take_new_profile_setting_values(
-        new_camera.camera_type)
-    preview_namespace = f'{CAMERAS_NAMESPACE}/{new_camera.camera_type}/'
-    camera_namespace = f'{CAMERAS_NAMESPACE}/{new_camera.camera_name}/'
+    setting_values_by_unit = camera_preview_api.take_new_profile_setting_values()
     write_results = []
-    for node_name, setting_value_by_name in new_profile_setting_values.items():
-        # Saved for this camera alone, under its name
-        if node_name.startswith(preview_namespace):
-            node_name = camera_namespace + node_name.removeprefix(preview_namespace)
-        write_results.append(write_node_settings_into_profile(request.profile_name, node_name,
-                                                              setting_value_by_name))
+    for new_camera in new_cameras:
+        unit_key = (new_camera.camera_type, new_camera.serial)
+        # The unit's preview ran without a profile, so its camera was named after its type
+        preview_namespace = f'{CAMERAS_NAMESPACE}/{new_camera.camera_type}/'
+        camera_namespace = f'{CAMERAS_NAMESPACE}/{new_camera.camera_name}/'
+        for node_name, setting_value_by_name in setting_values_by_unit.get(unit_key, {}).items():
+            # Saved for this camera alone, under its name
+            if node_name.startswith(preview_namespace):
+                node_name = camera_namespace + node_name.removeprefix(preview_namespace)
+            write_results.append(write_node_settings_into_profile(
+                request.profile_name, node_name, setting_value_by_name))
     if projector_display is not None:
         _write_projector_display_into_profile(request.profile_name, projector_display)
     for write_result in write_results:
@@ -394,6 +407,7 @@ def add_camera(profile_name: str, request: NewCameraRequest) -> None:
     profile_cameras = read_profile_cameras(create_profile_launch_context(profile_name))
     new_camera = _check_new_camera(profile_cameras, request.camera_name, request.camera_type,
                                    request.serial)
+    _write_camera_placeholder_pose(profile_name, new_camera)
     _write_profile_cameras(profile_name, [*profile_cameras, new_camera])
 
 
@@ -428,6 +442,12 @@ def remove_camera(profile_name: str, camera_name: str) -> DeletedProfileResponse
         shutil.move(existing_file_path, deleted_folder_path)
     remaining_cameras = [camera for camera in profile_cameras if camera.camera_name != camera_name]
     _write_profile_cameras(profile_name, remaining_cameras)
+    # The placeholder pose goes with the camera; a section par_setup.yaml holds stays there
+    removed_pose_value_by_key = {}
+    for pose_key in CAMERA_POSE_KEYS:
+        removed_pose_value_by_key[pose_key] = None
+    write_node_settings_into_profile(profile_name, f'/{camera_name}{TF_PUBLISHER_NAME_SUFFIX}',
+                                     removed_pose_value_by_key)
     return DeletedProfileResponse(deleted_profile_folder_path=deleted_folder_path)
 
 
@@ -483,6 +503,31 @@ def _check_new_camera(profile_cameras: list[ProfileCamera], camera_name: str, ca
                             detail=f'The profile has a {camera_type} camera already: choose '
                                    f'which unit to add')
     return ProfileCamera(camera_name, camera_type, serial)
+
+
+# Written by Claude Code
+def _write_camera_placeholder_pose(profile_name: str, profile_camera: ProfileCamera) -> None:
+    """
+    Write the camera's placeholder pose into the profile, unless the parameter files have one.
+
+    A copy of its type's placeholder in par_setup.yaml, else GENERIC_PLACEHOLDER_POSE.
+    """
+    publisher_key = f'/{profile_camera.camera_name}{TF_PUBLISHER_NAME_SUFFIX}'
+    merged_parameters = read_merged_parameters(create_profile_launch_context(profile_name))
+    publisher_section = merged_parameters.get(publisher_key) or {}
+    existing_pose = publisher_section.get(ROS_PARAMETERS_KEY)
+    if isinstance(existing_pose, dict) and not get_invalid_pose_keys(existing_pose):
+        return
+    type_placeholder_pose = read_par_setup_node_settings(
+        f'/{profile_camera.camera_type}{TF_PUBLISHER_NAME_SUFFIX}')
+    placeholder_pose = GENERIC_PLACEHOLDER_POSE
+    if type_placeholder_pose and not get_invalid_pose_keys(type_placeholder_pose):
+        placeholder_pose = {}
+        for pose_key in CAMERA_POSE_KEYS:
+            placeholder_pose[pose_key] = type_placeholder_pose[pose_key]
+    # Written even where equal to par_setup.yaml's, which has no section of this name
+    write_node_settings_into_profile(profile_name, publisher_key, placeholder_pose,
+                                     always_written_setting_names=tuple(CAMERA_POSE_KEYS))
 
 
 # Written by Claude Code
@@ -1052,17 +1097,44 @@ def _find_node_section_name(parameter_document: dict, full_node_name: str) -> st
     return None
 
 
+# Co-authored by Claude Code: wildcard sections, as ROS reads them
 def read_par_setup_node_settings(full_node_name: str) -> dict:
-    """Return the node's parameters in par_setup.yaml, the defaults a profile overrides."""
+    """
+    Return the node's parameters in par_setup.yaml, the defaults a profile overrides.
+
+    Every section that names the node counts, also a wildcard one such as
+    /cameras/*/webcam_node; as in ROS, a later section's value wins.
+    """
     par_setup_path = os.path.join(get_package_share_directory('par_framework_core'), 'config',
                                   'par_setup.yaml')
     with open(par_setup_path) as par_setup_file:
         par_setup_document = yaml.safe_load(par_setup_file) or {}
-    node_section_name = _find_node_section_name(par_setup_document, full_node_name)
-    if node_section_name is None:
-        return {}
-    node_section = par_setup_document[node_section_name] or {}
-    return node_section.get(ROS_PARAMETERS_KEY) or {}
+    node_parameters = {}
+    for section_name, node_section in par_setup_document.items():
+        if not isinstance(section_name, str) or not isinstance(node_section, dict):
+            continue
+        if not _does_node_section_match(section_name, full_node_name):
+            continue
+        node_parameters.update(node_section.get(ROS_PARAMETERS_KEY) or {})
+    return node_parameters
+
+
+# Written by Claude Code
+def _does_node_section_match(section_name: str, full_node_name: str) -> bool:
+    """
+    Tell whether a parameter file section applies to the node, as rcl matches it.
+
+    * stands for one name part, ** for any number of them, also none, e.g. /**/webcam_node.
+    """
+    section_pattern_text = ''
+    for name_part in section_name.strip('/').split('/'):
+        if name_part == '**':
+            section_pattern_text += '(/[^/]+)*'
+        elif name_part == '*':
+            section_pattern_text += '/[^/]+'
+        else:
+            section_pattern_text += '/' + re.escape(name_part)
+    return re.fullmatch(section_pattern_text, full_node_name) is not None
 
 
 def _is_same_value(par_setup_value, setting_value) -> bool:

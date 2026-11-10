@@ -6,7 +6,7 @@ Whether the camera needs a calibration, and the calibration itself, run on the c
 preview runs (camera_preview_api).
 
 Generic, through ROS conventions only, so it works for any camera driver that follows them:
-- Whether a camera needs it comes from one message on /camera/camera_info: none published means
+- Whether a camera needs it comes from one message on its camera_info: none published means
   intrinsics do not apply; an all-zero camera matrix K means uncalibrated; otherwise the
   calibration comes from the calibration file when that file exists, else from the camera itself
   (factory calibration). The file is the one the framework gives the camera at launch
@@ -15,7 +15,7 @@ Generic, through ROS conventions only, so it works for any camera driver that fo
 - The calibration runs ROS's own camera_calibration library (MonoCalibrator, the code behind
   cameracalibrator) on the camera's frames, without its window: the app shows the detected board,
   the coverage of image position, size and tilt, and the result.
-- Saving sends the result to the driver through /camera/set_camera_info; the driver writes its
+- Saving sends the result to the driver through its set_camera_info; the driver writes its
   calibration file itself. A driver without that service cannot store a calibration.
 """
 
@@ -28,9 +28,6 @@ import urllib.parse
 import camera_preview_api
 import cv2
 from fastapi import APIRouter, HTTPException, Response
-from par_framework_core.launch_helpers import (DEFAULT_SERVICE_NAME_CAMERA_SET_INFO,
-                                               DEFAULT_TOPIC_NAME_CAMERA_IMAGE,
-                                               DEFAULT_TOPIC_NAME_CAMERA_INFO)
 import profiles_api
 from pydantic import BaseModel, Field
 from rcl_interfaces.msg import ParameterType
@@ -38,6 +35,9 @@ from rclpy.qos import QoSHistoryPolicy, QoSProfile, QoSReliabilityPolicy
 from sensor_msgs.msg import CameraInfo
 from sensor_msgs.srv import SetCameraInfo
 
+# The camera's streams this API uses, below its namespace (/cameras/<camera name>/)
+CAMERA_INFO_STREAM_NAME = 'camera_info'
+SET_CAMERA_INFO_STREAM_NAME = 'set_camera_info'
 # Where the camera's intrinsics come from (CameraIntrinsicsState.intrinsics_source)
 INTRINSICS_SOURCE_NO_CAMERA_INFO = 'no_camera_info'
 INTRINSICS_SOURCE_UNCALIBRATED = 'uncalibrated'
@@ -71,7 +71,7 @@ _calibration_session_lock = threading.Lock()
 class CameraIntrinsicsState(BaseModel):
     # One of the INTRINSICS_SOURCE_* values
     intrinsics_source: str
-    # Whether the driver offers /camera/set_camera_info, i.e. can store a new calibration
+    # Whether the driver offers its set_camera_info, i.e. can store a new calibration
     can_store_calibration: bool
     # The calibration file named by the driver's camera_info_url; empty when it has none
     calibration_file_path: str
@@ -156,15 +156,22 @@ def _read_camera_intrinsics_state(preview_session):
     # without camera_info.
     driver_node_name, parameter_client = camera_preview_api.get_driver_parameter_client(
         preview_session)
-    frame_receiver = preview_session.frame_receiver
-    can_store_calibration = _has_set_camera_info_service(frame_receiver)
+    preview_ros_node = preview_session.preview_ros_node
+    with preview_session.session_lock:
+        preview_camera = preview_session.preview_camera
+        profile_name = preview_session.profile_name
+        camera_info_topic_name = camera_preview_api.get_preview_topic_name(
+            preview_session, CAMERA_INFO_STREAM_NAME)
+        set_camera_info_service_name = camera_preview_api.get_preview_topic_name(
+            preview_session, SET_CAMERA_INFO_STREAM_NAME)
+    can_store_calibration = _has_service(preview_ros_node, set_camera_info_service_name)
     # The file the framework gave the camera, else the one the driver names under the usual
     # parameter: drivers spell that parameter differently (e.g. camerainfo_url), the framework's
     # file is known whatever the spelling
     calibration_file_path = None
-    if preview_session.profile_name is not None and preview_session.camera_name is not None:
+    if profile_name is not None and preview_camera.is_profile_camera:
         calibration_file_path = profiles_api.get_camera_intrinsics_file_path(
-            preview_session.profile_name, preview_session.camera_name)
+            profile_name, preview_camera.camera_name)
     if calibration_file_path is None:
         calibration_file_path = _read_calibration_file_path(parameter_client)
     calibration_file_modified_iso = ''
@@ -173,14 +180,14 @@ def _read_camera_intrinsics_state(preview_session):
         calibration_file_modified_iso = datetime.datetime.fromtimestamp(
             modified_time_s).isoformat(timespec='seconds')
 
-    if frame_receiver.count_publishers(DEFAULT_TOPIC_NAME_CAMERA_INFO) == 0:
+    if preview_ros_node.count_publishers(camera_info_topic_name) == 0:
         return CameraIntrinsicsState(
             intrinsics_source=INTRINSICS_SOURCE_NO_CAMERA_INFO,
             can_store_calibration=can_store_calibration,
             calibration_file_path=calibration_file_path,
             calibration_file_modified_iso=calibration_file_modified_iso,
             image_width_px=0, image_height_px=0)
-    camera_info_message = _receive_one_camera_info(frame_receiver)
+    camera_info_message = _receive_one_camera_info(preview_ros_node, camera_info_topic_name)
     if camera_info_message is None:
         raise HTTPException(status_code=503,
                             detail=f'{driver_node_name} has sent no camera_info yet')
@@ -209,7 +216,9 @@ def start_intrinsics_calibration(request: IntrinsicsCalibrationStartRequest) -> 
     with preview_session.session_lock:
         camera_preview_api.check_camera_process_runs(preview_session)
         preview_id = preview_session.running_preview_id
-        preview_session.frame_receiver.subscribe_to_feed(DEFAULT_TOPIC_NAME_CAMERA_IMAGE)
+        image_topic_name = camera_preview_api.get_preview_topic_name(
+            preview_session, camera_preview_api.CAMERA_IMAGE_STREAM_NAME)
+        preview_session.preview_ros_node.subscribe_to_feed(image_topic_name)
     chessboard_info = chessboard_info_class(
         'chessboard', request.board_inner_corner_columns, request.board_inner_corner_rows,
         request.square_size_m)
@@ -220,7 +229,8 @@ def start_intrinsics_calibration(request: IntrinsicsCalibrationStartRequest) -> 
         _stop_calibration_session(_calibration_session)
         calibration_session = _IntrinsicsCalibrationSession(preview_id, mono_calibrator)
         calibration_session.worker_thread = threading.Thread(
-            target=_feed_frames_to_calibrator, args=(calibration_session, preview_session),
+            target=_feed_frames_to_calibrator,
+            args=(calibration_session, preview_session, image_topic_name),
             daemon=True)
         calibration_session.worker_thread.start()
         _calibration_session = calibration_session
@@ -298,22 +308,24 @@ def save_intrinsics_calibration() -> IntrinsicsSaveResponse:
     _check_calibration_may_replace_intrinsics(_read_camera_intrinsics_state(preview_session))
     with calibration_session.calibrator_lock:
         camera_info_message = calibration_session.mono_calibrator.as_message()
-    frame_receiver = preview_session.frame_receiver
-    set_camera_info_client = frame_receiver.create_client(SetCameraInfo,
-                                                          DEFAULT_SERVICE_NAME_CAMERA_SET_INFO)
+    preview_ros_node = preview_session.preview_ros_node
+    with preview_session.session_lock:
+        set_camera_info_service_name = camera_preview_api.get_preview_topic_name(
+            preview_session, SET_CAMERA_INFO_STREAM_NAME)
+    set_camera_info_client = preview_ros_node.create_client(SetCameraInfo,
+                                                            set_camera_info_service_name)
     try:
         if not set_camera_info_client.wait_for_service(
                 timeout_sec=camera_preview_api.PARAMETER_SERVICE_TIMEOUT_S):
             raise HTTPException(status_code=409,
-                                detail=f'The camera offers no '
-                                       f'{DEFAULT_SERVICE_NAME_CAMERA_SET_INFO}, so it cannot '
-                                       f'store a calibration')
+                                detail=f'The camera offers no {set_camera_info_service_name}, '
+                                       f'so it cannot store a calibration')
         set_camera_info_request = SetCameraInfo.Request(camera_info=camera_info_message)
         set_camera_info_answer = camera_preview_api.wait_for_driver_service_answer(
             set_camera_info_client.call_async(set_camera_info_request),
             timeout_s=SET_CAMERA_INFO_TIMEOUT_S)
     finally:
-        frame_receiver.destroy_client(set_camera_info_client)
+        preview_ros_node.destroy_client(set_camera_info_client)
     if not set_camera_info_answer.success:
         raise HTTPException(status_code=409,
                             detail=f'The driver did not store the calibration: '
@@ -345,8 +357,8 @@ def _check_calibration_may_replace_intrinsics(camera_intrinsics_state):
                                    'calibrate')
     if not camera_intrinsics_state.can_store_calibration:
         raise HTTPException(status_code=409,
-                            detail=f'The camera offers no {DEFAULT_SERVICE_NAME_CAMERA_SET_INFO}, '
-                                   f'so it cannot store a calibration')
+                            detail=f'The camera offers no {SET_CAMERA_INFO_STREAM_NAME}, so it '
+                                   f'cannot store a calibration')
 
 
 def _import_camera_calibration():
@@ -363,9 +375,9 @@ def _import_camera_calibration():
     return ChessboardInfo, Patterns, MonoCalibrator
 
 
-def _has_set_camera_info_service(frame_receiver):
-    for service_name, _ in frame_receiver.get_service_names_and_types():
-        if service_name == DEFAULT_SERVICE_NAME_CAMERA_SET_INFO:
+def _has_service(preview_ros_node, wanted_service_name):
+    for service_name, _ in preview_ros_node.get_service_names_and_types():
+        if service_name == wanted_service_name:
             return True
     return False
 
@@ -384,7 +396,7 @@ def _read_calibration_file_path(parameter_client):
     return urllib.parse.unquote(parsed_url.path)
 
 
-def _receive_one_camera_info(frame_receiver):
+def _receive_one_camera_info(preview_ros_node, camera_info_topic_name):
     """Return one camera_info message of the running camera, None after the timeout."""
     camera_info_received_event = threading.Event()
     received_messages = []
@@ -396,12 +408,12 @@ def _receive_one_camera_info(frame_receiver):
     # BEST_EFFORT receives from reliable and best-effort publishers alike
     camera_info_qos = QoSProfile(depth=1, history=QoSHistoryPolicy.KEEP_LAST,
                                  reliability=QoSReliabilityPolicy.BEST_EFFORT)
-    camera_info_subscription = frame_receiver.create_subscription(
-        CameraInfo, DEFAULT_TOPIC_NAME_CAMERA_INFO, keep_camera_info, camera_info_qos)
+    camera_info_subscription = preview_ros_node.create_subscription(
+        CameraInfo, camera_info_topic_name, keep_camera_info, camera_info_qos)
     try:
         camera_info_received_event.wait(timeout=CAMERA_INFO_WAIT_TIMEOUT_S)
     finally:
-        frame_receiver.destroy_subscription(camera_info_subscription)
+        preview_ros_node.destroy_subscription(camera_info_subscription)
     if not received_messages:
         return None
     return received_messages[0]
@@ -435,15 +447,15 @@ def _set_calibration_failed(calibration_session, error_text):
         calibration_session.error_text = error_text
 
 
-def _feed_frames_to_calibrator(calibration_session, preview_session):
+def _feed_frames_to_calibrator(calibration_session, preview_session, image_topic_name):
     """Hand every new frame to the calibrator and keep what the endpoints show."""
     last_image_message = None
     while not calibration_session.stop_event.is_set():
         if preview_session.running_preview_id != calibration_session.preview_id:
             _set_calibration_failed(calibration_session, 'The camera stopped')
             return
-        image_message = preview_session.frame_receiver.get_latest_image_message(
-            DEFAULT_TOPIC_NAME_CAMERA_IMAGE)
+        image_message = preview_session.preview_ros_node.get_latest_image_message(
+            image_topic_name)
         with calibration_session.result_lock:
             is_calibrating = calibration_session.phase == CALIBRATION_PHASE_CALIBRATING
         if image_message is None or image_message is last_image_message or is_calibrating:

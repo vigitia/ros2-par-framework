@@ -55,7 +55,7 @@ class ExtrinsicsCalibrationView extends StatefulWidget {
   /// A saved profile: the calibration is stored in its extrinsics folder.
   final String profileName;
 
-  /// A name from launch_helpers.CAMERA_DRIVER_REMAPPINGS.
+  /// The camera's name in the profile (par_launch.cameras).
   final String cameraName;
   final ExtrinsicsCalibrationTopic calibrationTopic;
 
@@ -299,8 +299,7 @@ class _ExtrinsicsCalibrationViewState extends State<ExtrinsicsCalibrationView> {
     final Widget imageArea = CameraPreviewView(
       key: ValueKey<String>('${widget.cameraName}_$_previewStartCount'),
       backendClient: widget.backendClient,
-      cameraName: widget.cameraName,
-      profileName: widget.profileName,
+      previewCamera: PreviewCameraChoice.profileCamera(profileName: widget.profileName, cameraName: widget.cameraName),
     );
     final Widget controlsArea = _buildControlsArea();
     return LayoutBuilder(builder: (BuildContext context, BoxConstraints constraints) {

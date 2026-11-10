@@ -8,8 +8,8 @@ Laplacian in a square crop at the image centre, averaged over the last few frame
 noise at high gain makes single frames jump. The score only compares focus settings of one scene:
 it changes with the light and the content, so it has no absolute "sharp" value.
 
-Generic: it reads the neutral /camera/image_raw of the camera the preview runs
-(camera_preview_api), so it works for every camera. The app also gets the crop itself at full
+Generic: it reads the image_raw of the camera the preview runs (camera_preview_api), so it works
+for every camera. The app also gets the crop itself at full
 resolution and losslessly, so single-pixel edges can be judged by eye.
 """
 
@@ -20,7 +20,6 @@ import time
 import camera_preview_api
 import cv2
 from fastapi import APIRouter, HTTPException, Response
-from par_framework_core.launch_helpers import DEFAULT_TOPIC_NAME_CAMERA_IMAGE
 from pydantic import BaseModel
 
 # Side of the square centre crop in camera pixels, as in scripts/focus_preview.py: small enough
@@ -136,16 +135,17 @@ def compute_sharpness(gray_image):
 
 
 def _get_newest_camera_image_message():
-    """Return the newest /camera/image_raw message of the preview (None before one) and its id."""
+    """Return the newest image_raw message of the preview (None before one) and its id."""
     session = camera_preview_api.get_camera_preview_session()
     with session.session_lock:
         camera_preview_api.check_camera_process_runs(session)
         # Measuring counts as watching, so the watchdog keeps the camera running
         session.last_preview_request_monotonic_s = time.monotonic()
-        session.frame_receiver.subscribe_to_feed(DEFAULT_TOPIC_NAME_CAMERA_IMAGE)
+        image_topic_name = camera_preview_api.get_preview_topic_name(
+            session, camera_preview_api.CAMERA_IMAGE_STREAM_NAME)
+        session.preview_ros_node.subscribe_to_feed(image_topic_name)
         preview_id = session.running_preview_id
-    image_message = session.frame_receiver.get_latest_image_message(
-        DEFAULT_TOPIC_NAME_CAMERA_IMAGE)
+    image_message = session.preview_ros_node.get_latest_image_message(image_topic_name)
     return image_message, preview_id
 
 
@@ -154,7 +154,7 @@ def _measure_frame(state, image_message):
     frame = camera_preview_api.convert_image_message_to_frame(image_message)
     if frame is None:
         raise HTTPException(status_code=409,
-                            detail=f'{DEFAULT_TOPIC_NAME_CAMERA_IMAGE} has the encoding '
+                            detail=f'The camera image has the encoding '
                                    f'{image_message.encoding!r}, which the focus measure cannot '
                                    f'read')
     crop_left_px, crop_top_px, crop_side_px = get_center_crop_bounds(image_message.width,

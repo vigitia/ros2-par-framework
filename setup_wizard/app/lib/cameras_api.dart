@@ -1,84 +1,131 @@
 // Written by Claude Code
 //
-// The backend's cameras API (setup_wizard/backend/cameras_api.py): every camera the framework supports, with
-// whether its driver packages are installed on the PAR machine.
+// The backend's cameras API (setup_wizard/backend/cameras_api.py and the camera endpoints of profiles_api.py): the
+// installed camera types with what their entries say, their connected units, and a profile's cameras by name.
 
 import 'setup_wizard_backend_client.dart';
 
-/// A camera the framework supports, as listed by GET /api/cameras.
-class SupportedCamera {
-  const SupportedCamera({required this.cameraName, required this.driverPackageNames, required this.isInstalled});
+/// What a camera name may hold, as the backend checks it (launch_helpers.CAMERA_NAME_PATTERN): it becomes part of
+/// `/cameras/<name>`, TF frames and calibration file names.
+final RegExp cameraNamePattern = RegExp(r'^[a-z][a-z0-9_]*$');
 
-  factory SupportedCamera.fromJson(Map<String, dynamic> cameraJson) {
-    return SupportedCamera(
-      cameraName: cameraJson['camera_name'] as String,
-      driverPackageNames: (cameraJson['driver_package_names'] as List<dynamic>).cast<String>(),
-      isInstalled: cameraJson['is_installed'] as bool,
+/// The entry's serial: units of the type have no serial numbers (one per profile).
+const String serialSourceNone = 'none';
+
+/// The entry's serial: the units are listed by the backend (and can be typed too).
+const String serialSourceListed = 'listed';
+
+/// An installed camera type, as listed by GET /api/cameras.
+class CameraType {
+  const CameraType({
+    required this.cameraType,
+    required this.displayName,
+    required this.description,
+    required this.requiredPackageNames,
+    required this.isInstalled,
+    required this.serialSource,
+    required this.entryErrorText,
+  });
+
+  factory CameraType.fromJson(Map<String, dynamic> cameraTypeJson) {
+    return CameraType(
+      cameraType: cameraTypeJson['camera_type'] as String,
+      displayName: cameraTypeJson['display_name'] as String,
+      description: cameraTypeJson['description'] as String,
+      requiredPackageNames: (cameraTypeJson['required_package_names'] as List<dynamic>).cast<String>(),
+      isInstalled: cameraTypeJson['is_installed'] as bool,
+      serialSource: cameraTypeJson['serial_source'] as String,
+      entryErrorText: cameraTypeJson['entry_error_text'] as String?,
     );
   }
 
-  /// The name launch files use (par_launch.camera, camera:=), e.g. 'brio'.
-  final String cameraName;
-  final List<String> driverPackageNames;
+  /// The type's name, as in par_launch.cameras, e.g. 'brio'.
+  final String cameraType;
+  final String displayName;
+  final String description;
 
-  /// True when every driver package is installed, so the camera can be started.
+  /// Packages the type's launch file starts besides its own, e.g. a released driver.
+  final List<String> requiredPackageNames;
+
+  /// True when every package of requiredPackageNames is installed, so the type can be started.
   final bool isInstalled;
+
+  /// none, typed or listed: whether units have serial numbers and whether the backend lists the connected ones.
+  final String serialSource;
+
+  /// Set when the type's entry cannot be read; the type cannot be used then.
+  final String? entryErrorText;
+
+  bool get hasSerials => serialSource != serialSourceNone;
+
+  /// True when the type can be added to a profile.
+  bool get isUsable => isInstalled && entryErrorText == null;
+}
+
+/// Returns the name suggested for a new camera of cameraType: the type itself, else `<type>_2`, `<type>_3`, ... the
+/// first one not taken.
+String suggestCameraName(String cameraType, Iterable<String> takenCameraNames) {
+  final Set<String> takenCameraNameSet = takenCameraNames.toSet();
+  if (!takenCameraNameSet.contains(cameraType)) {
+    return cameraType;
+  }
+  int cameraNumber = 2;
+  while (takenCameraNameSet.contains('${cameraType}_$cameraNumber')) {
+    cameraNumber += 1;
+  }
+  return '${cameraType}_$cameraNumber';
 }
 
 extension CamerasApi on SetupWizardBackendClient {
-  /// Fetches every supported camera with its installed state.
-  Future<List<SupportedCamera>> fetchSupportedCameras() async {
-    final Map<String, dynamic> cameraListJson = await getJson('/api/cameras') as Map<String, dynamic>;
-    final List<dynamic> camerasJson = cameraListJson['cameras'] as List<dynamic>;
-    final List<SupportedCamera> supportedCameras = [];
-    for (final dynamic cameraJson in camerasJson) {
-      supportedCameras.add(SupportedCamera.fromJson(cameraJson as Map<String, dynamic>));
+  /// Fetches every installed camera type with what its entry says.
+  Future<List<CameraType>> fetchCameraTypes() async {
+    final Map<String, dynamic> cameraTypeListJson = await getJson('/api/cameras') as Map<String, dynamic>;
+    final List<CameraType> cameraTypes = [];
+    for (final dynamic cameraTypeJson in cameraTypeListJson['camera_types'] as List<dynamic>) {
+      cameraTypes.add(CameraType.fromJson(cameraTypeJson as Map<String, dynamic>));
     }
-    return supportedCameras;
+    return cameraTypes;
   }
 
-  /// Adds a camera unit to the profile's cameras, to set up and calibrate it there. serial is empty for a camera
-  /// that has none.
-  Future<void> addProfileCamera({required String profileName, required String cameraName, String serial = ''}) async {
+  /// Adds a camera to the profile's par_launch.cameras under cameraName; every run of the profile starts it. serial
+  /// is empty for a type without serial numbers.
+  Future<void> addProfileCamera({
+    required String profileName,
+    required String cameraName,
+    required String cameraType,
+    String serial = '',
+  }) async {
     await sendJson('POST', '/api/profiles/${Uri.encodeComponent(profileName)}/cameras',
-        {'camera_name': cameraName, 'serial': serial});
+        {'camera_name': cameraName, 'camera_type': cameraType, 'serial': serial});
   }
 
-  /// Makes the camera unit the one the next run of the profile starts.
-  Future<void> setProfileMainCamera({required String profileName, required String cameraName, String serial = ''}) async {
-    await sendJson('PUT', '/api/profiles/${Uri.encodeComponent(profileName)}/main-camera',
-        {'camera_name': cameraName, 'serial': serial});
+  /// Removes a camera from the profile; its calibrations are moved to the profiles' .deleted folder.
+  Future<void> removeProfileCamera({required String profileName, required String cameraName}) async {
+    final String cameraPath =
+        '/api/profiles/${Uri.encodeComponent(profileName)}/cameras/${Uri.encodeComponent(cameraName)}';
+    await sendJson('DELETE', cameraPath, null);
   }
 
-  /// Removes a camera unit that is not selected; its calibrations are moved to the profiles' .deleted folder.
-  Future<void> removeProfileCamera({required String profileName, required String cameraName, String serial = ''}) async {
-    final String query = 'camera_name=${Uri.encodeQueryComponent(cameraName)}&serial=${Uri.encodeQueryComponent(serial)}';
-    await sendJson('DELETE', '/api/profiles/${Uri.encodeComponent(profileName)}/cameras?$query', null);
-  }
-
-  /// The serials of the connected units of a camera type. isListingSupported is false when the backend cannot list
-  /// them, so the serial has to be typed.
-  Future<ConnectedCameraUnits> fetchConnectedCameraUnits(String cameraName) async {
+  /// The serials of the connected units of a camera type, as far as its entry says how to find them.
+  Future<ConnectedCameraUnits> fetchConnectedCameraUnits(String cameraType) async {
     final Map<String, dynamic> unitsJson =
-        await getJson('/api/cameras/${Uri.encodeComponent(cameraName)}/units') as Map<String, dynamic>;
+        await getJson('/api/cameras/${Uri.encodeComponent(cameraType)}/units') as Map<String, dynamic>;
     return ConnectedCameraUnits(
-      isSerialSupported: unitsJson['is_serial_supported'] as bool,
-      isListingSupported: unitsJson['is_listing_supported'] as bool,
+      serialSource: unitsJson['serial_source'] as String,
       serials: (unitsJson['serials'] as List<dynamic>).cast<String>(),
     );
   }
 }
 
 class ConnectedCameraUnits {
-  const ConnectedCameraUnits({
-    required this.isSerialSupported,
-    required this.isListingSupported,
-    required this.serials,
-  });
+  const ConnectedCameraUnits({required this.serialSource, required this.serials});
 
-  /// True for a camera type with serial numbers: several units of it can be in one profile.
-  final bool isSerialSupported;
+  /// none, typed or listed, as in CameraType.
+  final String serialSource;
 
-  final bool isListingSupported;
+  /// The connected units' serials; only filled for listed.
   final List<String> serials;
+
+  bool get hasSerials => serialSource != serialSourceNone;
+  bool get isListingSupported => serialSource == serialSourceListed;
 }

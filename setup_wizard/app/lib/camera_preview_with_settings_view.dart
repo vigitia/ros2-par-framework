@@ -8,6 +8,7 @@
 
 import 'package:flutter/material.dart';
 
+import 'camera_preview_api.dart';
 import 'camera_preview_view.dart';
 import 'camera_settings_view.dart';
 import 'focus_api.dart';
@@ -21,10 +22,8 @@ class CameraPreviewWithSettingsView extends StatefulWidget {
   const CameraPreviewWithSettingsView({
     super.key,
     required this.backendClient,
-    required this.cameraName,
+    required this.previewCamera,
     required this.isSettingsListShown,
-    this.profileName,
-    this.serial = '',
     this.isFocusAssistShown = true,
     this.settingsTitleText,
     this.isSettingShown,
@@ -33,14 +32,8 @@ class CameraPreviewWithSettingsView extends StatefulWidget {
 
   final SetupWizardBackendClient backendClient;
 
-  /// A name from launch_helpers.CAMERA_DRIVER_REMAPPINGS.
-  final String cameraName;
-
-  /// Starts the camera with this saved profile's settings; null for par_setup.yaml's.
-  final String? profileName;
-
-  /// The unit to open while no saved profile names it yet; empty opens the unit the parameter files name.
-  final String serial;
+  /// The camera to show and set up.
+  final PreviewCameraChoice previewCamera;
 
   final bool isSettingsListShown;
   final bool isFocusAssistShown;
@@ -86,9 +79,7 @@ class _CameraPreviewWithSettingsViewState extends State<CameraPreviewWithSetting
     final Widget cameraPreviewView = CameraPreviewView(
       key: _cameraPreviewViewKey,
       backendClient: widget.backendClient,
-      cameraName: widget.cameraName,
-      profileName: widget.profileName,
-      serial: widget.serial,
+      previewCamera: widget.previewCamera,
       focusMeasuredArea: _focusMeasuredAreaNotifier,
     );
     final List<Widget> previewRows = [cameraPreviewView];
@@ -128,7 +119,7 @@ class _CameraPreviewWithSettingsViewState extends State<CameraPreviewWithSetting
     return CameraSettingsView(
       key: _cameraSettingsViewKey,
       backendClient: widget.backendClient,
-      cameraName: widget.cameraName,
+      cameraDisplayName: widget.previewCamera.runningCameraName,
       titleText: widget.settingsTitleText,
       isSettingShown: widget.isSettingShown,
       noShownSettingsText: widget.noShownSettingsText,

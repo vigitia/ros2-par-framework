@@ -7,6 +7,7 @@
 
 import 'package:flutter/material.dart';
 
+import 'camera_preview_api.dart';
 import 'camera_preview_with_settings_view.dart';
 import 'extrinsics_calibration_view.dart';
 import 'intrinsics_calibration_view.dart';
@@ -16,8 +17,8 @@ import 'setup_wizard_backend_client.dart';
 /// What can be shown for a camera; each starts the camera itself, so only one is shown at a time.
 enum CameraSection { imageAndSettings, lensCalibration, cameraPose, projectorCalibration }
 
-/// A camera unit and the section to open for it; serial is empty for a camera without one.
-typedef CameraSectionRequest = ({String cameraType, String serial, CameraSection cameraSection});
+/// A camera of the profile, by its name, and the section to open for it.
+typedef CameraSectionRequest = ({String cameraName, CameraSection cameraSection});
 
 class CameraSectionView extends StatelessWidget {
   const CameraSectionView({
@@ -34,7 +35,7 @@ class CameraSectionView extends StatelessWidget {
   /// The saved profile the camera starts with and its calibrations are stored in.
   final String profileName;
 
-  /// A name from launch_helpers.CAMERA_DRIVER_REMAPPINGS.
+  /// The camera's name in the profile (par_launch.cameras).
   final String cameraName;
   final CameraSection cameraSection;
 
@@ -55,20 +56,22 @@ class CameraSectionView extends StatelessWidget {
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: sectionRows);
   }
 
+  PreviewCameraChoice _createPreviewCamera() {
+    return PreviewCameraChoice.profileCamera(profileName: profileName, cameraName: cameraName);
+  }
+
   Widget _buildSectionContent() {
     switch (cameraSection) {
       case CameraSection.imageAndSettings:
         return CameraPreviewWithSettingsView(
           backendClient: backendClient,
-          cameraName: cameraName,
-          profileName: profileName,
+          previewCamera: _createPreviewCamera(),
           isSettingsListShown: true,
         );
       case CameraSection.lensCalibration:
         return IntrinsicsCalibrationView(
           backendClient: backendClient,
-          cameraName: cameraName,
-          profileName: profileName,
+          previewCamera: _createPreviewCamera(),
         );
       case CameraSection.cameraPose:
         return ExtrinsicsCalibrationView(

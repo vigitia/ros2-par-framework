@@ -41,7 +41,7 @@ class CameraImageStep extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final String cameraName = cameraInstance.cameraType;
+    final String cameraName = cameraInstance.cameraName;
     final bool isFocusPage = cameraImagePageTopic == CameraImagePageTopic.focus;
     String introductionText = 'Adjust exposure, gain and the other image settings while you watch the live image.';
     String settingsTitleText = 'Image settings: $cameraName';
@@ -62,8 +62,7 @@ class CameraImageStep extends StatelessWidget {
         const SizedBox(height: 12),
         CameraPreviewWithSettingsView(
           backendClient: backendClient,
-          cameraName: cameraName,
-          serial: cameraInstance.serial,
+          previewCamera: cameraInstance.createUnitPreviewCamera(),
           isSettingsListShown: true,
           isFocusAssistShown: isFocusPage,
           settingsTitleText: settingsTitleText,

@@ -9,7 +9,7 @@ extrinsics/<name>/ instead), which the launch files then use instead of the plac
 the placeholder). camera:= chooses the camera when the profile has several. The launch ends when
 the calibrator is done. Keep the table clear:
 
-    ros2 launch par_framework_core camera_pose_calibration_kinect.launch.py
+    ros2 launch par_framework_core camera_pose_calibration_depth.launch.py
 """
 
 import os
@@ -39,7 +39,7 @@ def launch_setup(context):
     camera = camera_to_calibrate.camera_name
     camera_entry = read_camera_entry(camera_to_calibrate.camera_type)
     if DEPTH_REGISTERED_STREAM_NAME not in camera_entry['streams']:
-        raise RuntimeError(f'[camera_pose_calibration_kinect.launch]: the camera {camera} offers '
+        raise RuntimeError(f'[camera_pose_calibration_depth.launch]: the camera {camera} offers '
                            f'no {DEPTH_REGISTERED_STREAM_NAME}: measure its pose with '
                            f'camera_pose_calibration_sheet.launch.py instead')
     merged_parameters = read_merged_parameters(context)

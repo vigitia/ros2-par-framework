@@ -357,7 +357,7 @@ ros2 run surface_selector projection_calibrator --ros-args \
 
 Node default that differs: `display_id` 0.
 
-### camera_pose_calibrator (camera height and tilt, `camera_pose_calibration_kinect.launch.py`)
+### camera_pose_calibrator (camera height and tilt, `camera_pose_calibration_depth.launch.py`)
 
 Needs a depth camera looking at the clear table. `placeholder_rotation` is the placeholder rotation (x, y, z, w) of the
 camera's mount transform.

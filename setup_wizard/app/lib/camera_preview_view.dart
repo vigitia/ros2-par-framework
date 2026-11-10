@@ -12,10 +12,6 @@ import 'camera_preview_api.dart';
 import 'focus_api.dart';
 import 'setup_wizard_backend_client.dart';
 
-/// The framework's neutral camera image topic (launch_helpers.DEFAULT_TOPIC_NAME_CAMERA_IMAGE), the feed the focus
-/// is measured on.
-const String cameraImageTopicName = '/camera/image_raw';
-
 /// Pause between two frame requests of a feed: about 10 frames per second.
 const Duration cameraPreviewFramePollInterval = Duration(milliseconds: 100);
 
@@ -36,23 +32,14 @@ class CameraPreviewView extends StatefulWidget {
   const CameraPreviewView({
     super.key,
     required this.backendClient,
-    required this.cameraName,
-    this.profileName,
-    this.serial = '',
+    required this.previewCamera,
     this.focusMeasuredArea,
   });
 
   final SetupWizardBackendClient backendClient;
 
-  /// The camera to show, a name from launch_helpers.CAMERA_DRIVER_REMAPPINGS. Changing it switches the preview.
-  final String cameraName;
-
-  /// Starts the camera with this saved profile's settings; null for par_setup.yaml's (a profile not saved yet).
-  final String? profileName;
-
-  /// The unit to open while no saved profile names it yet; empty opens the unit the parameter files name.
-  /// Changing it switches the preview.
-  final String serial;
+  /// The camera to show. Changing it switches the preview.
+  final PreviewCameraChoice previewCamera;
 
   /// Where the focus is measured, framed on the camera image while set; null frames nothing.
   final ValueListenable<FocusMeasuredArea?>? focusMeasuredArea;
@@ -82,8 +69,7 @@ class _CameraPreviewViewState extends State<CameraPreviewView> {
   @override
   void didUpdateWidget(CameraPreviewView oldWidget) {
     super.didUpdateWidget(oldWidget);
-    final bool isOtherCamera = oldWidget.cameraName != widget.cameraName || oldWidget.serial != widget.serial;
-    if (isOtherCamera || oldWidget.profileName != widget.profileName) {
+    if (oldWidget.previewCamera != widget.previewCamera) {
       _startPreview();
     }
   }
@@ -122,11 +108,7 @@ class _CameraPreviewViewState extends State<CameraPreviewView> {
     });
     final int previewId;
     try {
-      previewId = await backendClient.startCameraPreview(
-        widget.cameraName,
-        profileName: widget.profileName,
-        serial: widget.serial,
-      );
+      previewId = await backendClient.startCameraPreview(widget.previewCamera);
     } catch (error) {
       _showPreviewError(previewGeneration, error);
       return;
@@ -182,7 +164,7 @@ class _CameraPreviewViewState extends State<CameraPreviewView> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'No preview of ${widget.cameraName}: $previewErrorText',
+            'No preview of ${widget.previewCamera.runningCameraName}: $previewErrorText',
             style: TextStyle(color: Theme.of(context).colorScheme.error),
           ),
           const SizedBox(height: 8),
@@ -193,7 +175,7 @@ class _CameraPreviewViewState extends State<CameraPreviewView> {
 
     final List<String>? feedTopicNames = _feedTopicNames;
     if (feedTopicNames == null) {
-      return _buildWaitingRow('Starting ${widget.cameraName} …');
+      return _buildWaitingRow('Starting ${widget.previewCamera.runningCameraName} …');
     }
     return LayoutBuilder(builder: (BuildContext context, BoxConstraints constraints) {
       final List<Widget> feedTiles = [];
@@ -228,7 +210,7 @@ class _CameraPreviewViewState extends State<CameraPreviewView> {
                 key: ValueKey<String>(feedTopicName),
                 backendClient: widget.backendClient,
                 feedTopicName: feedTopicName,
-                focusMeasuredArea: feedTopicName == cameraImageTopicName ? widget.focusMeasuredArea : null,
+                focusMeasuredArea: feedTopicName == widget.previewCamera.imageTopicName ? widget.focusMeasuredArea : null,
               ),
             ),
           ),

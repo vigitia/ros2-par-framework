@@ -32,8 +32,7 @@ class NewProfileDraft {
   /// Internal name, e.g. 'labor_neu': the file `config/profiles/<profileName>.yaml` and `profile:=<profileName>`.
   String? profileName;
 
-  /// The profile's cameras: none, one or several, also several of one type (e.g. two Brios), while the framework
-  /// still launches one camera at a time.
+  /// The profile's cameras: none, one or several, also several of one type (e.g. two Brios), each with its name.
   List<CameraInstanceDraft> cameraInstances = [];
 
   /// The displays the projectors are connected to, as the framework's display_id (SDL's display index). A list
@@ -50,22 +49,12 @@ class NewProfileDraft {
     return instanceCount;
   }
 
-  /// Adds a camera of cameraType named `<type>_<n>` with the lowest number not taken, e.g. 'brio_2'. serial names
-  /// the unit; empty for a camera type without serial numbers.
-  void addCameraInstance(String cameraType, String serial) {
-    final Set<String> takenInstanceNames = {};
-    for (final CameraInstanceDraft cameraInstance in cameraInstances) {
-      takenInstanceNames.add(cameraInstance.instanceName);
-    }
-    int instanceNumber = 1;
-    while (takenInstanceNames.contains('${cameraType}_$instanceNumber')) {
-      instanceNumber += 1;
-    }
-    cameraInstances.add(CameraInstanceDraft(
-      cameraType: cameraType,
-      serial: serial,
-      instanceName: '${cameraType}_$instanceNumber',
-    ));
+  /// The cameras as the add dialog and the backend take them.
+  List<ProfileCameraUnit> getProfileCameraUnits() {
+    return [
+      for (final CameraInstanceDraft cameraInstance in cameraInstances)
+        (cameraName: cameraInstance.cameraName, cameraType: cameraInstance.cameraType, serial: cameraInstance.serial),
+    ];
   }
 
   /// Removes the camera of cameraType added last, like lowering the count in a shopping cart.
@@ -79,19 +68,24 @@ class NewProfileDraft {
   }
 }
 
-/// One camera of the new profile: which driver (type), which unit of it and its name within the profile.
+/// One camera of the new profile: which type, which unit of it and its name within the profile.
 class CameraInstanceDraft {
-  CameraInstanceDraft({required this.cameraType, required this.serial, required this.instanceName});
+  CameraInstanceDraft({required this.cameraName, required this.cameraType, required this.serial});
 
-  /// A key of launch_helpers.CAMERA_DRIVER_REMAPPINGS, e.g. 'brio'.
+  /// Unique within the profile, e.g. 'overhead': its topics are `/cameras/<cameraName>/`, its TF frames and
+  /// calibration files are named after it. Chosen when the camera is added, fixed afterwards.
+  final String cameraName;
+
+  /// A camera entry's name, e.g. 'brio'.
   final String cameraType;
 
-  /// The unit's serial number, chosen in the Hardware step; empty for a camera type without serial numbers.
+  /// The unit's serial number, chosen in the Hardware step; empty when the driver opens the unit it finds first.
   final String serial;
 
-  /// Unique within the profile, e.g. 'brio_2'; used for namespaces, TF frames and calibration file names.
-  /// Suggested as `<type>_<n>` (decision on the card: editable when added, fixed afterwards).
-  String instanceName;
+  /// The camera before the profile exists: its unit, which the preview names after its type.
+  PreviewCameraChoice createUnitPreviewCamera() {
+    return PreviewCameraChoice.unit(cameraType: cameraType, serial: serial);
+  }
 }
 
 /// What one page of the wizard is about; several pages can belong to one stepper step.
@@ -252,10 +246,6 @@ class _NewProfileWizardScreenState extends State<NewProfileWizardScreen> {
       });
       return false;
     }
-    // Simplification: the framework launches one camera at a time, so the profile gets the first one. Upgrade:
-    // send every camera instance once launch_helpers starts several (card "Setup Wizard").
-    final String cameraName = cameraInstances.first.cameraType;
-    final String cameraSerial = cameraInstances.first.serial;
     int? projectorDisplayId;
     if (_newProfileDraft.projectorDisplayIds.isNotEmpty) {
       projectorDisplayId = _newProfileDraft.projectorDisplayIds.first;
@@ -270,8 +260,7 @@ class _NewProfileWizardScreenState extends State<NewProfileWizardScreen> {
       await widget.backendClient.createProfile(
         profileName: profileName,
         profileDisplayName: profileDisplayName,
-        cameraName: cameraName,
-        cameraSerial: cameraSerial,
+        cameras: _newProfileDraft.getProfileCameraUnits(),
         projectorDisplayId: projectorDisplayId,
       );
     } catch (error) {
@@ -400,7 +389,7 @@ class _NewProfileWizardScreenState extends State<NewProfileWizardScreen> {
     final List<CameraInstanceDraft> cameraInstances = _newProfileDraft.cameraInstances;
     final CameraInstanceDraft cameraInstance = cameraInstances[cameraInstanceIndex];
     final List<Widget> headerRows = [
-      Text('${wizardPage.pageTopic.titleText}: ${cameraInstance.instanceName}', style: textTheme.titleLarge),
+      Text('${wizardPage.pageTopic.titleText}: ${cameraInstance.cameraName}', style: textTheme.titleLarge),
       Text('Camera ${cameraInstanceIndex + 1} of ${cameraInstances.length}', style: TextStyle(color: mutedTextColor)),
     ];
     final String? sameTypeNoteText = _getSameTypeNoteText(cameraInstance);
@@ -499,8 +488,8 @@ class _NewProfileWizardScreenState extends State<NewProfileWizardScreen> {
     if (cameraInstanceIndex == null) {
       return wizardPage.pageTopic.titleText;
     }
-    final String instanceName = _newProfileDraft.cameraInstances[cameraInstanceIndex].instanceName;
-    return '${wizardPage.pageTopic.titleText}: $instanceName';
+    final String cameraName = _newProfileDraft.cameraInstances[cameraInstanceIndex].cameraName;
+    return '${wizardPage.pageTopic.titleText}: $cameraName';
   }
 
   Widget _buildPageControls(BuildContext context, List<WizardPage> wizardPages) {

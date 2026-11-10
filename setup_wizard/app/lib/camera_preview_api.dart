@@ -4,8 +4,8 @@
 // list its feeds (image topics), fetch a feed's latest frame as JPEG, read and change its settings, stop it.
 
 import 'dart:convert';
-import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import 'setup_wizard_backend_client.dart';
@@ -14,15 +14,72 @@ import 'setup_wizard_backend_client.dart';
 /// SIGKILL), so these requests wait longer than backendRequestTimeout.
 const Duration cameraPreviewStartStopTimeout = Duration(seconds: 35);
 
+/// The namespace every camera runs in, `/cameras/<camera name>` (launch_helpers.CAMERAS_NAMESPACE).
+const String camerasNamespace = '/cameras';
+
+/// The camera a preview starts: a saved profile's camera by its name, or a unit no profile names yet by its type
+/// and serial, which the backend names after its type.
+@immutable
+class PreviewCameraChoice {
+  /// A camera of the saved profile, by its name in par_launch.cameras; it starts with the profile's settings.
+  const PreviewCameraChoice.profileCamera({required String this.profileName, required this.cameraName})
+      : cameraType = '',
+        serial = '';
+
+  /// A unit of cameraType that no profile names yet, with par_setup.yaml's settings; serial empty opens the unit
+  /// the driver finds first.
+  const PreviewCameraChoice.unit({required this.cameraType, this.serial = ''})
+      : profileName = null,
+        cameraName = '';
+
+  /// Null for a unit.
+  final String? profileName;
+
+  /// Empty for a unit.
+  final String cameraName;
+
+  /// Empty for a profile camera.
+  final String cameraType;
+  final String serial;
+
+  /// The name the camera runs under: its profile name, or for a unit its type.
+  String get runningCameraName {
+    if (profileName != null) {
+      return cameraName;
+    }
+    return cameraType;
+  }
+
+  /// The camera's image, the feed the focus is measured on.
+  String get imageTopicName => '$camerasNamespace/$runningCameraName/image_raw';
+
+  Map<String, dynamic> toStartJson() {
+    if (profileName != null) {
+      return {'profile_name': profileName, 'camera_name': cameraName};
+    }
+    return {'camera_type': cameraType, 'serial': serial};
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return other is PreviewCameraChoice &&
+        other.profileName == profileName &&
+        other.cameraName == cameraName &&
+        other.cameraType == cameraType &&
+        other.serial == serial;
+  }
+
+  @override
+  int get hashCode => Object.hash(profileName, cameraName, cameraType, serial);
+}
+
 extension CameraPreviewApi on SetupWizardBackendClient {
-  /// Starts cameraName for the preview and returns the preview's id; a preview that runs is stopped first. With
-  /// profileName the camera starts with that saved profile's settings, otherwise with par_setup.yaml's. serial
-  /// names the unit to open while no profile names it yet; empty opens the unit the parameter files name.
-  Future<int> startCameraPreview(String cameraName, {String? profileName, String serial = ''}) async {
+  /// Starts the camera for the preview and returns the preview's id; a preview that runs is stopped first.
+  Future<int> startCameraPreview(PreviewCameraChoice previewCamera) async {
     final http.Response response = await _sendCameraPreviewJson(
       'POST',
       '/api/camera-preview/start',
-      {'camera_name': cameraName, 'profile_name': profileName, 'serial': serial},
+      previewCamera.toStartJson(),
     );
     final Map<String, dynamic> startJson = jsonDecode(response.body) as Map<String, dynamic>;
     return startJson['preview_id'] as int;

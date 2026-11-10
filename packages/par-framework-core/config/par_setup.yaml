@@ -438,7 +438,7 @@ rendering_manager_bridge_node:
 # Pose of the Kinect body frame (kinect_camera_base, x forward, z up) in world, in metres.
 # PLACEHOLDER -- DO NOT EDIT, see /brio_tf_publisher. Front glass to table 1.0 m, looking straight down.
 # The real pose is calibration/extrinsics/camera_pose_kinect.yaml below this file, measured by
-# camera_pose_calibrator (camera_pose_calibration_kinect.launch.py): height and tilt from the
+# camera_pose_calibrator (camera_pose_calibration_depth.launch.py): height and tilt from the
 # depth image of the clear table.
 /kinect_tf_publisher:
   ros__parameters:

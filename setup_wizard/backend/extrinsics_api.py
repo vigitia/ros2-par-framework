@@ -26,11 +26,10 @@ import time
 from ament_index_python.resources import has_resource
 import camera_preview_api
 from fastapi import APIRouter, HTTPException
-from par_framework_core.launch_helpers import (CAMERA_DRIVER_REMAPPINGS,
-                                               DEFAULT_TOPIC_NAME_CAMERA_DEPTH,
+from par_framework_core.launch_helpers import (CAMERA_ENTRY_STREAMS_KEY,
                                                get_extrinsics_relative_path,
                                                get_invalid_pose_keys, get_path_in_config_folder,
-                                               POSE_ROTATION_KEYS)
+                                               POSE_ROTATION_KEYS, read_camera_entry)
 import profiles_api
 import projector_blackout_api
 from pydantic import BaseModel, Field
@@ -45,10 +44,10 @@ CALIBRATION_KINDS = (CALIBRATION_KIND_POSE_BOARD, CALIBRATION_KIND_POSE_DEPTH,
                      CALIBRATION_KIND_PROJECTION_MAPPING, CALIBRATION_KIND_PROJECTOR_CENTER)
 POSE_BOARD_LAUNCH_FILE_NAME = 'camera_pose_calibration_sheet.launch.py'
 PROJECTION_LAUNCH_FILE_NAME = 'projection_calibration.launch.py'
-# Special case: the depth pose launch starts the Kinect's driver itself, so it exists for the
-# Kinect only, chosen by camera name. Upgrade: a depth pose launch that starts any camera with
-# create_camera_nodes, then offer it to every camera publishing DEFAULT_TOPIC_NAME_CAMERA_DEPTH.
-POSE_DEPTH_LAUNCH_FILE_NAME_BY_CAMERA = {'kinect': 'camera_pose_calibration_kinect.launch.py'}
+# Measures the pose with the camera's depth, for every camera whose entry offers
+# DEPTH_REGISTERED_STREAM_NAME; the projector centre needs that stream too
+POSE_DEPTH_LAUNCH_FILE_NAME = 'camera_pose_calibration_depth.launch.py'
+DEPTH_REGISTERED_STREAM_NAME = 'depth_registered/image_raw'
 
 # Packages the calibration launch files start, with the repository that brings them
 CALIBRATION_REPOSITORY_BY_PACKAGE = {
@@ -169,8 +168,7 @@ class _ExtrinsicsRun:
 @extrinsics_router.get('/api/extrinsics/state')
 def get_extrinsics_state(profile_name: str, camera_name: str) -> ExtrinsicsState:
     """Return the profile's camera pose and projector calibration for the camera."""
-    _check_known_camera(camera_name)
-    profiles_api.check_profile_exists(profile_name)
+    preview_camera = camera_preview_api.get_profile_preview_camera(profile_name, camera_name)
     camera_pose_summary = _read_camera_pose_summary(
         _get_extrinsics_file_path(profile_name, 'camera_pose', camera_name))
     projection_mapping_summary = _read_projection_mapping_summary(
@@ -178,8 +176,8 @@ def get_extrinsics_state(profile_name: str, camera_name: str) -> ExtrinsicsState
         camera_pose_summary)
 
     available_calibration_kinds = [CALIBRATION_KIND_POSE_BOARD]
-    publishes_depth = _does_previewed_camera_publish_depth(camera_name)
-    if publishes_depth and camera_name in POSE_DEPTH_LAUNCH_FILE_NAME_BY_CAMERA:
+    publishes_depth = _does_camera_offer_depth(preview_camera.camera_type)
+    if publishes_depth:
         available_calibration_kinds.append(CALIBRATION_KIND_POSE_DEPTH)
     available_calibration_kinds.append(CALIBRATION_KIND_PROJECTION_MAPPING)
     # The centre adds to a stored homography and locates the markers with depth
@@ -202,8 +200,8 @@ def get_extrinsics_state(profile_name: str, camera_name: str) -> ExtrinsicsState
 def start_extrinsics_calibration(
         request: ExtrinsicsCalibrationStartRequest) -> ExtrinsicsCalibrationStartResponse:
     """Start a calibration launch on the profile's camera, ending the preview that runs now."""
-    _check_known_camera(request.camera_name)
-    profiles_api.check_profile_exists(request.profile_name)
+    preview_camera = camera_preview_api.get_profile_preview_camera(request.profile_name,
+                                                                   request.camera_name)
     if request.calibration_kind not in CALIBRATION_KINDS:
         raise HTTPException(status_code=400,
                             detail=f'Unknown calibration_kind {request.calibration_kind!r}: use '
@@ -211,7 +209,8 @@ def start_extrinsics_calibration(
     missing_package_text = _get_missing_package_text(request.calibration_kind)
     if missing_package_text:
         raise HTTPException(status_code=409, detail=f'Not installed: {missing_package_text}')
-    launch_file_name, launch_arguments, result_file_prefix = _get_calibration_launch(request)
+    launch_file_name, launch_arguments, result_file_prefix = _get_calibration_launch(
+        request, preview_camera)
     result_file_path = _get_extrinsics_file_path(request.profile_name, result_file_prefix,
                                                  request.camera_name)
 
@@ -221,7 +220,7 @@ def start_extrinsics_calibration(
         projector_blackout_api.stop_projector_blackout_for_projection()
     start_time_s = time.time()
     preview_id = camera_preview_api.start_camera_launch(
-        request.camera_name, request.profile_name, launch_file_name, launch_arguments)
+        preview_camera, request.profile_name, launch_file_name, launch_arguments)
     preview_session = camera_preview_api.get_camera_preview_session()
     with preview_session.session_lock:
         if preview_session.running_preview_id != preview_id:
@@ -278,9 +277,12 @@ def _read_final_progress(extrinsics_run):
                                          log_lines=_read_launch_error_lines())
 
 
-def _get_calibration_launch(request):
-    """Return the launch file, its arguments and the result file's prefix (e.g. camera_pose)."""
-    camera_name = request.camera_name
+def _get_calibration_launch(request, preview_camera):
+    """
+    Return the launch file, its arguments and the result file's prefix (e.g. camera_pose).
+
+    The camera:= argument is added by camera_preview_api.start_camera_launch.
+    """
     if request.calibration_kind == CALIBRATION_KIND_POSE_BOARD:
         board_values = (request.board_inner_corner_columns, request.board_inner_corner_rows,
                         request.square_size_m)
@@ -289,21 +291,18 @@ def _get_calibration_launch(request):
                                 detail='pose_board needs board_inner_corner_columns, '
                                        'board_inner_corner_rows and square_size_m')
         square_size_mm = request.square_size_m * 1000.0
-        launch_arguments = [f'camera:={camera_name}', f'square_size_mm:={square_size_mm}',
+        launch_arguments = [f'square_size_mm:={square_size_mm}',
                             f'board_columns:={request.board_inner_corner_columns}',
                             f'board_rows:={request.board_inner_corner_rows}']
         return POSE_BOARD_LAUNCH_FILE_NAME, launch_arguments, 'camera_pose'
     if request.calibration_kind == CALIBRATION_KIND_POSE_DEPTH:
-        launch_file_name = POSE_DEPTH_LAUNCH_FILE_NAME_BY_CAMERA.get(camera_name)
-        if launch_file_name is None:
+        if not _does_camera_offer_depth(preview_camera.camera_type):
             raise HTTPException(status_code=409,
-                                detail=f'No depth pose calibration for {camera_name}; use '
+                                detail=f'{preview_camera.camera_name} has no depth; use '
                                        f'{CALIBRATION_KIND_POSE_BOARD}')
-        # It starts only that camera, so it takes no camera argument
-        return launch_file_name, [], 'camera_pose'
+        return POSE_DEPTH_LAUNCH_FILE_NAME, [], 'camera_pose'
     is_projector_center_run = request.calibration_kind == CALIBRATION_KIND_PROJECTOR_CENTER
-    launch_arguments = [f'camera:={camera_name}',
-                        f'projector_center:={str(is_projector_center_run).lower()}']
+    launch_arguments = [f'projector_center:={str(is_projector_center_run).lower()}']
     return PROJECTION_LAUNCH_FILE_NAME, launch_arguments, 'projection_mapping'
 
 
@@ -417,31 +416,16 @@ def _read_yaml_file(file_path):
 
 
 def _get_extrinsics_file_path(profile_name, file_prefix, camera_name):
-    """Return the path of the selected camera unit's calibration file in the profile."""
+    """Return the path of the named camera's calibration file in the profile."""
     profile_launch_context = profiles_api.create_profile_launch_context(profile_name)
     return get_path_in_config_folder(
         get_extrinsics_relative_path(profile_launch_context, file_prefix, camera_name))
 
 
-def _check_known_camera(camera_name):
-    """Reject names that are no camera of the framework; they end up in file names."""
-    if camera_name not in CAMERA_DRIVER_REMAPPINGS:
-        raise HTTPException(status_code=404, detail=f'Unknown camera {camera_name!r}')
-
-
-def _does_previewed_camera_publish_depth(camera_name):
-    """Return whether this camera's preview runs and publishes registered depth."""
-    preview_session = camera_preview_api.get_camera_preview_session()
-    with preview_session.session_lock:
-        if preview_session.camera_name != camera_name:
-            return False
-        if preview_session.camera_process is None:
-            return False
-        if preview_session.camera_process.poll() is not None:
-            return False
-    depth_publishers = preview_session.frame_receiver.get_publishers_info_by_topic(
-        DEFAULT_TOPIC_NAME_CAMERA_DEPTH)
-    return len(depth_publishers) > 0
+# Written by Claude Code
+def _does_camera_offer_depth(camera_type):
+    """Return whether the camera type's entry offers depth registered to its colour image."""
+    return DEPTH_REGISTERED_STREAM_NAME in read_camera_entry(camera_type)[CAMERA_ENTRY_STREAMS_KEY]
 
 
 def _get_missing_package_text(calibration_kind):

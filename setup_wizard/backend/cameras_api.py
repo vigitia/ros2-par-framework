@@ -35,7 +35,7 @@ USB_DEVICES_FOLDER_PATH = '/sys/bus/usb/devices'
 cameras_router = APIRouter()
 
 
-class SupportedCamera(BaseModel):
+class CameraType(BaseModel):
     # The camera type, the entry's file name, as in par_launch.cameras and camera:=
     camera_type: str
     display_name: str = ''
@@ -53,27 +53,27 @@ class SupportedCamera(BaseModel):
     entry_error_text: str | None = None
 
 
-class CameraListResponse(BaseModel):
-    cameras: list[SupportedCamera]
+class CameraTypeListResponse(BaseModel):
+    camera_types: list[CameraType]
 
 
 @cameras_router.get('/api/cameras')
-def get_camera_list() -> CameraListResponse:
+def get_camera_type_list() -> CameraTypeListResponse:
     """List every installed camera type with its entry and whether its packages are installed."""
-    cameras = []
+    camera_types = []
     for camera_type in get_camera_type_names():
         try:
             camera_entry = read_camera_entry(camera_type)
         except RuntimeError as error:
             # One broken entry must not hide the other camera types
-            cameras.append(SupportedCamera(camera_type=camera_type, entry_error_text=str(error)))
+            camera_types.append(CameraType(camera_type=camera_type, entry_error_text=str(error)))
             continue
         required_package_names = camera_entry[CAMERA_ENTRY_REQUIRED_PACKAGES_KEY]
         is_installed = True
         for required_package_name in required_package_names:
             if not has_resource('packages', required_package_name):
                 is_installed = False
-        cameras.append(SupportedCamera(
+        camera_types.append(CameraType(
             camera_type=camera_type,
             display_name=camera_entry['display_name'],
             description=camera_entry['description'],
@@ -82,18 +82,18 @@ def get_camera_list() -> CameraListResponse:
             serial_source=camera_entry[CAMERA_ENTRY_SERIAL_KEY],
             intrinsics_source=camera_entry[CAMERA_ENTRY_INTRINSICS_KEY],
             stream_names=camera_entry[CAMERA_ENTRY_STREAMS_KEY]))
-    return CameraListResponse(cameras=cameras)
+    return CameraTypeListResponse(camera_types=camera_types)
 
 
 def read_installed_camera_entry(camera_type: str) -> dict:
     """Return the entry of an installed, startable camera type; 404, 409 or 422 when it is not."""
-    for supported_camera in get_camera_list().cameras:
-        if supported_camera.camera_type != camera_type:
+    for camera_type_summary in get_camera_type_list().camera_types:
+        if camera_type_summary.camera_type != camera_type:
             continue
-        if supported_camera.entry_error_text is not None:
-            raise HTTPException(status_code=409, detail=supported_camera.entry_error_text)
-        if not supported_camera.is_installed:
-            required_package_names_text = ', '.join(supported_camera.required_package_names)
+        if camera_type_summary.entry_error_text is not None:
+            raise HTTPException(status_code=409, detail=camera_type_summary.entry_error_text)
+        if not camera_type_summary.is_installed:
+            required_package_names_text = ', '.join(camera_type_summary.required_package_names)
             raise HTTPException(status_code=409,
                                 detail=f'The driver of {camera_type} is not installed '
                                        f'({required_package_names_text}): add it to '

@@ -57,7 +57,7 @@ TODO: List available arguments here
 
 **Setup profiles.** For another physical setup (another table, projector or camera unit), add
 `profile:=<name>` to any launch file (`par.launch.py`, `calibration.launch.py`, `projection_calibration.launch.py`,
-`camera_pose_calibration_kinect.launch.py`). The profile is `packages/par-framework-core/config/profiles/<name>.yaml`
+`camera_pose_calibration_depth.launch.py`). The profile is `packages/par-framework-core/config/profiles/<name>.yaml`
 (gitignored), and holds **only what differs** from `par_setup.yaml`, with the same node names and keys:
 
 ```yaml
@@ -234,7 +234,7 @@ The Kinect and the RealSense publish their factory calibration instead.
 **The camera pose is a static transform.** `world` → the camera's body frame (`brio_link`, `camera_base`,
 `realsense_link`, `webcam_link`, `blackfly_link`) is published by `/<camera>_tf_publisher`, started with the driver. It uses the
 measured `config/calibration/extrinsics/camera_pose_<camera>.yaml` while that file exists (written by
-`camera_pose_calibration_kinect.launch.py`; with a profile in `extrinsics/<profile>/`), and otherwise the placeholder
+`camera_pose_calibration_depth.launch.py`; with a profile in `extrinsics/<profile>/`), and otherwise the placeholder
 under `/<camera>_tf_publisher` in `par_setup.yaml` or the profile. The table is the plane z = 0 of `world`.
 
 ### Adding a camera

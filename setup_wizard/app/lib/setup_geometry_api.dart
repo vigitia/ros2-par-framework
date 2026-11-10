@@ -55,7 +55,7 @@ WorldPointM? _readOptionalPoint(dynamic pointJson) {
 
 class CameraGeometry {
   const CameraGeometry({
-    required this.cameraId,
+    required this.cameraName,
     required this.cameraType,
     required this.serial,
     required this.isMainCamera,
@@ -67,7 +67,7 @@ class CameraGeometry {
 
   factory CameraGeometry.fromJson(Map<String, dynamic> cameraJson) {
     return CameraGeometry(
-      cameraId: cameraJson['camera_id'] as String,
+      cameraName: cameraJson['camera_name'] as String,
       cameraType: cameraJson['camera_type'] as String,
       serial: cameraJson['serial'] as String,
       isMainCamera: cameraJson['is_main_camera'] as bool,
@@ -78,14 +78,14 @@ class CameraGeometry {
     );
   }
 
-  /// The unit's identifier, e.g. 'blackfly_22260470'.
-  final String cameraId;
+  /// The camera's name in the profile, e.g. 'overhead'; the Cameras area opens it by this name.
+  final String cameraName;
 
-  /// Type and serial of the unit, as the Cameras area selects it; serial is empty for a camera without one.
+  /// Type and serial of its unit; serial is empty when the profile names none.
   final String cameraType;
   final String serial;
 
-  /// The unit a run of the profile starts.
+  /// The profile's first camera, which the framework nodes use.
   final bool isMainCamera;
 
   /// False: the placeholder pose from the parameter files.
@@ -100,13 +100,13 @@ class CameraGeometry {
 }
 
 class ProjectorGeometry {
-  const ProjectorGeometry({required this.projectionAreaM, required this.centerM, required this.mappingCameraId});
+  const ProjectorGeometry({required this.projectionAreaM, required this.centerM, required this.mappingCameraName});
 
   factory ProjectorGeometry.fromJson(Map<String, dynamic> projectorJson) {
     return ProjectorGeometry(
       projectionAreaM: _readOptionalPoints(projectorJson['projection_area_m']) ?? [],
       centerM: _readOptionalPoint(projectorJson['center_m']),
-      mappingCameraId: projectorJson['mapping_camera_id'] as String,
+      mappingCameraName: projectorJson['mapping_camera_name'] as String,
     );
   }
 
@@ -116,8 +116,8 @@ class ProjectorGeometry {
   /// The projector's optical centre; null until measured.
   final WorldPointM? centerM;
 
-  /// The camera unit whose projection mapping this is.
-  final String mappingCameraId;
+  /// The camera whose projection mapping this is.
+  final String mappingCameraName;
 }
 
 class SetupGeometry {

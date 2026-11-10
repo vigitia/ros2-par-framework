@@ -50,7 +50,7 @@ class ExtrinsicsCalibrationStep extends StatelessWidget {
         CameraSectionView(
           backendClient: backendClient,
           profileName: profileName,
-          cameraName: cameraInstance.cameraType,
+          cameraName: cameraInstance.cameraName,
           cameraSection: cameraSection,
           projectorDisplayId: newProfileDraft.projectorDisplayIds.firstOrNull,
         ),

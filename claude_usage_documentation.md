@@ -4498,7 +4498,7 @@ from the entries only (its driver package, v4l prefix and USB vendor tables are 
 broken entry is reported per type). `profiles_api.py` works on `par_launch.cameras`: a new profile writes its first
 camera by name, `POST /api/profiles/<p>/cameras` adds a named camera (name pattern and uniqueness checked; a type
 without serials once per profile; a second unit of a type only with serials on both), `DELETE
-/api/profiles/<p>/cameras/<name>` removes one (not the last; files to `.deleted/`), the summary lists every camera by
+/api/profiles/<p>/cameras/<name>` removes one (not the last; its files to `.deleted/`, whose folder is only created when there are files, so removing an uncalibrated camera leaves no empty folder), the summary lists every camera by
 name with intrinsics state from the entry's `intrinsics` and pose state per name. Gone: `PUT .../main-camera`, the
 capture camera summary, the camera serial written into driver sections, `FACTORY_INTRINSICS_CAMERA_NAMES` and the
 `== 'webcam'` case. Driver settings changed in a new profile's preview are saved under the new camera's name
@@ -4513,3 +4513,62 @@ could no longer be picked from a list); an executable per camera package that pr
 general, but code in every package where two lookups cover all current cameras); a way to choose the main camera
 (dropped with the old main-camera switch; the first camera is the main one until the sensor nodes run per camera,
 step 8).
+
+## 2026-11-10: setup wizard backend works per named camera (multi-camera step 6b)
+
+**What changed:** setup wizard backend.
+- `camera_preview_api.py`: a preview starts a profile's camera by name (`camera:=<name>`) or a unit no profile names
+  yet by type and serial (`camera:=<type>[:<serial>]`, named after its type, e.g. in the new-profile wizard).
+  `PreviewCamera` carries name, type, launch argument and whether it is a profile camera; `start_camera_launch` adds
+  `camera:=` itself (none for a sensor node run, which starts every camera and shows the first). Streams, the driver
+  node and the frame endpoint's default feed come from `/cameras/<name>/`; another program's camera is found on any
+  `/cameras/*/image_raw`, so a running framework still blocks a preview.
+- `focus_api.py`, `intrinsics_api.py`: the preview camera's `image_raw`, `camera_info`, `set_camera_info`; the
+  intrinsics file is looked up by camera name for profile cameras.
+- `extrinsics_api.py`: depth pose and projector centre are offered when the camera's entry lists
+  `depth_registered/image_raw` (the depth pose launch works for any such camera since step 4), not only for the
+  Kinect while its preview runs; unknown camera names are a 404 from the profile.
+- `setup_geometry_api.py`: cameras by name (`camera_name`, `mapping_camera_name` instead of unit ids), pose and
+  mapping per name, intrinsics per unit.
+- `sensor_nodes_api.py`: no `capture_camera:=false` (refused by the launch since step 4); the main camera is the first
+  of `par_launch.cameras`.
+- `profiles_api.py`: `par_setup.yaml` defaults are read from every matching section, also wildcards such as
+  `/cameras/*/webcam_node` (ROS's rule: `*` one name part, `**` any, the later section wins), so defaults and "differs
+  from `par_setup.yaml`" work for camera drivers again. Adding a camera (new profile or Cameras area) writes its
+  placeholder pose `/<name>_tf_publisher` into the profile, copied from `par_setup.yaml`'s `/<type>_tf_publisher` or a
+  generic one (1 m above the origin, looking down) for a type without one, unless the parameter files already have a
+  valid one; removing the camera removes it.
+
+**Why:** step 6 of the multi-camera plan. Without a placeholder pose under its own name, a launch refuses to start a
+camera named by role, and step 4 deliberately has no fallback to another camera's pose.
+
+**Alternatives considered:** a generic placeholder inside `launch_helpers` when none is set (works for hand-written
+profiles too, but every uncalibrated camera would silently sit at the same spot; Vitus chose the explicit profile
+entry); keeping depth calibrations tied to a running preview publishing depth (the entry already says it, and the
+state is then right before the camera starts).
+
+## 2026-11-10: names after the per-camera work
+
+**What changed:** `launch/camera_pose_calibration_kinect.launch.py` is now `camera_pose_calibration_depth.launch.py`
+(references in README, quick-launch.md, `par_setup.yaml`, the wizard's `extrinsics_api.py`). In the setup wizard
+backend, `CameraFrameReceiver` / `frame_receiver` are now `CameraPreviewRosNode` / `preview_ros_node`.
+
+**Why:** since step 4 the pose launch works for any camera with registered depth, not only the Kinect; and the
+backend's preview node is also what every API uses for the ROS graph, parameters and services, not only a frame
+receiver.
+
+**Alternatives considered:** keeping the old names with a comment (a name is read in a grep or a traceback without
+its comment).
+
+## 2026-11-10: new profiles with all their cameras (multi-camera step 6c, backend part)
+
+**What changed:** `POST /api/profiles` takes `cameras: [{camera_name, camera_type, serial}]` and writes them all,
+each with its placeholder pose; settings changed in the new-profile previews are kept per unit (type and serial,
+`take_new_profile_setting_values`) and saved under each camera's name. `PreviewCamera` carries the unit's serial.
+`cameras_api.py`: `CameraType`, `get_camera_type_list`, response key `camera_types`.
+
+**Why:** the new-profile wizard previews each camera as a unit named after its type, so the kept settings of two units
+of one type ended up under the same key, and the old one-camera request dropped every other camera's settings.
+
+**Alternatives considered:** creating the profile with the first camera and adding the others one by one (several
+requests, a half-made profile when one fails, and the kept settings would still need the unit as key).

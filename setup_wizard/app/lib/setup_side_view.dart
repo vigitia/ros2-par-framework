@@ -53,7 +53,7 @@ const double projectorDrawingScale = 0.4;
 const String projectorDeviceKey = 'projector';
 
 String _createCameraDeviceKey(CameraGeometry camera) {
-  return 'camera:${camera.cameraId}';
+  return 'camera:${camera.cameraName}';
 }
 
 /// The cameras the drawing shows: those with a measured pose. A placeholder pose says nothing about where the camera
@@ -66,11 +66,6 @@ List<CameraGeometry> getDrawnCameras(SetupGeometry setupGeometry) {
     }
   }
   return drawnCameras;
-}
-
-/// False when neither a camera nor the projector's image can be drawn, so the drawing would be empty.
-bool hasSetupDrawing(SetupGeometry setupGeometry) {
-  return getDrawnCameras(setupGeometry).isNotEmpty || setupGeometry.projector != null;
 }
 
 class SetupSideView extends StatefulWidget {
@@ -141,15 +136,12 @@ class _SetupSideViewState extends State<SetupSideView> {
       child: LayoutBuilder(
         builder: (BuildContext context, BoxConstraints constraints) {
           final Size drawingSize = Size(constraints.maxWidth, setupSideViewHeightLogicalPx);
-          final _SideViewLayout? sideViewLayout = _SideViewLayout.create(
+          final _SideViewLayout sideViewLayout = _SideViewLayout.create(
             widget.setupGeometry,
             drawingSize,
             labelTextStyle,
             sideViewColors,
           );
-          if (sideViewLayout == null) {
-            return const SizedBox.shrink();
-          }
           MouseCursor mouseCursor = MouseCursor.defer;
           if (_hoveredDeviceKey != null) {
             mouseCursor = SystemMouseCursors.click;
@@ -255,8 +247,8 @@ class _SideViewLayout {
   final List<_CameraPlacement> cameraPlacements = [];
   _ProjectorPlacement? projectorPlacement;
 
-  /// The layout for a drawing of drawingSize; null when there is nothing to draw.
-  static _SideViewLayout? create(
+  /// The layout for a drawing of drawingSize; with nothing measured yet, the bare table.
+  static _SideViewLayout create(
     SetupGeometry setupGeometry,
     Size drawingSize,
     TextStyle labelTextStyle,
@@ -275,14 +267,15 @@ class _SideViewLayout {
       highestZM = math.max(highestZM, projectorCenterM.zM);
     }
     final List<double> allHorizontalsM = [...tableHorizontalsM, ...deviceHorizontalsM];
+    // Nothing measured yet: the bare table around the world origin, so the drawing shows where devices will appear
     if (allHorizontalsM.isEmpty) {
-      return null;
+      allHorizontalsM.add(0.0);
     }
 
     // The table spans what lies on it (or below the devices when nothing does), with a little overhang
     List<double> tableSpanHorizontalsM = tableHorizontalsM;
     if (tableSpanHorizontalsM.isEmpty) {
-      tableSpanHorizontalsM = deviceHorizontalsM;
+      tableSpanHorizontalsM = allHorizontalsM;
     }
     final double spanLeftM = tableSpanHorizontalsM.reduce(math.min);
     final double spanRightM = tableSpanHorizontalsM.reduce(math.max);
@@ -391,7 +384,7 @@ class _SideViewLayout {
         final Offset axisDirectionPx = toCanvas(getHorizontalM(axisHitM), 0) - positionPx;
         viewAngleRad = math.atan2(axisDirectionPx.dy, axisDirectionPx.dx);
       }
-      final String labelText = '${camera.cameraId} · ${camera.positionM.zM.toStringAsFixed(2)} m';
+      final String labelText = '${camera.cameraName} · ${camera.positionM.zM.toStringAsFixed(2)} m';
       final TextPainter labelPainter = _createLabelPainter(labelText, labelTextStyle, sideViewColors.cameraColor);
       final Offset labelTopLeftPx = _findFreeLabelTopLeft(
         positionPx + const Offset(22, -26),

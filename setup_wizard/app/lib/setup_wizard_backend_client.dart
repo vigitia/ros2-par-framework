@@ -166,20 +166,22 @@ class SetupWizardBackendClient {
     await sendJson('PUT', '/api/profiles/last-selected', {'profile_name': profileName});
   }
 
-  /// Creates `config/profiles/<profileName>.yaml` with the camera, the projector's display and the setting changes
-  /// made in the new-profile wizard. Throws with the backend's reason, e.g. when the name is taken.
+  /// Creates `config/profiles/<profileName>.yaml` with its cameras (in their order, the first is the main camera),
+  /// the projector's display and the setting changes made in the new-profile wizard, each camera's under its name.
+  /// Throws with the backend's reason, e.g. when the name is taken.
   Future<void> createProfile({
     required String profileName,
     required String profileDisplayName,
-    required String cameraName,
-    required String cameraSerial,
+    required List<ProfileCameraUnit> cameras,
     required int? projectorDisplayId,
   }) async {
     await sendJson('POST', '/api/profiles', {
       'profile_name': profileName,
       'profile_display_name': profileDisplayName,
-      'camera_name': cameraName,
-      'camera_serial': cameraSerial,
+      'cameras': [
+        for (final ProfileCameraUnit camera in cameras)
+          {'camera_name': camera.cameraName, 'camera_type': camera.cameraType, 'serial': camera.serial},
+      ],
       'projector_display_id': projectorDisplayId,
     });
   }
@@ -287,44 +289,43 @@ class ProfileSummary {
   }
 }
 
+/// A camera of a profile by its name, type and unit (serial empty when none is named), e.g. for a new profile or
+/// the add dialog.
+typedef ProfileCameraUnit = ({String cameraName, String cameraType, String serial});
+
 /// A camera of a profile with the state of its intrinsics and its pose, as the backend reports them.
 class CameraCalibrationSummary {
   const CameraCalibrationSummary({
-    required this.cameraDisplayName,
+    required this.cameraName,
     required this.cameraType,
     required this.serial,
     required this.isMainCamera,
-    required this.previewCameraName,
     required this.intrinsicsState,
     required this.poseState,
   });
 
   factory CameraCalibrationSummary.fromJson(Map<String, dynamic> cameraJson) {
     return CameraCalibrationSummary(
-      cameraDisplayName: cameraJson['camera_display_name'] as String,
+      cameraName: cameraJson['camera_name'] as String,
       cameraType: cameraJson['camera_type'] as String,
       serial: cameraJson['serial'] as String,
       isMainCamera: cameraJson['is_main_camera'] as bool,
-      previewCameraName: cameraJson['preview_camera_name'] as String?,
       intrinsicsState: IntrinsicsCalibrationState.fromBackendName(cameraJson['intrinsics_state'] as String),
       poseState: CameraPoseState.fromBackendName(cameraJson['pose_state'] as String),
     );
   }
 
-  final String cameraDisplayName;
+  /// The camera's name in par_launch.cameras, e.g. 'overhead': its topics are `/cameras/<cameraName>/`.
+  final String cameraName;
 
-  /// A camera name of launch_helpers.CAMERA_DRIVER_REMAPPINGS, e.g. 'brio'.
+  /// Its type, a camera entry's name, e.g. 'brio'.
   final String cameraType;
 
-  /// The unit's serial number; empty for a camera that has none.
+  /// The unit's serial number; empty when the profile names none.
   final String serial;
 
-  /// True for the one camera the next run starts.
+  /// True for the first camera of the profile, the one the framework nodes use.
   final bool isMainCamera;
-
-  /// The camera type to start for a preview (camera:= of par.launch.py); null when the camera cannot be started on
-  /// its own for a preview yet.
-  final String? previewCameraName;
 
   final IntrinsicsCalibrationState intrinsicsState;
   final CameraPoseState poseState;
@@ -364,10 +365,7 @@ enum CameraPoseState {
   placeholder('placeholder'),
 
   /// A pose file that cannot be used, e.g. one edited by hand that lacks a key.
-  invalid('invalid'),
-
-  /// The camera has no pose of its own (e.g. the capture camera).
-  unsupported('unsupported');
+  invalid('invalid');
 
   const CameraPoseState(this.backendName);
 

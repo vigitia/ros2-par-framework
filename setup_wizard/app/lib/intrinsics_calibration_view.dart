@@ -14,6 +14,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 
+import 'camera_preview_api.dart';
 import 'camera_preview_view.dart';
 import 'intrinsics_api.dart';
 import 'setup_wizard_backend_client.dart';
@@ -46,18 +47,14 @@ class IntrinsicsCalibrationView extends StatefulWidget {
   const IntrinsicsCalibrationView({
     super.key,
     required this.backendClient,
-    required this.cameraName,
-    this.profileName,
+    required this.previewCamera,
   });
 
   final SetupWizardBackendClient backendClient;
 
-  /// A name from launch_helpers.CAMERA_DRIVER_REMAPPINGS.
-  final String cameraName;
-
-  /// The saved profile the camera starts with, which decides where its calibration file is; null for the shared
-  /// intrinsics folder of launches without a profile.
-  final String? profileName;
+  /// The camera to calibrate. A profile's camera stores its calibration in the profile's intrinsics folder, a unit
+  /// without a profile in the shared one.
+  final PreviewCameraChoice previewCamera;
 
   @override
   State<IntrinsicsCalibrationView> createState() => _IntrinsicsCalibrationViewState();
@@ -96,7 +93,7 @@ class _IntrinsicsCalibrationViewState extends State<IntrinsicsCalibrationView> {
   @override
   void didUpdateWidget(IntrinsicsCalibrationView oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.cameraName != widget.cameraName || oldWidget.profileName != widget.profileName) {
+    if (oldWidget.previewCamera != widget.previewCamera) {
       _endCalibrationQuietly();
       _viewGeneration += 1;
       setState(() {
@@ -322,8 +319,7 @@ class _IntrinsicsCalibrationViewState extends State<IntrinsicsCalibrationView> {
     final Widget previewView = CameraPreviewView(
       key: _cameraPreviewViewKey,
       backendClient: widget.backendClient,
-      cameraName: widget.cameraName,
-      profileName: widget.profileName,
+      previewCamera: widget.previewCamera,
     );
     final List<Widget> imageLayers = [Offstage(offstage: _isCalibrationRunning, child: previewView)];
     if (_isCalibrationRunning) {

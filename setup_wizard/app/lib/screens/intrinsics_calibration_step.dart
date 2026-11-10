@@ -42,7 +42,7 @@ class IntrinsicsCalibrationStep extends StatelessWidget {
         CameraSectionView(
           backendClient: backendClient,
           profileName: profileName,
-          cameraName: cameraInstance.cameraType,
+          cameraName: cameraInstance.cameraName,
           cameraSection: CameraSection.lensCalibration,
           projectorDisplayId: newProfileDraft.projectorDisplayIds.firstOrNull,
         ),

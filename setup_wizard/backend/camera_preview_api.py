@@ -2,23 +2,27 @@
 """
 Camera preview API of the setup wizard backend: starts one camera, serves its feeds and settings.
 
-The camera runs as `ros2 launch par_framework_core par.launch.py camera:=<name> camera_only:=true`
-(plus `profile:=<name>` for a saved profile) in its own process group. Everything else is generic,
-so any driver that follows the ROS 2 conventions works without code here:
-- The driver node is the node that publishes the neutral /camera/image_raw.
+The camera runs as `ros2 launch par_framework_core par.launch.py camera:=<camera>
+camera_only:=true` (plus `profile:=<name>` for a saved profile) in its own process group: a
+profile's camera by its name, or a unit no profile names yet as <type>[:<serial>], named after its
+type. Its streams are in /cameras/<camera name>/. Everything else is generic, so any driver that
+follows the ROS 2 conventions works without code here:
+- The driver node is the node that publishes the camera's image_raw.
 - Its feeds are all sensor_msgs/Image topics that node publishes (e.g. colour, depth and infrared
   of a depth camera). A ROS node in this backend subscribes to a feed once the app asks for it and
   keeps only the latest frame, which the app fetches as JPEG.
 - Its settings are its parameters, read and changed through the ROS 2 parameter services, except
   those ROS 2 itself adds to every node and image publisher.
 A calibration launch that starts the camera itself runs the same way (start_camera_launch).
-Only one camera at a time, because the neutral /camera/... topics exist once. A watchdog stops
-the camera once the app has stopped fetching frames, however the preview was left (screen closed,
-app quit or crashed).
+Only one camera at a time, and none while another program's camera runs (e.g. the framework),
+which may hold the same device. A watchdog stops the camera once the app has stopped fetching
+frames, however the preview was left (screen closed, app quit or crashed).
 """
 
+import collections
 from contextlib import asynccontextmanager
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -29,9 +33,10 @@ import cameras_api
 import cv2
 from fastapi import APIRouter, HTTPException, Response
 import numpy as np
-from par_framework_core.launch_helpers import (CAMERA_SERIAL_LAUNCH_ARGUMENT_NAME,
-                                               DEFAULT_TOPIC_NAME_CAMERA_IMAGE,
-                                               FILE_NAME_PART_PATTERN)
+from par_framework_core.launch_helpers import (CAMERA_ENTRY_SERIAL_KEY,
+                                               CAMERA_SERIAL_SOURCE_NONE, CAMERAS_NAMESPACE,
+                                               FILE_NAME_PART_PATTERN, get_camera_namespace,
+                                               read_profile_cameras)
 from process_groups import LAUNCH_STOP_SIGNALS, stop_process_group
 import profiles_api
 from pydantic import BaseModel
@@ -57,7 +62,7 @@ CAMERA_PREVIEW_LAUNCH_FILE_NAME = 'par.launch.py'
 CAMERA_PROCESS_LOG_PATH = os.path.join(tempfile.gettempdir(),
                                        'par_setup_wizard_camera_preview.log')
 CAMERA_PROCESS_LOG_TAIL_LINE_COUNT = 8
-# How long shutting down waits for the thread that spins the frame receiver.
+# How long shutting down waits for the thread that spins the preview ROS node.
 SPIN_THREAD_JOIN_TIMEOUT_S = 5.0
 # The app asks for the feeds every 0.5 s while the camera starts, then fetches a frame about every
 # 0.1 s; after this long without either request nobody watches, so the watchdog stops the camera.
@@ -66,11 +71,25 @@ WATCHDOG_CHECK_INTERVAL_S = 1.0
 
 # The message type of the topics offered as feeds
 FEED_MESSAGE_TYPE_NAME = 'sensor_msgs/msg/Image'
+# The stream whose publisher is the camera's driver node, below the camera's namespace
+CAMERA_IMAGE_STREAM_NAME = 'image_raw'
+# The image topics of every camera, this preview's or another program's (e.g. the framework)
+CAMERA_IMAGE_TOPIC_PATTERN = re.compile(
+    re.escape(CAMERAS_NAMESPACE) + r'/[^/]+/' + re.escape(CAMERA_IMAGE_STREAM_NAME))
+
+# The camera a preview or a calibration launch shows: camera_name names its namespace,
+# camera_type its entry, serial its unit ('' when none is named), camera_argument is the launch's
+# camera:= ('' starts every camera of the profile, e.g. a sensor node run, which shows the first),
+# is_profile_camera tells a profile's camera from a unit started under its type
+PreviewCamera = collections.namedtuple(
+    'PreviewCamera',
+    ['camera_name', 'camera_type', 'serial', 'camera_argument', 'is_profile_camera'])
 
 # Every parameter of the driver node is shown as a setting, except those ROS 2 itself adds to
 # nodes and image publishers: they say nothing about the camera, whichever driver it is.
 ROS_INFRASTRUCTURE_PARAMETER_NAMES = ('use_sim_time', 'start_type_description_service')
-# rclcpp's QoS overrides of each topic, e.g. qos_overrides./camera/image_raw.publisher.depth
+# rclcpp's QoS overrides of each topic, e.g.
+# qos_overrides./cameras/overhead/image_raw.publisher.depth
 ROS_INFRASTRUCTURE_PARAMETER_PREFIXES = ('qos_overrides.',)
 # image_transport's choice of transports, e.g. raw.enable_pub_plugins
 ROS_INFRASTRUCTURE_PARAMETER_SUFFIXES = ('.enable_pub_plugins',)
@@ -103,8 +122,13 @@ NUMPY_TYPE_BY_SCALED_ENCODING = {'mono16': np.uint16, '16UC1': np.uint16, '32FC1
 SCALED_FEED_CLIPPED_PERCENT = 1.0
 
 
-class CameraFrameReceiver(Node):
-    """Keeps the latest frame of every feed the app has asked for while a preview runs."""
+class CameraPreviewRosNode(Node):
+    """
+    The backend's ROS node for the camera preview and the APIs built on it.
+
+    Keeps the latest frame of every feed the app has asked for while a preview runs; the other
+    APIs use it for the ROS graph, parameters and services.
+    """
 
     def __init__(self):
         super().__init__('setup_wizard_camera_preview')
@@ -139,17 +163,28 @@ class CameraFrameReceiver(Node):
         with self._latest_image_message_lock:
             return self._latest_image_message_by_topic.get(topic_name)
 
-    def get_camera_image_publishers(self):
-        """Return the publishers of /camera/image_raw as {endpoint GID: full node name or None}."""
+    def get_camera_image_publishers(self, image_topic_name=None):
+        """
+        Return the publishers of a camera image as {endpoint GID: full node name or None}.
+
+        image_topic_name None: of every camera's image_raw below /cameras.
+        """
+        image_topic_names = [image_topic_name]
+        if image_topic_name is None:
+            image_topic_names = []
+            for topic_name, _ in self.get_topic_names_and_types():
+                if CAMERA_IMAGE_TOPIC_PATTERN.fullmatch(topic_name):
+                    image_topic_names.append(topic_name)
         # The node name is None while ROS knows the publisher but not yet its node, as right after
         # a camera starts (it reports placeholders like _NODE_NAMESPACE_UNKNOWN_ then).
         node_name_by_publisher_gid = {}
-        for endpoint_info in self.get_publishers_info_by_topic(DEFAULT_TOPIC_NAME_CAMERA_IMAGE):
-            full_node_name = None
-            if endpoint_info.node_namespace.startswith('/'):
-                full_node_name = join_node_name(endpoint_info.node_namespace,
-                                                endpoint_info.node_name)
-            node_name_by_publisher_gid[tuple(endpoint_info.endpoint_gid)] = full_node_name
+        for each_image_topic_name in image_topic_names:
+            for endpoint_info in self.get_publishers_info_by_topic(each_image_topic_name):
+                full_node_name = None
+                if endpoint_info.node_namespace.startswith('/'):
+                    full_node_name = join_node_name(endpoint_info.node_namespace,
+                                                    endpoint_info.node_name)
+                node_name_by_publisher_gid[tuple(endpoint_info.endpoint_gid)] = full_node_name
         return node_name_by_publisher_gid
 
     def list_feed_topic_names(self, full_node_name):
@@ -169,16 +204,17 @@ class CameraFrameReceiver(Node):
 class CameraPreviewSession:
     """The camera process of the running preview and the node receiving its frames."""
 
-    def __init__(self, frame_receiver):
-        self.frame_receiver = frame_receiver
+    def __init__(self, preview_ros_node):
+        self.preview_ros_node = preview_ros_node
         # Endpoints run in a thread pool, so start and stop may overlap
         self.session_lock = threading.Lock()
         self.camera_process = None
-        self.camera_name = None
+        # The running camera; None while none runs
+        self.preview_camera = None
         # Every start gets a new id, returned to the app; a stop naming an older id is ignored
         self.started_preview_count = 0
         self.running_preview_id = None
-        # The publishers of /camera/image_raw of cameras stopped here. A camera ended by a signal
+        # The publishers of camera images of cameras stopped here. A camera ended by a signal
         # stays in the ROS graph for a while (until its DDS lease runs out), and must count neither
         # as another program's camera nor as the driver of the next preview.
         self.stopped_camera_publisher_gids = set()
@@ -193,23 +229,24 @@ class CameraPreviewSession:
         self.unsaved_setting_value_by_name = {}
         self.unsaved_settings_node_name = None
         # Changes made without a saved profile (in the new-profile wizard), kept after their camera
-        # stopped until the profile is created: {(camera name, driver node name): {setting: value}}
-        self.new_profile_setting_values_by_camera_node = {}
+        # stopped until the profile is created, per unit:
+        # {(camera type, serial): {driver node name: {setting: value}}}
+        self.new_profile_setting_values_by_unit = {}
 
 
 @asynccontextmanager
 async def _run_ros_for_camera_preview(app):
-    """Start the frame receiver with the backend, and stop the camera and ROS with it."""
+    """Start the preview ROS node with the backend, and stop the camera and ROS with it."""
     global _camera_preview_session
     # uvicorn handles Ctrl+C and SIGTERM; rclpy's own handlers would end the ROS context before
     # this function's cleanup runs.
     rclpy.init(signal_handler_options=SignalHandlerOptions.NO)
-    frame_receiver = CameraFrameReceiver()
+    preview_ros_node = CameraPreviewRosNode()
     executor = SingleThreadedExecutor()
-    executor.add_node(frame_receiver)
+    executor.add_node(preview_ros_node)
     spin_thread = threading.Thread(target=_spin_executor, args=(executor,), daemon=True)
     spin_thread.start()
-    _camera_preview_session = CameraPreviewSession(frame_receiver)
+    _camera_preview_session = CameraPreviewSession(preview_ros_node)
     watchdog_stop_event = threading.Event()
     watchdog_thread = threading.Thread(
         target=_stop_unwatched_camera_preview,
@@ -224,7 +261,7 @@ async def _run_ros_for_camera_preview(app):
             _stop_camera_process(_camera_preview_session)
         executor.shutdown()
         spin_thread.join(timeout=SPIN_THREAD_JOIN_TIMEOUT_S)
-        frame_receiver.destroy_node()
+        preview_ros_node.destroy_node()
         rclpy.try_shutdown()
         _camera_preview_session = None
 
@@ -306,13 +343,14 @@ class CameraFeedsResponse(BaseModel):
 
 
 class CameraPreviewStartRequest(BaseModel):
-    # A key of launch_helpers.CAMERA_DRIVER_REMAPPINGS whose driver is installed.
-    camera_name: str
     # Starts the camera with this saved profile's settings; None uses par_setup.yaml's, e.g. for a
     # profile that is not saved yet.
     profile_name: str | None = None
-    # The unit to open (camera_serial:=) while no profile names it yet; '' opens the unit the
-    # parameter files name
+    # A camera of the profile, by its name in par_launch.cameras; needs profile_name
+    camera_name: str = ''
+    # Instead of camera_name: a unit no profile names yet, of an installed camera type, and its
+    # serial ('' opens the unit the driver finds first)
+    camera_type: str = ''
     serial: str = ''
 
 
@@ -330,28 +368,67 @@ class CameraPreviewStopRequest(BaseModel):
 @camera_preview_router.post('/api/camera-preview/start')
 def start_camera_preview(request: CameraPreviewStartRequest) -> CameraPreviewStartResponse:
     """Start the camera for the preview, stopping the camera of an earlier preview first."""
-    launch_arguments = [f'camera:={request.camera_name}', 'camera_only:=true']
-    if request.serial:
-        # Comes from the network and ends up in a command line and a file name
-        if not FILE_NAME_PART_PATTERN.fullmatch(request.serial):
+    if request.camera_name:
+        if request.profile_name is None:
             raise HTTPException(status_code=422,
-                                detail='A serial number has only letters, digits, _ and -')
-        launch_arguments.append(f'{CAMERA_SERIAL_LAUNCH_ARGUMENT_NAME}:={request.serial}')
-    preview_id = start_camera_launch(request.camera_name, request.profile_name,
-                                     CAMERA_PREVIEW_LAUNCH_FILE_NAME, launch_arguments)
+                                detail='camera_name names a camera of a profile: send '
+                                       'profile_name too, or camera_type for a unit')
+        preview_camera = get_profile_preview_camera(request.profile_name, request.camera_name)
+    else:
+        preview_camera = get_unit_preview_camera(request.camera_type, request.serial)
+    preview_id = start_camera_launch(preview_camera, request.profile_name,
+                                     CAMERA_PREVIEW_LAUNCH_FILE_NAME, ['camera_only:=true'])
     return CameraPreviewStartResponse(preview_id=preview_id)
 
 
-def start_camera_launch(camera_name, profile_name, launch_file_name, launch_arguments):
+# Written by Claude Code
+def get_profile_preview_camera(profile_name, camera_name):
+    """Return the profile's camera of this name as a PreviewCamera; HTTP 404 when it has none."""
+    profiles_api.check_profile_exists(profile_name)
+    profile_launch_context = profiles_api.create_profile_launch_context(profile_name)
+    profile_camera = profiles_api.find_profile_camera(
+        read_profile_cameras(profile_launch_context), camera_name)
+    return PreviewCamera(camera_name=profile_camera.camera_name,
+                         camera_type=profile_camera.camera_type, serial=profile_camera.serial,
+                         camera_argument=profile_camera.camera_name, is_profile_camera=True)
+
+
+# Written by Claude Code
+def get_unit_preview_camera(camera_type, serial):
+    """Return a unit of an installed camera type, named after its type, as a PreviewCamera."""
+    camera_entry = cameras_api.read_installed_camera_entry(camera_type)
+    camera_argument = camera_type
+    if serial:
+        # Comes from the network and ends up in a command line and a file name
+        if not FILE_NAME_PART_PATTERN.fullmatch(serial):
+            raise HTTPException(status_code=422,
+                                detail='A serial number has only letters, digits, _ and -')
+        if camera_entry[CAMERA_ENTRY_SERIAL_KEY] == CAMERA_SERIAL_SOURCE_NONE:
+            raise HTTPException(status_code=422,
+                                detail=f'Cameras of type {camera_type} have no serial numbers')
+        camera_argument = f'{camera_type}:{serial}'
+    return PreviewCamera(camera_name=camera_type, camera_type=camera_type, serial=serial,
+                         camera_argument=camera_argument, is_profile_camera=False)
+
+
+# Written by Claude Code
+def get_preview_topic_name(session, stream_name):
+    """Return a stream of the running camera, e.g. /cameras/overhead/camera_info. Hold the lock."""
+    if session.preview_camera is None:
+        raise HTTPException(status_code=409, detail='No camera preview is running')
+    return f'{get_camera_namespace(session.preview_camera.camera_name)}/{stream_name}'
+
+
+def start_camera_launch(preview_camera, profile_name, launch_file_name, launch_arguments):
     """
     Start a launch file of par_framework_core that starts the camera, as the preview's camera.
 
     Stops the camera of an earlier preview first. Besides the preview's own launch, a calibration
     launch that starts the camera itself runs this way, so its frames, settings, stop and
-    watchdog work as for a preview. launch_arguments: ['name:=value', ...]; profile:= is added
-    for a saved profile. Returns the new preview id.
+    watchdog work as for a preview. launch_arguments: ['name:=value', ...]; camera:= is added
+    from preview_camera, profile:= for a saved profile. Returns the new preview id.
     """
-    _check_camera_is_installed(camera_name)
+    cameras_api.read_installed_camera_entry(preview_camera.camera_type)
     if profile_name is not None:
         profiles_api.check_profile_exists(profile_name)
     ros2_executable_path = shutil.which('ros2')
@@ -364,17 +441,18 @@ def start_camera_launch(camera_name, profile_name, launch_file_name, launch_argu
         _stop_camera_process(session)
         # Another camera driver (e.g. the running framework) would fight over the device and mix
         # its frames into the preview. Cameras stopped here may still show up for a while.
-        current_publisher_gids = set(session.frame_receiver.get_camera_image_publishers())
+        current_publisher_gids = set(session.preview_ros_node.get_camera_image_publishers())
         foreign_publisher_gids = current_publisher_gids - session.stopped_camera_publisher_gids
         if foreign_publisher_gids:
             raise HTTPException(status_code=409,
-                                detail=f'Another camera already publishes '
-                                       f'{DEFAULT_TOPIC_NAME_CAMERA_IMAGE}: stop the running '
-                                       f'framework first')
+                                detail=f'Another camera already publishes below '
+                                       f'{CAMERAS_NAMESPACE}: stop the running framework first')
         # Forget stopped publishers that have left the graph
         session.stopped_camera_publisher_gids &= current_publisher_gids
         camera_launch_command = [ros2_executable_path, 'launch', 'par_framework_core',
                                  launch_file_name, *launch_arguments]
+        if preview_camera.camera_argument:
+            camera_launch_command.append(f'camera:={preview_camera.camera_argument}')
         if profile_name is not None:
             camera_launch_command.append(f'profile:={profile_name}')
         with open(CAMERA_PROCESS_LOG_PATH, 'w') as camera_process_log_file:
@@ -382,7 +460,7 @@ def start_camera_launch(camera_name, profile_name, launch_file_name, launch_argu
             session.camera_process = subprocess.Popen(
                 camera_launch_command, stdout=camera_process_log_file,
                 stderr=subprocess.STDOUT, start_new_session=True)
-        session.camera_name = camera_name
+        session.preview_camera = preview_camera
         session.profile_name = profile_name
         session.last_preview_request_monotonic_s = time.monotonic()
         session.started_preview_count += 1
@@ -411,7 +489,7 @@ def get_camera_preview_feeds() -> CameraFeedsResponse:
         session.last_preview_request_monotonic_s = time.monotonic()
         driver_node_name = _find_own_camera_driver_node_name(session)
     try:
-        feed_topic_names = session.frame_receiver.list_feed_topic_names(driver_node_name)
+        feed_topic_names = session.preview_ros_node.list_feed_topic_names(driver_node_name)
     except Exception as error:
         # rclpy raises when the node has left the graph meanwhile, e.g. the camera just stopped
         raise HTTPException(status_code=503,
@@ -424,19 +502,23 @@ def get_camera_preview_feeds() -> CameraFeedsResponse:
 
 
 @camera_preview_router.get('/api/camera-preview/frame')
-def get_camera_preview_frame(topic_name: str = DEFAULT_TOPIC_NAME_CAMERA_IMAGE) -> Response:
-    """Return a feed's latest frame as JPEG; 204 while it has not sent one yet."""
+def get_camera_preview_frame(topic_name: str = '') -> Response:
+    """Return a feed's latest frame as JPEG, '' the camera's image; 204 before the first one."""
+    session = get_camera_preview_session()
+    with session.session_lock:
+        check_camera_process_runs(session)
+        if not topic_name:
+            topic_name = get_preview_topic_name(session, CAMERA_IMAGE_STREAM_NAME)
     # Comes from the network and ends up in a subscription: must be a valid ROS topic name
     try:
         validate_topic_name(topic_name)
     except Exception as error:
         raise HTTPException(status_code=400, detail=f'Not a topic name: {error}') from error
-    session = get_camera_preview_session()
     with session.session_lock:
         check_camera_process_runs(session)
         session.last_preview_request_monotonic_s = time.monotonic()
-        session.frame_receiver.subscribe_to_feed(topic_name)
-    image_message = session.frame_receiver.get_latest_image_message(topic_name)
+        session.preview_ros_node.subscribe_to_feed(topic_name)
+    image_message = session.preview_ros_node.get_latest_image_message(topic_name)
     if image_message is None:
         return Response(status_code=204)
     preview_frame = _convert_image_message_to_preview_frame(image_message)
@@ -468,7 +550,10 @@ def get_camera_preview_settings() -> CameraSettingsResponse:
     with session.session_lock:
         profile_name = session.profile_name
         unsaved_setting_names = sorted(session.unsaved_setting_value_by_name)
-    return CameraSettingsResponse(camera_name=session.camera_name or '',
+    camera_name = ''
+    if session.preview_camera is not None:
+        camera_name = session.preview_camera.camera_name
+    return CameraSettingsResponse(camera_name=camera_name,
                                   driver_node_name=driver_node_name, settings=settings,
                                   profile_name=profile_name,
                                   unsaved_setting_names=unsaved_setting_names)
@@ -543,39 +628,38 @@ def discard_new_profile_settings() -> None:
     """Forget setting changes kept for a new profile, e.g. when the new-profile wizard starts."""
     session = get_camera_preview_session()
     with session.session_lock:
-        session.new_profile_setting_values_by_camera_node = {}
+        session.new_profile_setting_values_by_unit = {}
         if session.profile_name is None:
             session.unsaved_setting_value_by_name = {}
 
 
-def take_new_profile_setting_values(camera_name):
+def take_new_profile_setting_values():
     """
-    Return the settings changed without a profile for camera_name, {driver node: {name: value}}.
+    Return the settings changed without a profile, {(camera type, serial): {driver node: {...}}}.
 
-    Includes the running preview's changes. Forgets all kept changes, also those of other
-    cameras, which the new profile does not have.
+    Includes the running preview's changes. Forgets them all, also those of units the new profile
+    does not have. The driver nodes are those of the units' previews, named after their types
+    (/cameras/<type>/<driver node>).
     """
     session = get_camera_preview_session()
     with session.session_lock:
         _keep_unsaved_settings_for_new_profile(session)
         if session.profile_name is None:
             session.unsaved_setting_value_by_name = {}
-        setting_values_by_node_name = {}
-        for (kept_camera_name, node_name), setting_value_by_name in (
-                session.new_profile_setting_values_by_camera_node.items()):
-            if kept_camera_name == camera_name:
-                setting_values_by_node_name[node_name] = dict(setting_value_by_name)
-        session.new_profile_setting_values_by_camera_node = {}
-    return setting_values_by_node_name
+        setting_values_by_unit = session.new_profile_setting_values_by_unit
+        session.new_profile_setting_values_by_unit = {}
+    return setting_values_by_unit
 
 
 def _keep_unsaved_settings_for_new_profile(session):
     """Copy a profile-less preview's changes into the kept ones. Hold the session lock."""
     if session.profile_name is not None or not session.unsaved_setting_value_by_name:
         return
-    camera_node_key = (session.camera_name, session.unsaved_settings_node_name)
-    kept_setting_value_by_name = session.new_profile_setting_values_by_camera_node.setdefault(
-        camera_node_key, {})
+    unit_key = (session.preview_camera.camera_type, session.preview_camera.serial)
+    setting_values_by_node_name = session.new_profile_setting_values_by_unit.setdefault(
+        unit_key, {})
+    kept_setting_value_by_name = setting_values_by_node_name.setdefault(
+        session.unsaved_settings_node_name, {})
     kept_setting_value_by_name.update(session.unsaved_setting_value_by_name)
 
 
@@ -609,20 +693,22 @@ def check_camera_process_runs(session):
 
 
 def _find_own_camera_driver_node_name(session):
-    """Return the node publishing /camera/image_raw for this preview; 503 while there is none."""
+    """Return the node publishing the preview camera's image; 503 while there is none."""
     # Simplification: the camera's settings are taken from the node publishing the colour image.
     # For a camera whose images come from a second node (e.g. the event camera, whose frames are
     # rendered by event_camera_renderer), that is the second node. Upgrade: the camera catalog
     # names the driver node for such cameras.
-    node_name_by_publisher_gid = session.frame_receiver.get_camera_image_publishers()
+    image_topic_name = get_preview_topic_name(session, CAMERA_IMAGE_STREAM_NAME)
+    node_name_by_publisher_gid = session.preview_ros_node.get_camera_image_publishers(
+        image_topic_name)
     for publisher_gid, full_node_name in node_name_by_publisher_gid.items():
         # Publishers of earlier previews may still be in the graph; a node not known yet is
         # still starting
         if publisher_gid not in session.stopped_camera_publisher_gids and full_node_name:
             return full_node_name
     raise HTTPException(status_code=503,
-                        detail=f'No node publishes {DEFAULT_TOPIC_NAME_CAMERA_IMAGE} yet; the '
-                               f'camera may still be starting')
+                        detail=f'No node publishes {image_topic_name} yet; the camera may still '
+                               f'be starting')
 
 
 def get_driver_parameter_client(session):
@@ -638,7 +724,7 @@ def get_node_parameter_client(session, full_node_name):
     with session.session_lock:
         parameter_client = session.parameter_client_by_node_name.get(full_node_name)
         if parameter_client is None:
-            parameter_client = AsyncParameterClient(session.frame_receiver, full_node_name)
+            parameter_client = AsyncParameterClient(session.preview_ros_node, full_node_name)
             session.parameter_client_by_node_name[full_node_name] = parameter_client
     # Outside the lock: waiting for the node must not hold up the frames.
     if not parameter_client.wait_for_services(timeout_sec=PARAMETER_SERVICE_TIMEOUT_S):
@@ -762,19 +848,6 @@ def get_camera_preview_session() -> CameraPreviewSession:
     return _camera_preview_session
 
 
-def _check_camera_is_installed(camera_name: str) -> None:
-    """Reject camera names the framework does not know and cameras whose driver is missing."""
-    for supported_camera in cameras_api.get_camera_list().cameras:
-        if supported_camera.camera_name != camera_name:
-            continue
-        if not supported_camera.is_installed:
-            raise HTTPException(status_code=409,
-                                detail=f'The driver of {camera_name} is not installed '
-                                       f'({", ".join(supported_camera.driver_package_names)})')
-        return
-    raise HTTPException(status_code=404, detail=f'Unknown camera {camera_name!r}')
-
-
 def _stop_camera_process(session: CameraPreviewSession) -> None:
     """End the camera's launch: SIGINT like Ctrl+C, then SIGTERM, then SIGKILL. Hold the lock."""
     camera_process = session.camera_process
@@ -782,15 +855,15 @@ def _stop_camera_process(session: CameraPreviewSession) -> None:
         # Simplification: every publisher present now counts as this camera's, assuming nothing
         # else started publishing during the preview (a start refuses to run beside another).
         session.stopped_camera_publisher_gids |= set(
-            session.frame_receiver.get_camera_image_publishers())
+            session.preview_ros_node.get_camera_image_publishers())
     session.camera_process = None
     _keep_unsaved_settings_for_new_profile(session)
-    session.camera_name = None
+    session.preview_camera = None
     session.profile_name = None
     session.unsaved_setting_value_by_name = {}
     session.unsaved_settings_node_name = None
     session.running_preview_id = None
-    session.frame_receiver.stop_receiving()
+    session.preview_ros_node.stop_receiving()
     if camera_process is None:
         return
     stop_process_group(camera_process, LAUNCH_STOP_SIGNALS, CAMERA_PROCESS_STOP_TIMEOUT_S)

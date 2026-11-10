@@ -22,7 +22,7 @@ class CameraSettingsView extends StatefulWidget {
   const CameraSettingsView({
     super.key,
     required this.backendClient,
-    required this.cameraName,
+    required this.cameraDisplayName,
     this.titleText,
     this.isSettingShown,
     this.noShownSettingsText,
@@ -30,10 +30,11 @@ class CameraSettingsView extends StatefulWidget {
 
   final SetupWizardBackendClient backendClient;
 
-  /// The camera whose preview runs; its settings are read from the running driver.
-  final String cameraName;
+  /// The camera whose preview runs, as shown to the user; its settings are read from the running driver. A change
+  /// means another camera, whose settings are loaded afresh.
+  final String cameraDisplayName;
 
-  /// Shown above the list; null for `Settings: cameraName`.
+  /// Shown above the list; null for `Settings: cameraDisplayName`.
   final String? titleText;
 
   /// Which settings the list shows; null for all of them.
@@ -75,7 +76,7 @@ class _CameraSettingsViewState extends State<CameraSettingsView> {
   @override
   void didUpdateWidget(CameraSettingsView oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.cameraName != widget.cameraName) {
+    if (oldWidget.cameraDisplayName != widget.cameraDisplayName) {
       setState(() {
         _cameraSettings = null;
         _lastErrorText = null;
@@ -226,7 +227,7 @@ class _CameraSettingsViewState extends State<CameraSettingsView> {
     final TextTheme textTheme = Theme.of(context).textTheme;
     final Color mutedTextColor = Theme.of(context).colorScheme.onSurfaceVariant;
     final List<NodeSetting>? cameraSettings = _getShownCameraSettings();
-    final String titleText = widget.titleText ?? 'Settings: ${widget.cameraName}';
+    final String titleText = widget.titleText ?? 'Settings: ${widget.cameraDisplayName}';
 
     final List<Widget> rows = [Text(titleText, style: textTheme.titleMedium)];
     if (cameraSettings == null) {

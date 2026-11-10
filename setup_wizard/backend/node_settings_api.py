@@ -264,7 +264,7 @@ def _read_settings_into_cache(node_kind, package_name):
 def _start_nodes_and_write_cache(node_kind, package_name):
     settings_node_names = _get_settings_node_names(node_kind, package_name)
     preview_session = camera_preview_api.get_camera_preview_session()
-    frame_receiver = preview_session.frame_receiver
+    preview_ros_node = preview_session.preview_ros_node
     # A node of the same name would answer with a profile's values, and the second one would
     # publish next to it. What this backend runs is known for sure; a launch from a terminal only
     # through the ROS graph, which a backend started a moment ago has not fully discovered yet.
@@ -273,7 +273,7 @@ def _start_nodes_and_write_cache(node_kind, package_name):
                             detail='A profile, preview or calibration runs: stop it, then Refresh '
                                    'to read the settings')
     already_running_node_names = sorted(
-        set(settings_node_names) & _get_graph_full_node_names(frame_receiver))
+        set(settings_node_names) & _get_graph_full_node_names(preview_ros_node))
     if already_running_node_names:
         raise HTTPException(status_code=409,
                             detail=f'{", ".join(already_running_node_names)} runs already: stop '
@@ -287,7 +287,7 @@ def _start_nodes_and_write_cache(node_kind, package_name):
                                         start_new_session=True)
     deadline_monotonic_s = time.monotonic() + SETTINGS_READ_TIMEOUT_S
     try:
-        _wait_for_nodes(frame_receiver, settings_node_names, node_process, log_file_path,
+        _wait_for_nodes(preview_ros_node, settings_node_names, node_process, log_file_path,
                         deadline_monotonic_s)
         settings_by_node_name = {}
         for full_node_name in settings_node_names:
@@ -353,16 +353,16 @@ def _read_settings_once_answering(preview_session, full_node_name, node_process,
             time.sleep(SETTINGS_READ_POLL_INTERVAL_S)
 
 
-def _wait_for_nodes(frame_receiver, full_node_names, node_process, log_file_path,
+def _wait_for_nodes(preview_ros_node, full_node_names, node_process, log_file_path,
                     deadline_monotonic_s):
     """Wait until every node is in the ROS graph; fail when the process ends or time runs out."""
     while time.monotonic() < deadline_monotonic_s:
-        if set(full_node_names) <= _get_graph_full_node_names(frame_receiver):
+        if set(full_node_names) <= _get_graph_full_node_names(preview_ros_node):
             return
         if node_process.poll() is not None:
             raise RuntimeError(f'it ended while starting:\n{_read_log_tail(log_file_path)}')
         time.sleep(SETTINGS_READ_POLL_INTERVAL_S)
-    missing_node_names = sorted(set(full_node_names) - _get_graph_full_node_names(frame_receiver))
+    missing_node_names = sorted(set(full_node_names) - _get_graph_full_node_names(preview_ros_node))
     raise RuntimeError(f'{", ".join(missing_node_names)} did not start within '
                        f'{SETTINGS_READ_TIMEOUT_S:.0f} s:\n{_read_log_tail(log_file_path)}')
 
@@ -376,9 +376,9 @@ def _is_backend_launch_running(preview_session):
         return camera_process is not None and camera_process.poll() is None
 
 
-def _get_graph_full_node_names(frame_receiver):
+def _get_graph_full_node_names(preview_ros_node):
     graph_full_node_names = set()
-    for node_name, node_namespace in frame_receiver.get_node_names_and_namespaces():
+    for node_name, node_namespace in preview_ros_node.get_node_names_and_namespaces():
         graph_full_node_names.add(camera_preview_api.join_node_name(node_namespace, node_name))
     return graph_full_node_names
 

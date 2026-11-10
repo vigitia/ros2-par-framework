@@ -36,6 +36,9 @@ const double sensorNodeImageOutputHeightLogicalPx = 240;
 /// par.launch.py names each sensor node `<package>_node`, without a namespace.
 const String sensorNodeNameSuffix = '_node';
 
+/// The debug button's own hero tag, distinct from the Run button's (profileRunButtonHeroTag), which is on screen too.
+const String sensorNodesDebugButtonHeroTag = 'sensor_nodes_debug_button';
+
 class SensorNodesScreen extends StatefulWidget {
   const SensorNodesScreen({super.key, required this.backendClient, required this.profileName});
 
@@ -288,6 +291,7 @@ class _SensorNodesScreenState extends State<SensorNodesScreen> {
     final ColorScheme colorScheme = Theme.of(context).colorScheme;
     if (_runPreviewId != null) {
       return FloatingActionButton.extended(
+        heroTag: sensorNodesDebugButtonHeroTag,
         onPressed: _stopRun,
         tooltip: 'Stop the camera and the sensor nodes.',
         backgroundColor: colorScheme.error,
@@ -303,6 +307,7 @@ class _SensorNodesScreenState extends State<SensorNodesScreen> {
       icon = const SizedBox.square(dimension: 20, child: CircularProgressIndicator(strokeWidth: 2));
     }
     return FloatingActionButton.extended(
+      heroTag: sensorNodesDebugButtonHeroTag,
       onPressed: onPressed,
       tooltip: 'Start the camera ($cameraName) with the enabled nodes, as the profile does but without the projector '
           'app and with debug on (each node opens its preview window on the PAR machine), and show what the node '
@@ -426,7 +431,11 @@ class _SensorNodesScreenState extends State<SensorNodesScreen> {
           child: CameraFeedImage(
             key: ValueKey<String>('camera_$_runStartCount'),
             backendClient: widget.backendClient,
-            feedTopicName: '/camera/image_raw',
+            // The run shows the main camera, the one the sensor nodes use
+            feedTopicName: PreviewCameraChoice.profileCamera(
+              profileName: widget.profileName,
+              cameraName: _sensorNodeList?.cameraName ?? '',
+            ).imageTopicName,
           ),
         ),
       ),

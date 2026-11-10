@@ -25,6 +25,10 @@ const double runButtonClearanceLogicalPx = 96;
 /// Size of the progress circle that replaces the button's icon while a start or stop is on its way.
 const double runProgressIndicatorSizeLogicalPx = 20;
 
+/// Every floating button needs its own hero tag: Flutter animates buttons with the same tag from one page to the
+/// next, and two of them on screen at once (e.g. Run and the Sensor nodes' debug button) are an error.
+const String profileRunButtonHeroTag = 'profile_run_button';
+
 class ProfileRunView extends StatefulWidget {
   const ProfileRunView({
     super.key,
@@ -281,6 +285,7 @@ class _ProfileRunViewState extends State<ProfileRunView> {
       controller: _appMenuController,
       menuChildren: _buildAppMenuEntries(),
       child: FloatingActionButton.extended(
+        heroTag: profileRunButtonHeroTag,
         onPressed: onPressed,
         tooltip: tooltipText,
         backgroundColor: backgroundColor,
