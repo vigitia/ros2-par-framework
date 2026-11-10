@@ -26,8 +26,9 @@
     # check the image after changing it. Write the exposure with a decimal point, e.g. 4.0.
     exposure_time_ms: 4.0
     gain: 64
-    # The calibration is calibration/intrinsics/camera_info_brio.yaml below this file: the launch files set
-    # camera_info_url, cameracalibrator's COMMIT button writes it there. Missing file = uncalibrated CameraInfo.
+    # The calibration is calibration/intrinsics/[<profile>/]camera_info_brio.yaml below this file: the launch
+    # files set camera_info_url, cameracalibrator's COMMIT button writes it there. Missing file = uncalibrated
+    # CameraInfo.
     # Publish image_rect_color, needs that calibration.
     undistort_frame: false
 
@@ -44,7 +45,7 @@
     # Like the Brio's encoding
     output_encoding: bgr8
     # Must match the launch files' webcam_link -> webcam_optical_frame. The calibration is
-    # calibration/intrinsics/camera_info_webcam.yaml below this file, set by the launch files.
+    # calibration/intrinsics/[<profile>/]camera_info_webcam.yaml below this file, set by the launch files.
     camera_frame_id: webcam_optical_frame
 
 # Camera: Intel RealSense, e.g. the D435, through realsense2_camera; the launch files start it as
@@ -70,14 +71,15 @@
 
 # FLIR Blackfly S (camera: blackfly), e.g. the monochrome BFS-U3-23S3M-C, through spinnaker_camera_driver; the
 # launch files start it as /camera/blackfly. A monochrome model publishes mono8 frames. The calibration is
-# calibration/intrinsics/camera_info_blackfly_<serial_number>.yaml below this file, set by the launch files.
+# calibration/intrinsics/[<profile>/]camera_info_blackfly_<serial_number>.yaml below this file, set by the launch
+# files.
 # More options: ros2 param list /camera/blackfly. USB3 models need a larger USB buffer than Linux's default
 # (usbcore.usbfs_memory_mb, e.g. 1000), otherwise frames are dropped at high frame rates.
 # Write string values in quotes: YAML reads a bare Off as false, which the driver ignores.
 /camera/blackfly:
   ros__parameters:
     # Printed on the camera, shown in SpinView. The driver opens only this camera.
-    serial_number: '22260470' # '22260466'
+    serial_number: ''  # '22260470', '22260466'
     # The frame interval at frame_rate must be longer than the exposure; the gain (dB) makes up for the short
     # exposure at the cost of noise.
     exposure_auto: 'Off'
@@ -109,7 +111,8 @@
 # makes it take one (config/blackfly_s_software_trigger.yaml maps that command). Subscribe RELIABLE: a best-effort
 # subscriber can lose a whole full-resolution frame, and no other follows. After a USB reconnect the driver keeps
 # running but the camera is back on its power-on settings (e.g. Bayer frames): restart the driver.
-# The calibration is calibration/intrinsics/camera_info_blackfly_<serial_number>.yaml, as for the main Blackfly.
+# The calibration is calibration/intrinsics/[<profile>/]camera_info_blackfly_<serial_number>.yaml, as for the
+# main Blackfly.
 /capture_camera/blackfly:
   ros__parameters:
     # Required: without it the driver would open whichever Blackfly it finds first, possibly the main camera.
@@ -127,7 +130,8 @@
 # e-con See3CAM_CU40 RGB-IR camera (camera: cu40) through see3cam_cu40, started as /camera/cu40. It also publishes
 # its infrared image, on the colour image's pixel grid (/camera/ir/image_raw). The colour image is not
 # white-balanced and contains infrared light. The calibration is
-# calibration/intrinsics/camera_info_cu40[_<serial>].yaml below this file, set by the launch files, and only fits
+# calibration/intrinsics/[<profile>/]camera_info_cu40[_<serial>].yaml below this file, set by the launch files,
+# and only fits
 # the image size it was made at.
 /camera/cu40/see3cam_cu40_node:
   ros__parameters:
@@ -273,9 +277,8 @@ page_locator_node:
 # Automatic table-to-projector calibration (projection_calibration.launch.py).
 projection_calibrator_node:
   ros__parameters:
-    # Display the projector is connected to, as counted by pygame (0 = primary). The projector
-    # resolution is read from it.
-    display_id: 2
+    # Its display_id (the projector, whose resolution is read from it) comes from
+    # par_launch.projector_display_id.
     # ArUco dictionary without the DICT_ prefix. Must match fiducials_detector, which
     # uses 4X4_100 unless its dictionary parameter says otherwise.
     dictionary: 4X4_100
@@ -493,8 +496,15 @@ par_launch:
     # package of an installed PAR app, e.g. demo_app (ros2-par-framework-demo-application). A PAR app registers in
     # the ament index (templates/par_app/), and the framework nodes it requires are switched on for it.
     projector_app: none
+    # The apps this setup offers (package names as for projector_app), set in the setup wizard's Apps area; its Run
+    # menu chooses projector_app among them. par.launch.py starts only projector_app
+    apps: []
     # Display the projector is connected to, counted like SDL/pygame (0 = primary); the projector app gets it as
-    # its display_id
+    # its display_id. The number changes when displays are plugged in or out, so a profile made by the setup wizard
+    # also stores the projector's identity (projector_manufacturer_id, projector_model_name, projector_serial_text,
+    # projector_connector_name, from its EDID), and launches find the projector by it instead. It also stores the
+    # display mode the projector was chosen with (projector_width_px, projector_height_px, projector_refresh_rate_hz),
+    # so the wizard warns when it changed and the projector calibration may no longer fit
     projector_display_id: 2
     # Second FLIR Blackfly S next to the main camera, which takes single high-resolution frames on request
     # (/capture_camera/blackfly, see there); needs its serial_number

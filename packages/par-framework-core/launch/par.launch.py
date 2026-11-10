@@ -17,8 +17,9 @@ an argument left empty keeps the parameter file's value. With a depth camera (ki
 the detectors also use its depth. camera_only:=true starts just the camera and its mount transform,
 e.g. for a preview or a calibration. An event camera (event) delivers its events collected into
 images, and the raw events on /camera/events; it has no calibration. Camera calibrations are
-config/calibration/intrinsics/camera_info_<camera>.yaml (a Brio or Blackfly with its serial set:
-camera_info_<camera>_<serial>.yaml), shared by all parameter files and profiles.
+config/calibration/intrinsics/<profile>/camera_info_<camera>.yaml (a Brio or Blackfly with its
+serial set: camera_info_<camera>_<serial>.yaml), each profile's own; without profile:= the shared
+config/calibration/intrinsics/ folder.
 
 debug:=true turns on the debug windows of every started node that has one, e.g. for testing
 gestures: camera:=kinect hand_landmarks:=true gesture_detector:=true debug:=true.
@@ -44,21 +45,24 @@ from launch.actions import (DeclareLaunchArgument, ExecuteProcess, IncludeLaunch
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
-from par_framework_core.launch_helpers import (create_camera_nodes, create_capture_camera_node,
+from par_framework_core.launch_helpers import (add_required_sensor_nodes, create_camera_nodes,
+                                               create_capture_camera_node,
                                                create_profile_launch_argument,
                                                create_projection_calibration_server_node,
+                                               create_projector_display_id_launch_argument,
                                                get_chosen_camera, get_params_file_paths,
-                                               get_profile_name, PROJECTOR_APP_NONE,
+                                               get_profile_name, get_projector_display_id,
+                                               get_sensor_node_package_names,
+                                               PROJECTOR_APP_NONE,
                                                read_launch_section, read_par_app_entry,
-                                               RENDERING_MANAGER_APP_NAME)
+                                               RENDERING_MANAGER_APP_NAME,
+                                               SENSOR_NODE_RESOURCE_TYPE)
 
 PACKAGE_NAME = 'par_framework_core'
-# The node switches of par_launch, each also a launch argument that overrides it for one run
-DETECTORS = ('object_detector', 'fiducials_detector', 'hand_landmarks', 'page_locator',
-             'gesture_detector')
-LAUNCH_SWITCHES = DETECTORS + ('projection_mask', 'rviz', 'capture_camera')
-# Former switches, replaced by projector_app; set anyway, they would be silently ignored
-REPLACED_APP_SWITCH_NAMES = ('demo_app', 'rendering_manager')
+# The node switches of par_launch, each also a launch argument that overrides it for one run: one
+# per installed sensor processing node (get_sensor_node_package_names, from the ament index) and
+# these
+NON_SENSOR_NODE_LAUNCH_SWITCH_NAMES = ('rviz', 'capture_camera')
 # Per camera: parameter overrides for each detector. Every camera
 # publishes on the same /camera/... topics (launch_helpers.CAMERA_DRIVER_REMAPPINGS); the overrides
 # cover what the cameras offer differently.
@@ -144,41 +148,10 @@ def create_rendering_manager_actions(params_file_paths, projector_display_id):
 # Written by Claude Code
 def get_projector_app_name(context, launch_section):
     """Return the projector_app launch argument, else par_launch.projector_app (default none)."""
-    for replaced_switch_name in REPLACED_APP_SWITCH_NAMES:
-        is_in_parameter_files = replaced_switch_name in launch_section
-        is_launch_argument = replaced_switch_name in context.launch_configurations
-        if is_in_parameter_files or is_launch_argument:
-            raise RuntimeError(f'[par.launch]: {replaced_switch_name} is replaced by '
-                               f'projector_app, which chooses the one app on the projector: '
-                               f'write par_launch.projector_app: {replaced_switch_name} (or '
-                               f'{PROJECTOR_APP_NONE}) instead of '
-                               f'par_launch.{replaced_switch_name} in the profile, or pass '
-                               f'projector_app:={replaced_switch_name}')
     projector_app_name = LaunchConfiguration('projector_app').perform(context)
     if not projector_app_name:
         projector_app_name = str(launch_section.get('projector_app', PROJECTOR_APP_NONE))
     return projector_app_name
-
-
-# Written by Claude Code
-def get_projector_display_id(context, launch_section):
-    """Return the projector's display (SDL/pygame index), None when nothing sets it."""
-    projector_display_id_text = LaunchConfiguration('projector_display_id').perform(context)
-    if not projector_display_id_text:
-        projector_display_id = launch_section.get('projector_display_id')
-        # A profile is written by hand; YAML reads true as a bool, which is an int in Python
-        is_display_number = isinstance(projector_display_id, int) and not isinstance(
-            projector_display_id, bool)
-        if projector_display_id is not None and not is_display_number:
-            raise RuntimeError(f'[par.launch]: par_launch.projector_display_id: '
-                               f'{projector_display_id!r}: use the display number, 0 for the '
-                               f'primary display')
-        return projector_display_id
-    try:
-        return int(projector_display_id_text)
-    except ValueError:
-        raise RuntimeError(f'[par.launch]: projector_display_id:={projector_display_id_text}: use '
-                           f'the display number, 0 for the primary display')
 
 
 # Written by Claude Code
@@ -216,7 +189,23 @@ def create_par_app_actions(context, app_package_name, par_app_entry, params_file
                                      launch_arguments=app_launch_arguments.items())]
 
 
-# Co-authored by Claude Code: starts the capture camera and the projector app
+# Written by Claude Code
+def create_uninstalled_switch_messages(launch_section, launch_switch_names):
+    """Name every par_launch switch that is true but belongs to no installed sensor node."""
+    uninstalled_switch_messages = []
+    for switch_name, switch_value in launch_section.items():
+        if switch_value is not True or switch_name in launch_switch_names:
+            continue
+        uninstalled_switch_messages.append(LogInfo(
+            msg=f'[par.launch]: par_launch.{switch_name} is true, but no installed package '
+                f'registers {switch_name} as a sensor node (ament index '
+                f'{SENSOR_NODE_RESOURCE_TYPE}): add its repo to config/nodes.list and run '
+                f'./scripts/local_build.sh'))
+    return uninstalled_switch_messages
+
+
+# Co-authored by Claude Code: starts the capture camera, the projector app and the sensor
+# processing nodes registered in the ament index
 def launch_setup(context):
     params_file_paths = get_params_file_paths(context)
     launch_section = read_launch_section(context)
@@ -232,20 +221,26 @@ def launch_setup(context):
                                f'false, or leave it out to keep the value from the params_file')
         return argument_value == 'true'
 
+    sensor_node_names = get_sensor_node_package_names()
+    launch_switch_names = tuple(sensor_node_names) + NON_SENSOR_NODE_LAUNCH_SWITCH_NAMES
     # Read before the switches: the framework nodes a PAR app requires are switched on for it
     projector_app_name = get_projector_app_name(context, launch_section)
-    projector_display_id = get_projector_display_id(context, launch_section)
+    # Only looked up when an app draws on it, so a run without one works with the projector off
+    projector_display_id = None
+    if projector_app_name != PROJECTOR_APP_NONE:
+        projector_display_id = get_projector_display_id(context, launch_section)
     par_app_entry = None
     required_launch_switch_names = []
     is_par_app = projector_app_name not in (PROJECTOR_APP_NONE, RENDERING_MANAGER_APP_NAME)
     if is_par_app:
         par_app_entry = read_par_app_entry(projector_app_name)
         required_launch_switch_names = par_app_entry['required_launch_switches']
-        unknown_switch_names = sorted(set(required_launch_switch_names) - set(LAUNCH_SWITCHES))
+        unknown_switch_names = sorted(set(required_launch_switch_names) - set(launch_switch_names))
         if unknown_switch_names:
             raise RuntimeError(f'[par.launch]: the PAR app {projector_app_name} requires unknown '
                                f'launch switches {unknown_switch_names}; known: '
-                               f'{list(LAUNCH_SWITCHES)}')
+                               f'{list(launch_switch_names)} (a sensor node is known once its '
+                               f'package is installed)')
 
     def is_enabled(switch):
         # Simplification: the app's requirement wins over switch:=false. Upgrade: refuse the
@@ -283,13 +278,17 @@ def launch_setup(context):
             parameters=node_parameters,
         )
 
-    # page_locator reads /fiducials and gesture_detector /hand_landmarks, so they need
-    # fiducials_detector and hand_landmarks; page_locator reads frames only for its debug preview
-    for detector in DETECTORS:
-        if is_enabled(detector):
-            camera_overrides = CAMERA_DETECTOR_PARAMETER_OVERRIDES.get(camera, {})
-            detector_overrides = camera_overrides.get(detector)
-            launch_actions.append(create_framework_node(detector, detector_overrides))
+    # A node that reads another one's output (required_sensor_nodes, e.g. page_locator reads
+    # /fiducials) starts that one along with it
+    switched_on_sensor_node_names = []
+    for sensor_node_name in sensor_node_names:
+        if is_enabled(sensor_node_name):
+            switched_on_sensor_node_names.append(sensor_node_name)
+    for sensor_node_name in add_required_sensor_nodes(switched_on_sensor_node_names):
+        camera_overrides = CAMERA_DETECTOR_PARAMETER_OVERRIDES.get(camera, {})
+        sensor_node_overrides = camera_overrides.get(sensor_node_name)
+        launch_actions.append(create_framework_node(sensor_node_name, sensor_node_overrides))
+    launch_actions += create_uninstalled_switch_messages(launch_section, launch_switch_names)
 
     # Publish the stored projection corners and table-to-projector mapping. Calibration is
     # optional: without ros2-par-framework-calibration the framework runs in camera pixels.
@@ -299,16 +298,6 @@ def launch_setup(context):
         launch_actions.append(LogInfo(msg='[par.launch]: projection_calibration_server is not '
                                           'installed (ros2-par-framework-calibration): running '
                                           'without a projection calibration'))
-
-    # The mask is optional too, and its own repo: start it only when that is installed
-    if is_enabled('projection_mask'):
-        if has_resource('packages', 'projection_mask'):
-            launch_actions.append(create_framework_node('projection_mask'))
-        else:
-            launch_actions.append(LogInfo(msg='[par.launch]: projection_mask is not installed: '
-                                              'add ros2-par-framework-projection-mask to '
-                                              'config/nodes.list and run '
-                                              './scripts/local_build.sh'))
 
     # One app owns the projector: a fullscreen window can only have one on top
     if is_par_app:
@@ -335,7 +324,7 @@ def generate_launch_description():
         get_package_share_directory(PACKAGE_NAME), 'config', 'par_setup.yaml')
 
     switch_arguments = []
-    for switch in LAUNCH_SWITCHES:
+    for switch in tuple(get_sensor_node_package_names()) + NON_SENSOR_NODE_LAUNCH_SWITCH_NAMES:
         switch_arguments.append(DeclareLaunchArgument(
             switch,
             default_value='',
@@ -366,12 +355,7 @@ def generate_launch_description():
                         f'{RENDERING_MANAGER_APP_NAME} or the package of an installed PAR app '
                         f'(ament_index par_framework_apps). Empty uses par_launch.projector_app '
                         f'from params_file.'),
-        DeclareLaunchArgument(
-            'projector_display_id',
-            default_value='',
-            description='Display of the projector, counted like SDL/pygame (0 = primary), passed '
-                        'to the projector app as display_id. Empty uses '
-                        'par_launch.projector_display_id from params_file.'),
+        create_projector_display_id_launch_argument(),
         DeclareLaunchArgument(
             'debug',
             default_value='',
