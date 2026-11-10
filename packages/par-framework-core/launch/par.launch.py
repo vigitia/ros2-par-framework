@@ -40,13 +40,14 @@ import os
 from ament_index_python.packages import get_package_share_directory
 from ament_index_python.resources import has_resource
 from launch import LaunchDescription
-from launch.actions import (DeclareLaunchArgument, ExecuteProcess, IncludeLaunchDescription,
-                            LogInfo, OpaqueFunction)
+from launch.actions import (DeclareLaunchArgument, ExecuteProcess, GroupAction,
+                            IncludeLaunchDescription, LogInfo, OpaqueFunction)
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
-from launch_ros.actions import Node
+from launch_ros.actions import Node, SetRemap
 from par_framework_core.launch_helpers import (add_required_sensor_nodes, create_camera_nodes,
                                                create_camera_serial_launch_argument,
+                                               create_camera_stream_remappings,
                                                create_capture_camera_node,
                                                create_profile_launch_argument,
                                                create_projection_calibration_server_node,
@@ -142,7 +143,8 @@ def create_rendering_manager_actions(params_file_paths, projector_display_id):
              name='rendering_manager_bridge_node',
              output='screen',
              emulate_tty=True,
-             parameters=bridge_parameters),
+             parameters=bridge_parameters,
+             remappings=create_camera_stream_remappings()),
     ]
 
 
@@ -171,7 +173,8 @@ def create_par_app_actions(context, app_package_name, par_app_entry, params_file
                      executable=par_app_entry['executable'],
                      output='screen',
                      emulate_tty=True,
-                     parameters=app_node_parameters)]
+                     parameters=app_node_parameters,
+                     remappings=create_camera_stream_remappings())]
 
     launch_file_path = os.path.join(get_package_share_directory(app_package_name), 'launch',
                                     par_app_entry['launch_file'])
@@ -186,8 +189,15 @@ def create_par_app_actions(context, app_package_name, par_app_entry, params_file
         'profile': get_profile_name(context),
         'display_id': '' if projector_display_id is None else str(projector_display_id),
     }
-    return [IncludeLaunchDescription(PythonLaunchDescriptionSource(launch_file_path),
-                                     launch_arguments=app_launch_arguments.items())]
+    # The remappings reach every node the app's launch file starts
+    camera_stream_remap_actions = []
+    for stream_name, camera_topic_name in create_camera_stream_remappings():
+        camera_stream_remap_actions.append(SetRemap(src=stream_name, dst=camera_topic_name))
+    return [GroupAction([
+        *camera_stream_remap_actions,
+        IncludeLaunchDescription(PythonLaunchDescriptionSource(launch_file_path),
+                                 launch_arguments=app_launch_arguments.items()),
+    ])]
 
 
 # Written by Claude Code
@@ -277,6 +287,7 @@ def launch_setup(context):
             output='screen',
             emulate_tty=True,
             parameters=node_parameters,
+            remappings=create_camera_stream_remappings(),
         )
 
     # A node that reads another one's output (required_sensor_nodes, e.g. page_locator reads

@@ -18,19 +18,21 @@ from tf2_ros import Buffer, TransformException, TransformListener
 from visualization_msgs.msg import Marker, MarkerArray
 
 NODE_NAME = 'rviz_bridge_node'
-TOPIC_NAME_OBJECTS = '/objects'
-TOPIC_NAME_CAMERA_INFO = '/camera/camera_info'
-TOPIC_NAME_PROJECTION_CORNERS = '/projection_corners'
-TOPIC_NAME_OBJECT_MARKERS = '/objects/markers'
-TOPIC_NAME_PROJECTION_MARKERS = '/projection_corners/markers'
-TOPIC_NAME_HANDS = '/hand_landmarks'
-TOPIC_NAME_HAND_MARKERS = '/hand_landmarks/markers'
-TOPIC_NAME_FIDUCIALS = '/fiducials'
-TOPIC_NAME_FIDUCIAL_MARKERS = '/fiducials/markers'
-TOPIC_NAME_PAGES = '/pages'
-TOPIC_NAME_PAGE_MARKERS = '/pages/markers'
-TOPIC_NAME_PROJECTION_MAPPING = '/projection_mapping'
-TOPIC_NAME_MAPPING_MARKERS = '/projection_mapping/markers'
+# Relative names: the launch file starts the node in its camera's namespace or remaps them, which
+# chooses the camera whose outputs are shown
+TOPIC_NAME_OBJECTS = 'objects'
+TOPIC_NAME_CAMERA_INFO = 'camera_info'
+TOPIC_NAME_PROJECTION_CORNERS = 'projection_corners'
+TOPIC_NAME_OBJECT_MARKERS = 'objects/markers'
+TOPIC_NAME_PROJECTION_MARKERS = 'projection_corners/markers'
+TOPIC_NAME_HANDS = 'hand_landmarks'
+TOPIC_NAME_HAND_MARKERS = 'hand_landmarks/markers'
+TOPIC_NAME_FIDUCIALS = 'fiducials'
+TOPIC_NAME_FIDUCIAL_MARKERS = 'fiducials/markers'
+TOPIC_NAME_PAGES = 'pages'
+TOPIC_NAME_PAGE_MARKERS = 'pages/markers'
+TOPIC_NAME_PROJECTION_MAPPING = 'projection_mapping'
+TOPIC_NAME_MAPPING_MARKERS = 'projection_mapping/markers'
 # The tabletop is the plane z = 0 of this frame
 TABLE_FRAME_ID = 'world'
 # The corner fields of a ProjectionCorners message, in drawing order

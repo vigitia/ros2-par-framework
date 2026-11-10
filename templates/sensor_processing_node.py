@@ -35,14 +35,15 @@ from .example_detector import ExampleDetector
 
 NODE_NAME = 'example_detector_node'
 
-# The framework's neutral camera topics, onto which the launch files remap every camera driver.
-# Nodes hard-code them; another topic is chosen by remapping, not by parameter.
-TOPIC_NAME_FRAME = '/camera/image_raw'
+# The camera's topics, relative names (ROS 2 convention): the launch file starts the node in its
+# camera's namespace or remaps them, which chooses the camera. Another topic is chosen by
+# namespace or remapping, not by parameter.
+TOPIC_NAME_FRAME = 'image_raw'
 # With use_compressed: its compressed variant, named by the image_transport convention (JPEGs a
 # camera driver passes through without decoding them)
 TOPIC_NAME_FRAME_COMPRESSED = TOPIC_NAME_FRAME + '/compressed'
-TOPIC_NAME_FRAME_DEPTH = '/camera/depth_registered/image_raw'
-TOPIC_NAME_CAMERA_INFO = '/camera/camera_info'
+TOPIC_NAME_FRAME_DEPTH = 'depth_registered/image_raw'
+TOPIC_NAME_CAMERA_INFO = 'camera_info'
 # The node's own output, relative, so a namespace in the launch file moves it along
 TOPIC_NAME_RESULTS = 'example_results'
 
