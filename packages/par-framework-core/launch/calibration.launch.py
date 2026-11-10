@@ -25,6 +25,7 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction, Shutdown
 from launch_ros.actions import Node
 from par_framework_core.launch_helpers import (create_camera_nodes,
+                                               create_camera_stream_remappings,
                                                create_profile_launch_argument,
                                                create_projection_calibration_server_node,
                                                get_chosen_camera, get_params_file_paths)
@@ -32,7 +33,7 @@ from par_framework_core.launch_helpers import (create_camera_nodes,
 PACKAGE_NAME = 'par_framework_core'
 
 
-# Written by Claude Code
+# Written by Claude Code; the remappings of the camera streams co-authored by Claude Code
 def create_camera_and_surface_selector(context):
     """Create the chosen camera, the surface selector on its image and the corners owner."""
     camera = get_chosen_camera(context)
@@ -42,8 +43,9 @@ def create_camera_and_surface_selector(context):
         name='surface_selector_node',
         output='screen',
         emulate_tty=True,
-        # It subscribes to /camera/image_raw, which every camera publishes
         parameters=get_params_file_paths(context),
+        # Its relative camera stream names point at the camera started here
+        remappings=create_camera_stream_remappings(),
         # Corners stored (projection_calibration_server_node writes them before it answers) or
         # selection cancelled: the camera and the corners owner are not needed any longer
         on_exit=Shutdown(reason='projection corners selected'),

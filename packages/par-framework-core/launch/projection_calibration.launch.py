@@ -33,6 +33,7 @@ from launch.actions import DeclareLaunchArgument, OpaqueFunction, Shutdown
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from par_framework_core.launch_helpers import (create_camera_nodes,
+                                               create_camera_stream_remappings,
                                                create_profile_launch_argument,
                                                create_projection_calibration_server_node,
                                                create_projector_display_id_launch_argument,
@@ -82,6 +83,7 @@ def launch_setup(context):
         parameters=[*params_file_paths,
                     FIDUCIALS_DETECTOR_GENERAL_DETECTION_PARAMETERS,
                     {'use_depth': is_projector_center_run}],
+        remappings=create_camera_stream_remappings(),
     )
     projection_calibrator_node = Node(
         package='surface_selector',
@@ -90,11 +92,12 @@ def launch_setup(context):
         output='screen',
         emulate_tty=True,
         parameters=projection_calibrator_parameters,
+        remappings=create_camera_stream_remappings(),
         # Stored or failed: the camera and the projector are not needed any longer
         on_exit=Shutdown(reason='projection calibration finished'),
     )
     # The calibration converts camera pixels to the table plane, so the camera pose is needed.
-    # The camera publishes on /camera/..., where both nodes subscribe
+    # The camera publishes on /camera/..., where the remappings point both nodes' camera streams
     return [*create_camera_nodes(context, camera),
             fiducials_detector_node,
             *create_projection_calibration_server_node(context, camera),

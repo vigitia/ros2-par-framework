@@ -4353,3 +4353,24 @@ units of a type the wizard could not say which one); a serial in `par_setup.yaml
 setup, not a default); a temporary profile file for the preview (rejected: a launch argument is the ROS way to
 override one value for one run and leaves no file behind); listing Blackflys through the Spinnaker SDK (rejected:
 needs its Python bindings, a new dependency, while USB already reports the serial).
+
+## 2026-11-10: framework nodes take relative camera stream names (multi-camera step 1)
+
+**What changed:** `launch_helpers` has `CAMERA_STREAM_NAMES` (the streams a camera may offer, named relative to its
+namespace by the image_pipeline convention), `CAMERA_NAMESPACE` (`/camera`) and `create_camera_stream_remappings()`.
+Every framework node that `par.launch.py`, `calibration.launch.py`, `projection_calibration.launch.py` and the two
+camera pose launch files start gets these remappings, PAR apps as well (executable apps on their node, launch-file
+apps through `SetRemap` in a `GroupAction` around the include), and the rendering manager bridge. `rviz_bridge` and
+`templates/sensor_processing_node.py` use relative names now. The node repos changed their absolute names to
+relative ones in the same step.
+
+**Why:** step 1 of the multi-camera plan: nodes use relative names (ROS 2 convention), so that later each node can
+run in its camera's namespace (`/cameras/<name>/`) without remapping. While there is one camera in `/camera` and the
+nodes run in the root namespace, their relative camera stream names would resolve to `/image_raw` etc., so the
+launch files point them at `/camera/...`; all other relative names (`fiducials`, `pages`, `projection_mapping`, ...)
+resolve to the same root names as before. Checked with a real start (Blackfly, fiducials_detector, page_locator,
+projection calibration server): the same topics and services as before, frames arriving.
+
+**Alternatives considered:** starting every node in `/camera` right away (would also move their outputs, e.g.
+`/fiducials` to `/camera/fiducials`, before the apps can follow); keeping absolute names and remapping per run
+(not the ROS 2 convention, a remap per topic and node).

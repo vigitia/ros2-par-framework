@@ -22,7 +22,9 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction, Shutdown
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
-from par_framework_core.launch_helpers import (create_camera_nodes, create_profile_launch_argument,
+from par_framework_core.launch_helpers import (create_camera_nodes,
+                                               create_camera_stream_remappings,
+                                               create_profile_launch_argument,
                                                get_chosen_camera, get_extrinsics_relative_path,
                                                get_path_in_config_folder, POSE_ROTATION_KEYS,
                                                read_merged_parameters)
@@ -64,7 +66,9 @@ def launch_setup(context):
                 'board_columns': board_columns,
                 'board_rows': board_rows,
             }],
-            # The driver is remapped onto /camera/..., where the calibrator subscribes.
+            # The driver is remapped onto /camera/..., where these remappings point the
+            # calibrator's camera streams
+            remappings=create_camera_stream_remappings(),
             # Stored or failed: the camera is not needed any longer
             on_exit=Shutdown(reason='camera pose calibration finished'),
         ),

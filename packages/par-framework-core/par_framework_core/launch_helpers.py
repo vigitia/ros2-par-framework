@@ -50,6 +50,14 @@ DEFAULT_TOPIC_NAME_CAMERA_EVENTS = '/camera/events'
 # cameracalibrator's COMMIT stores the calibration through this service
 DEFAULT_SERVICE_NAME_CAMERA_SET_INFO = '/camera/set_camera_info'
 
+# Co-authored by Claude Code: the streams a camera may offer, named relative to its namespace by
+# the image_pipeline convention. Framework nodes subscribe to them by these relative names; the
+# camera started here offers them in CAMERA_NAMESPACE
+CAMERA_STREAM_NAMES = ('image_raw', 'image_raw/compressed', 'camera_info', 'set_camera_info',
+                       'depth_registered/image_raw', 'ir/image_raw', 'depth_sensor/ir/image_raw',
+                       'depth_sensor/depth/image_raw', 'depth_sensor/camera_info', 'events')
+CAMERA_NAMESPACE = '/camera'
+
 
 # Per camera: (the driver's own name, the framework's name) pairs
 CAMERA_DRIVER_REMAPPINGS = {
@@ -498,6 +506,19 @@ def get_chosen_camera(context):
         raise RuntimeError(f'[launch_helpers]: unknown camera {camera!r}: pass camera:= with one '
                            f'of {CAMERA_NAMES_TEXT}, or set par_launch.camera in the params_file')
     return camera
+
+
+# Written by Claude Code
+def create_camera_stream_remappings():
+    """Return the remappings that point a framework node's camera streams at the started camera."""
+    # Simplification: one camera in CAMERA_NAMESPACE, and the framework nodes run in the root
+    # namespace, where their relative stream names would resolve to /image_raw etc. Upgrade (the
+    # multi-camera plan): start each node in its camera's namespace, where they resolve without
+    # remappings
+    camera_stream_remappings = []
+    for stream_name in CAMERA_STREAM_NAMES:
+        camera_stream_remappings.append((stream_name, f'{CAMERA_NAMESPACE}/{stream_name}'))
+    return camera_stream_remappings
 
 
 # Co-authored by Claude Code: the final error names the gap it catches, the Blackfly

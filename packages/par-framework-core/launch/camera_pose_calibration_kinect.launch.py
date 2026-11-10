@@ -18,7 +18,8 @@ from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction, Shutdown
 from launch_ros.actions import Node
-from par_framework_core.launch_helpers import (create_kinect_driver_node,
+from par_framework_core.launch_helpers import (create_camera_stream_remappings,
+                                               create_kinect_driver_node,
                                                create_profile_launch_argument,
                                                get_extrinsics_relative_path,
                                                get_path_in_config_folder, POSE_ROTATION_KEYS,
@@ -47,7 +48,9 @@ def launch_setup(context):
                 'base_frame': 'camera_base',
                 'placeholder_rotation': placeholder_rotation,
             }],
-            # The driver is remapped onto /camera/..., where the calibrator subscribes
+            # The driver is remapped onto /camera/..., where these remappings point the
+            # calibrator's camera streams
+            remappings=create_camera_stream_remappings(),
             # Stored or failed: the camera is not needed any longer
             on_exit=Shutdown(reason='camera pose calibration finished'),
         ),
