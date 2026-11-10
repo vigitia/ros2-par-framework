@@ -1,18 +1,19 @@
 // Written by Claude Code
 //
-// Hub area "Cameras" of a profile: its cameras as chips; exactly one is the selected camera, the one the next run of
-// the profile starts. Clicking another chip selects it. For the selected camera the user can open, on request, its
-// images and settings (changed on the running camera), its lens calibration, camera pose or projector calibration
-// (CameraSectionView, which also keeps the projector black where needed). "Add camera" adds a camera unit (several
-// units of one type are told apart by their serial number), and a camera that is not selected can be removed, which
-// moves its calibrations away after a confirmation. Only the selected camera is ever started here, so the driver
-// always opens the unit the profile names and calibrations land in that unit's files. Opened with a requested camera
-// section (a camera clicked in the Overview's drawing, or a missing calibration step started there), the area selects
-// that camera and opens the section at once.
+// Hub area "Cameras" of a profile: one tab per camera, like the Sensor nodes area. The camera in the tab in front is
+// the profile's main camera, the one the next run of the profile starts: bringing another tab to the front stores
+// that camera as the main one. Its tab offers, on request, its images and settings (changed on the running camera),
+// its lens calibration, camera pose or projector calibration (CameraSectionView, which also keeps the projector
+// black where needed), and Remove, which moves the camera's calibrations away after a confirmation. "Add camera" adds
+// a camera unit (several units of one type are told apart by their serial number). Only the main camera is ever
+// started here, so the driver always opens the unit the profile names and calibrations land in that unit's files.
+// Opened with a requested camera section (a camera clicked in the Overview's drawing, or a missing calibration step
+// started there), the area brings that camera to the front and opens the section at once.
 
 import 'package:flutter/material.dart';
 
 import '../add_camera_dialog.dart';
+import '../addable_tabs_view.dart';
 import '../camera_section_view.dart';
 import '../cameras_api.dart';
 import '../profile_run_view.dart';
@@ -32,7 +33,7 @@ class CamerasScreen extends StatefulWidget {
   final String profileName;
 
   /// A camera unit and section to open right away, e.g. a camera clicked in the Overview's drawing; the unit
-  /// becomes the selected camera like a click on its chip. null opens the area as usual.
+  /// becomes the main camera like a click on its tab. null opens the area as usual.
   final CameraSectionRequest? requestedCameraSection;
 
   @override
@@ -42,6 +43,9 @@ class CamerasScreen extends StatefulWidget {
 class _CamerasScreenState extends State<CamerasScreen> with ProfileSummaryLoading<CamerasScreen> {
   /// Null until the user opens one, so no camera starts unasked.
   CameraSection? _shownCameraSection;
+
+  /// True while a camera is stored as the main one, e.g. after its tab came to the front.
+  bool _isSelectingCamera = false;
 
   @override
   void initState() {
@@ -63,7 +67,7 @@ class _CamerasScreenState extends State<CamerasScreen> with ProfileSummaryLoadin
         requestedCamera = camera;
       }
     }
-    // Only cameras that can be selected (not the capture camera)
+    // Only cameras that can be the main camera (not the capture camera)
     if (requestedCamera == null || requestedCamera.previewCameraName == null) {
       return;
     }
@@ -92,15 +96,51 @@ class _CamerasScreenState extends State<CamerasScreen> with ProfileSummaryLoadin
     return null;
   }
 
-  Future<void> _selectCamera(CameraCalibrationSummary camera) async {
+  /// The cameras in the order of their tabs: by name, so a tab stays where it is when the main camera changes
+  /// (the backend lists the main camera first).
+  List<CameraCalibrationSummary> _getCamerasInTabOrder(ProfileSummary profileSummary) {
+    final List<CameraCalibrationSummary> camerasInTabOrder = List<CameraCalibrationSummary>.of(profileSummary.cameras);
+    camerasInTabOrder.sort(
+      (CameraCalibrationSummary firstCamera, CameraCalibrationSummary secondCamera) =>
+          firstCamera.cameraDisplayName.compareTo(secondCamera.cameraDisplayName),
+    );
+    return camerasInTabOrder;
+  }
+
+  /// Stores the camera as the profile's main camera, the one a run starts; false when that failed.
+  Future<bool> _selectCamera(CameraCalibrationSummary camera) async {
+    setState(() {
+      _isSelectingCamera = true;
+    });
+    bool isCameraSelected = true;
     try {
       await widget.backendClient
           .selectProfileCamera(profileName: widget.profileName, cameraName: camera.cameraType, serial: camera.serial);
     } catch (error) {
-      _showMessage('Could not select the camera. ${describeBackendErrorForUser(error, isBackendDetailShown: true)}');
+      isCameraSelected = false;
+      _showMessage(
+        'Could not switch to ${camera.cameraDisplayName}. '
+        '${describeBackendErrorForUser(error, isBackendDetailShown: true)}',
+      );
+    }
+    if (isCameraSelected) {
+      await _loadProfile(isSpinnerShown: false);
+    }
+    if (mounted) {
+      setState(() {
+        _isSelectingCamera = false;
+      });
+    }
+    return isCameraSelected;
+  }
+
+  /// The camera whose tab the user brought to the front becomes the main camera.
+  void _onCameraTabShown(CameraCalibrationSummary camera) {
+    // The capture camera cannot be the main camera; its tab only says so
+    if (camera.previewCameraName == null || camera.isSelected) {
       return;
     }
-    await _loadProfile(isSpinnerShown: false);
+    _selectCamera(camera);
   }
 
   Future<void> _addCamera(List<CameraCalibrationSummary> profileCameras) async {
@@ -126,8 +166,12 @@ class _CamerasScreenState extends State<CamerasScreen> with ProfileSummaryLoadin
   }
 
   /// Asks first: the camera's calibrations leave the profile with it (they are moved to a folder they can be
-  /// restored from by hand).
-  Future<void> _confirmAndRemoveCamera(CameraCalibrationSummary camera) async {
+  /// restored from by hand). The main camera hands its role to nextMainCamera before it goes, since a profile
+  /// always has one camera to run.
+  Future<void> _confirmAndRemoveCamera(
+    CameraCalibrationSummary camera,
+    CameraCalibrationSummary nextMainCamera,
+  ) async {
     final bool? isRemovalConfirmed = await showDialog<bool>(
       context: context,
       builder: (BuildContext dialogContext) => AlertDialog(
@@ -148,6 +192,12 @@ class _CamerasScreenState extends State<CamerasScreen> with ProfileSummaryLoadin
     );
     if (isRemovalConfirmed != true) {
       return;
+    }
+    if (camera.isSelected) {
+      final bool isNextMainCameraSelected = await _selectCamera(nextMainCamera);
+      if (!isNextMainCameraSelected) {
+        return;
+      }
     }
     try {
       await widget.backendClient
@@ -173,31 +223,93 @@ class _CamerasScreenState extends State<CamerasScreen> with ProfileSummaryLoadin
       return buildProfileLoadStateView(onRetryClicked: _loadProfile);
     }
 
-    final TextTheme textTheme = Theme.of(context).textTheme;
-    final List<Widget> cameraRows = [
-      Text('Selected camera', style: textTheme.titleMedium),
-      const SizedBox(height: 4),
-      Text(
-        'The camera the next run of this profile starts. Click another camera to select it.',
+    final List<CameraCalibrationSummary> camerasInTabOrder = _getCamerasInTabOrder(profileSummary);
+    final List<String> tabTitles = [];
+    for (final CameraCalibrationSummary camera in camerasInTabOrder) {
+      tabTitles.add(camera.cameraDisplayName);
+    }
+    return AddableTabsView(
+      tabTitles: tabTitles,
+      // The main camera's tab is in front when the area opens or the main camera changes
+      shownTabTitle: _findSelectedCamera(profileSummary)?.cameraDisplayName,
+      addButtonText: 'Add camera',
+      addMenuEntries: const [],
+      onAddPressed: () => _addCamera(profileSummary.cameras),
+      noTabsText: 'The profile has no camera. Add one with "Add camera".',
+      onShownTabChanged: (int tabIndex) => _onCameraTabShown(camerasInTabOrder[tabIndex]),
+      buildTabContent: (int tabIndex, bool isShownTab) =>
+          _buildCameraTab(camerasInTabOrder[tabIndex], camerasInTabOrder, profileSummary, isShownTab),
+    );
+  }
+
+  Widget _buildCameraTab(
+    CameraCalibrationSummary camera,
+    List<CameraCalibrationSummary> camerasInTabOrder,
+    ProfileSummary profileSummary,
+    bool isShownTab,
+  ) {
+    final List<Widget> tabRows = [];
+    if (camera.previewCameraName == null) {
+      // The capture camera
+      tabRows.add(Text(
+        'This camera starts together with the profile\'s main camera. The wizard cannot show or calibrate it on its '
+        'own yet.',
         style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
-      ),
-      const SizedBox(height: 8),
-      _buildCameraChoice(profileSummary.cameras),
-    ];
-    final CameraCalibrationSummary? selectedCamera = _findSelectedCamera(profileSummary);
-    if (selectedCamera != null) {
-      cameraRows.add(const SizedBox(height: 16));
-      cameraRows.add(_buildCameraSectionChoice());
+      ));
+    } else if (!camera.isSelected) {
+      // In front, but not stored as the main camera (yet): its sections would start another unit
+      if (_isSelectingCamera) {
+        tabRows.add(const LinearProgressIndicator());
+      } else {
+        tabRows.add(const Text('Could not switch to this camera.'));
+        tabRows.add(const SizedBox(height: 8));
+        tabRows.add(OutlinedButton(onPressed: () => _selectCamera(camera), child: const Text('Try again')));
+      }
+    } else {
+      tabRows.add(Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Expanded(child: Align(alignment: Alignment.topLeft, child: _buildCameraSectionChoice())),
+        const SizedBox(width: 12),
+        _buildRemoveButton(camera, camerasInTabOrder),
+      ]));
       final CameraSection? shownCameraSection = _shownCameraSection;
-      if (shownCameraSection != null) {
-        cameraRows.add(const SizedBox(height: 16));
-        cameraRows.add(_buildCameraSection(shownCameraSection, selectedCamera, profileSummary));
+      // Only in the tab in front, so a hidden tab never keeps a camera running
+      if (shownCameraSection != null && isShownTab) {
+        tabRows.add(const SizedBox(height: 16));
+        tabRows.add(_buildCameraSection(shownCameraSection, camera, profileSummary));
       }
     }
     return SingleChildScrollView(
-      // Room below the content, so the hub's Run button does not cover its end
-      padding: const EdgeInsets.fromLTRB(24, 24, 24, runButtonClearanceLogicalPx),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: cameraRows),
+      // Room below the content, so a floating button does not cover its end
+      padding: const EdgeInsets.fromLTRB(24, 16, 24, runButtonClearanceLogicalPx),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: tabRows),
+    );
+  }
+
+  /// Removes the camera; disabled for the profile's only camera that can run it.
+  Widget _buildRemoveButton(CameraCalibrationSummary camera, List<CameraCalibrationSummary> camerasInTabOrder) {
+    CameraCalibrationSummary? nextMainCamera;
+    for (final CameraCalibrationSummary otherCamera in camerasInTabOrder) {
+      final bool isOtherUnit = otherCamera.cameraDisplayName != camera.cameraDisplayName;
+      if (isOtherUnit && otherCamera.previewCameraName != null && nextMainCamera == null) {
+        nextMainCamera = otherCamera;
+      }
+    }
+    VoidCallback? onRemoveClicked;
+    String removeTooltipText = 'A profile needs a camera to run: add another one first.';
+    if (nextMainCamera != null) {
+      final CameraCalibrationSummary chosenNextMainCamera = nextMainCamera;
+      removeTooltipText = 'Remove this camera and its calibrations from the profile.';
+      if (!_isSelectingCamera) {
+        onRemoveClicked = () => _confirmAndRemoveCamera(camera, chosenNextMainCamera);
+      }
+    }
+    return Tooltip(
+      message: removeTooltipText,
+      child: OutlinedButton.icon(
+        onPressed: onRemoveClicked,
+        icon: const Icon(Icons.remove_circle_outline),
+        label: const Text('Remove'),
+      ),
     );
   }
 
@@ -235,7 +347,7 @@ class _CamerasScreenState extends State<CamerasScreen> with ProfileSummaryLoadin
     );
   }
 
-  /// The section of the selected camera; the key makes a newly selected camera start afresh.
+  /// The section of the main camera; the key makes another camera start afresh.
   Widget _buildCameraSection(
     CameraSection cameraSection,
     CameraCalibrationSummary selectedCamera,
@@ -249,35 +361,5 @@ class _CamerasScreenState extends State<CamerasScreen> with ProfileSummaryLoadin
       cameraSection: cameraSection,
       projectorDisplayId: profileSummary.projectorDisplayId,
     );
-  }
-
-  Widget _buildCameraChoice(List<CameraCalibrationSummary> cameras) {
-    final List<Widget> cameraChips = [];
-    for (final CameraCalibrationSummary camera in cameras) {
-      if (camera.previewCameraName == null) {
-        // The capture camera: it starts together with the selected camera and cannot be chosen or removed
-        cameraChips.add(Tooltip(
-          message: 'This camera starts together with the selected camera.',
-          child: Chip(avatar: const Icon(Icons.videocam_outlined), label: Text(camera.cameraDisplayName)),
-        ));
-        continue;
-      }
-      // The selected camera stays: a profile always has one to run
-      final VoidCallback? onRemoveClicked = camera.isSelected ? null : () => _confirmAndRemoveCamera(camera);
-      cameraChips.add(InputChip(
-        avatar: const Icon(Icons.videocam_outlined),
-        label: Text(camera.cameraDisplayName),
-        selected: camera.isSelected,
-        onSelected: camera.isSelected ? null : (bool isSelected) => _selectCamera(camera),
-        onDeleted: onRemoveClicked,
-        deleteButtonTooltipMessage: 'Remove this camera',
-      ));
-    }
-    cameraChips.add(ActionChip(
-      avatar: const Icon(Icons.add),
-      label: const Text('Add camera'),
-      onPressed: () => _addCamera(cameras),
-    ));
-    return Wrap(spacing: 8, runSpacing: 8, children: cameraChips);
   }
 }

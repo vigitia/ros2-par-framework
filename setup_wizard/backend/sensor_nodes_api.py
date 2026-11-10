@@ -10,7 +10,8 @@ here:
   par.launch.py reads; a node's required nodes are selected along with it.
 - A run is par.launch.py with the profile, started as the preview's camera process
   (camera_preview_api.start_camera_launch), so the camera image, stop and watchdog work as for a
-  preview. The projector app, RViz and the capture camera stay off.
+  preview. The projector app, RViz and the capture camera stay off, and every node gets
+  debug:=true, so each one that has a debug parameter opens its preview window on this machine.
 - Settings are read and saved by node_settings_api.py, without a run; a run started again picks
   up what was saved.
 - What a node publishes is listed from the ROS graph: its sensor_msgs/Image topics are shown as
@@ -33,9 +34,11 @@ from rosidl_runtime_py import message_to_yaml
 from rosidl_runtime_py.utilities import get_message
 
 SENSOR_NODES_LAUNCH_FILE_NAME = 'par.launch.py'
-# A run shows the camera and the sensor nodes; these would take the projector, open windows or
-# start a second camera
-RUN_LAUNCH_ARGUMENTS = ['projector_app:=none', 'rviz:=false', 'capture_camera:=false']
+# A run shows the camera and the sensor nodes; the projector app, RViz and the capture camera
+# would take the projector, open another window or start a second camera. debug:=true is
+# par.launch.py's switch for the debug parameter of every node it starts (their preview windows).
+RUN_LAUNCH_ARGUMENTS = ['projector_app:=none', 'rviz:=false', 'capture_camera:=false',
+                        'debug:=true']
 # par.launch.py names each sensor node <package>_node, without a namespace
 SENSOR_NODE_NAME_SUFFIX = '_node'
 IMAGE_MESSAGE_TYPE_NAME = 'sensor_msgs/msg/Image'

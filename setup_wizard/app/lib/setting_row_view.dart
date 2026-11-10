@@ -5,7 +5,8 @@
 // with few allowed values or a menu, a slider for other numbers with a range, a text field for everything else that
 // accepts only what the setting's type allows and passes on every valid entry right away (shortly after the last
 // keystroke), nothing when it may not be changed. A reset button appears while the value differs from the default.
-// Name and control share one line when the row is wide enough, otherwise the control goes below the name. The value
+// Name and control share one line when the row is wide enough, the name right-aligned so it sits next to its control;
+// otherwise the control goes below the name. The value
 // is written out only where no control shows it (read-only settings, next to a slider). A change is handed to the
 // owner (onSettingChanged), which decides what it means: CameraSettingsView sends it to the running driver, the node
 // settings collect it until Save.
@@ -25,6 +26,9 @@ const int maximumDropdownOptionCount = 12;
 
 /// From this row width on, the name and the control share one line.
 const double settingRowOneLineMinimumWidthLogicalPx = 560;
+
+/// Room above each setting, so the rows read as separate settings.
+const double settingRowTopSpacingLogicalPx = 20;
 
 /// How long typing must pause before a valid entry is passed on, so not every keystroke reaches a driver.
 const Duration typedValueReportDelay = Duration(milliseconds: 500);
@@ -191,8 +195,10 @@ class _SettingRowViewState extends State<SettingRowView> {
         valueOrControl = Row(children: [Expanded(child: valueOrControl), resetButton]);
       }
       if (constraints.maxWidth >= settingRowOneLineMinimumWidthLogicalPx) {
+        final Widget rightAlignedNameText =
+            Text(cameraSetting.settingName, style: textTheme.bodyMedium, textAlign: TextAlign.end);
         return Row(children: [
-          Expanded(flex: 2, child: nameText),
+          Expanded(flex: 2, child: rightAlignedNameText),
           const SizedBox(width: 12),
           Expanded(flex: 3, child: valueOrControl),
         ]);
@@ -220,7 +226,7 @@ class _SettingRowViewState extends State<SettingRowView> {
       rowLines.add(Text(changeErrorText, style: textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.error)));
     }
     return Padding(
-      padding: const EdgeInsets.only(top: 10),
+      padding: const EdgeInsets.only(top: settingRowTopSpacingLogicalPx),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: rowLines),
     );
   }

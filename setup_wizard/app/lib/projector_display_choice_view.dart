@@ -73,15 +73,15 @@ class _ProjectorDisplayChoiceViewState extends State<ProjectorDisplayChoiceView>
   @override
   Widget build(BuildContext context) {
     final ColorScheme colorScheme = Theme.of(context).colorScheme;
-    VoidCallback? onSearchAgainPressed;
+    VoidCallback? onRefreshPressed;
     if (!_isLoadingDisplays) {
-      onSearchAgainPressed = _loadDisplays;
+      onRefreshPressed = _loadDisplays;
     }
     final List<Widget> viewRows = [
       TextButton.icon(
-        onPressed: onSearchAgainPressed,
+        onPressed: onRefreshPressed,
         icon: const Icon(Icons.refresh),
-        label: const Text('Search again'),
+        label: const Text('Refresh'),
       ),
       const SizedBox(height: 12),
     ];

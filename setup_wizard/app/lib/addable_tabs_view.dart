@@ -1,7 +1,7 @@
 // Written by Claude Code
 //
-// Tabs for what a profile has enabled (sensor nodes, apps), with an "Add …" menu button next to them that offers what
-// can still be added. A tab's content is built the first time the tab is shown and then kept, so unsaved changes in
+// Tabs for what a profile has (cameras, sensor nodes, apps), with an "Add …" button next to them: a menu that offers
+// what can still be added, or the owner's own way of adding (onAddPressed). A tab's content is built the first time the tab is shown and then kept, so unsaved changes in
 // it survive switching tabs, and opening the area does not load every tab at once. Without any tab, only the add
 // button and a hint are shown.
 
@@ -16,6 +16,8 @@ class AddableTabsView extends StatefulWidget {
     required this.addMenuEntries,
     required this.noTabsText,
     this.shownTabTitle,
+    this.onAddPressed,
+    this.onShownTabChanged,
   });
 
   /// One per tab, unique; they also identify the tabs when the list changes.
@@ -29,8 +31,15 @@ class AddableTabsView extends StatefulWidget {
   final List<Widget> addMenuEntries;
   final String noTabsText;
 
-  /// The tab to bring to the front when the tabs change, e.g. one just added; null keeps the shown one.
+  /// The tab to bring to the front when the tabs or this title change, e.g. one just added; null keeps the shown
+  /// one.
   final String? shownTabTitle;
+
+  /// Set: the add button calls this instead of opening the menu, e.g. to ask in a dialog what to add.
+  final VoidCallback? onAddPressed;
+
+  /// Called with the tab's index when the user brings another tab to the front.
+  final ValueChanged<int>? onShownTabChanged;
 
   @override
   State<AddableTabsView> createState() => _AddableTabsViewState();
@@ -41,6 +50,9 @@ class _AddableTabsViewState extends State<AddableTabsView> with TickerProviderSt
 
   /// Tabs shown at least once, whose content stays built.
   final Set<String> _visitedTabTitles = {};
+
+  /// The tab in front as the owner knows it, so onShownTabChanged is called once per change and only for the user's.
+  int _reportedTabIndex = 0;
 
   @override
   void initState() {
@@ -53,6 +65,20 @@ class _AddableTabsViewState extends State<AddableTabsView> with TickerProviderSt
     super.didUpdateWidget(oldWidget);
     final bool haveTabsChanged = oldWidget.tabTitles.join('\n') != widget.tabTitles.join('\n');
     if (!haveTabsChanged) {
+      final int? requestedTabIndex = _getIndexOfTitle(widget.shownTabTitle);
+      final TabController? tabController = _tabController;
+      final bool isOtherTabRequested = widget.shownTabTitle != oldWidget.shownTabTitle;
+      if (isOtherTabRequested && requestedTabIndex != null && tabController != null) {
+        // After this build: the tab bar rebuilds when the index changes
+        WidgetsBinding.instance.addPostFrameCallback((Duration frameTimestamp) {
+          if (!mounted || _tabController != tabController || requestedTabIndex >= tabController.length) {
+            return;
+          }
+          // The owner asked for it, so it is not reported back
+          _reportedTabIndex = requestedTabIndex;
+          tabController.index = requestedTabIndex;
+        });
+      }
       return;
     }
     // Keep the tab that was in front, unless another one is asked for
@@ -93,15 +119,29 @@ class _AddableTabsViewState extends State<AddableTabsView> with TickerProviderSt
       initialIndex: shownTabIndex.clamp(0, widget.tabTitles.length - 1),
       vsync: this,
     );
+    _reportedTabIndex = tabController.index;
     tabController.addListener(() {
-      if (mounted) {
-        setState(() {});
+      if (!mounted) {
+        return;
+      }
+      setState(() {});
+      if (tabController.index != _reportedTabIndex) {
+        _reportedTabIndex = tabController.index;
+        widget.onShownTabChanged?.call(tabController.index);
       }
     });
     _tabController = tabController;
   }
 
   Widget _buildAddButton() {
+    final VoidCallback? onAddPressed = widget.onAddPressed;
+    if (onAddPressed != null) {
+      return OutlinedButton.icon(
+        onPressed: onAddPressed,
+        icon: const Icon(Icons.add),
+        label: Text(widget.addButtonText),
+      );
+    }
     return MenuAnchor(
       menuChildren: widget.addMenuEntries,
       builder: (BuildContext context, MenuController menuController, Widget? child) {

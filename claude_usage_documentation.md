@@ -4274,3 +4274,35 @@ width for the areas.
 **Alternatives considered:** a `TabBar` for the areas (rejected: it needs a controller kept in step with the areas
 opened from code and has no disabled tabs); saving only when leaving a tab (rejected: a change could be lost when
 the window closes).
+
+## 2026-11-10: Setup wizard: undrawn devices listed, camera tabs, debug windows, smaller fixes
+
+**What changed:**
+- **Overview:** the drawing shows only cameras with a measured pose (`getDrawnCameras` in `setup_side_view.dart`);
+  the dashed placeholder cameras and the "selected" label are gone. Below it, "Not in the drawing yet" lists each
+  camera and the projector that is missing there with what it still needs and, where it can run, a Calibrate button;
+  "Calibration" keeps the steps that do not decide about the drawing (lens calibrations). Without anything measured,
+  the drawing is left out.
+- **Cameras:** one tab per camera (`AddableTabsView`, as for sensor nodes and apps) instead of chips, the title and
+  its helper text. The tab in front is the profile's main camera: bringing another tab to the front stores it
+  (`PUT …/selected-camera`). Tabs are ordered by name, so they stay in place when the main camera changes. Remove sits
+  in the tab; the main camera first hands its role to another camera. `AddableTabsView` got `onAddPressed` (a dialog
+  instead of the menu) and `onShownTabChanged`, and follows a changed `shownTabTitle`.
+- **Projectors:** "Refresh" instead of "Search again"; the page content takes the full width.
+- **Settings rows** (`setting_row_view.dart`): the name is right-aligned when it shares the line with its control,
+  and rows have more room between them.
+- **Debug node** (`sensor_nodes_api.py`): the run passes `debug:=true` to `par.launch.py`, so every enabled node with
+  a `debug` parameter opens its preview window.
+- **Apps:** the hint that reading the settings starts the app shows only while they are read
+  (`NodeSettingsEditorView`).
+
+**Why:** a placeholder pose says nothing about where a camera is, so drawing it suggests a position nobody
+measured; the list says what is missing instead. A scroll view shrinks to narrow content when its parent does not
+fix its width, which put the scroll bar in the middle of the page. A name far left of its control is hard to match
+to it in a wide window.
+
+**Alternatives considered:** keeping the dashed placeholders and listing them as well (rejected by Vitus: the
+drawing should show measured positions only); camera tabs that only show, with a "Use this camera" button (rejected
+by Vitus: the wizard starts only the main camera, so every tab would need the extra click); debug only for the node
+in front through a new launch argument (rejected by Vitus in favour of the existing `debug:=true` for all enabled
+nodes).

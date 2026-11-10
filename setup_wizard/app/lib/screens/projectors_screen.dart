@@ -47,10 +47,14 @@ class _ProjectorsScreenState extends State<ProjectorsScreen> with ProfileSummary
     return SingleChildScrollView(
       // Room below the content, so the hub's Run button does not cover its end
       padding: const EdgeInsets.fromLTRB(24, 24, 24, runButtonClearanceLogicalPx),
-      child: ProjectorDisplayStatusView(
-        backendClient: widget.backendClient,
-        profileSummary: profileSummary,
-        onProjectorDisplayChanged: () => _loadProfile(isSpinnerShown: false),
+      // The page's full width, so the scroll bar sits at the window's right edge however narrow the content is
+      child: SizedBox(
+        width: double.infinity,
+        child: ProjectorDisplayStatusView(
+          backendClient: widget.backendClient,
+          profileSummary: profileSummary,
+          onProjectorDisplayChanged: () => _loadProfile(isSpinnerShown: false),
+        ),
       ),
     );
   }

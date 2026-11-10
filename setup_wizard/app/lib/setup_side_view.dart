@@ -5,10 +5,11 @@
 // its field of view. Seen from the front: from where people read the projected image (its bottom edge), so left to
 // right is the projected image's left to right (or the camera image's without a projector calibration, see
 // SetupGeometry.frontViewReferenceText); up is the height above the table. Metres are drawn to scale, the same in both
-// directions. Measured positions are drawn solid, placeholder poses dashed in the error colour, so the picture also
-// shows what is not calibrated yet. Cameras and the projector have shapes of their own (a camera body with a lens
-// barrel along its view; paintDownwardProjector's projector pointing down, its lens exit at the optical centre) and
-// can be clicked to adjust that device. The caller fetches the data from the backend (SetupGeometryApi).
+// directions. Only measured positions are drawn: a camera without a measured pose is left out (getDrawnCameras), and
+// the caller says below the drawing what it still needs. Cameras and the projector have shapes of their own (a
+// camera body with a lens barrel along its view; paintDownwardProjector's projector pointing down, its lens exit at
+// the optical centre) and can be clicked to adjust that device. The caller fetches the data from the backend
+// (SetupGeometryApi).
 
 import 'dart:math' as math;
 import 'dart:ui' as ui;
@@ -55,6 +56,23 @@ String _createCameraDeviceKey(CameraGeometry camera) {
   return 'camera:${camera.cameraId}';
 }
 
+/// The cameras the drawing shows: those with a measured pose. A placeholder pose says nothing about where the camera
+/// really is.
+List<CameraGeometry> getDrawnCameras(SetupGeometry setupGeometry) {
+  final List<CameraGeometry> drawnCameras = [];
+  for (final CameraGeometry camera in setupGeometry.cameras) {
+    if (camera.isPoseMeasured) {
+      drawnCameras.add(camera);
+    }
+  }
+  return drawnCameras;
+}
+
+/// False when neither a camera nor the projector's image can be drawn, so the drawing would be empty.
+bool hasSetupDrawing(SetupGeometry setupGeometry) {
+  return getDrawnCameras(setupGeometry).isNotEmpty || setupGeometry.projector != null;
+}
+
 class SetupSideView extends StatefulWidget {
   const SetupSideView({
     super.key,
@@ -96,7 +114,7 @@ class _SetupSideViewState extends State<SetupSideView> {
       widget.onProjectorClicked();
       return;
     }
-    for (final CameraGeometry camera in widget.setupGeometry.cameras) {
+    for (final CameraGeometry camera in getDrawnCameras(widget.setupGeometry)) {
       if (_createCameraDeviceKey(camera) == deviceKey) {
         widget.onCameraClicked(camera);
         return;
@@ -109,14 +127,12 @@ class _SetupSideViewState extends State<SetupSideView> {
     final ColorScheme colorScheme = Theme.of(context).colorScheme;
     final TextTheme textTheme = Theme.of(context).textTheme;
     final _SideViewColors sideViewColors = _SideViewColors(
-      measuredColor: colorScheme.primary,
-      placeholderColor: colorScheme.error,
+      cameraColor: colorScheme.primary,
       // The projector's lamp light (projector_drawing.dart), so projector and light look the same everywhere
       projectorColor: projectorLightColor,
       tableColor: colorScheme.outline,
       tableFillColor: colorScheme.surfaceContainerHighest,
       highlightColor: colorScheme.onSurface,
-      iconInsideColor: colorScheme.surface,
     );
     final TextStyle labelTextStyle = textTheme.labelMedium ?? const TextStyle(fontSize: 12);
     return SizedBox(
@@ -165,33 +181,20 @@ class _SetupSideViewState extends State<SetupSideView> {
 /// The drawing's colours, from the app's theme.
 class _SideViewColors {
   const _SideViewColors({
-    required this.measuredColor,
-    required this.placeholderColor,
+    required this.cameraColor,
     required this.projectorColor,
     required this.tableColor,
     required this.tableFillColor,
     required this.highlightColor,
-    required this.iconInsideColor,
   });
 
-  final Color measuredColor;
-  final Color placeholderColor;
+  final Color cameraColor;
   final Color projectorColor;
   final Color tableColor;
   final Color tableFillColor;
 
   /// The ring around the device under the mouse pointer.
   final Color highlightColor;
-
-  /// Inside of outlined icons and the lens openings.
-  final Color iconInsideColor;
-
-  Color getCameraColor(CameraGeometry camera) {
-    if (camera.isPoseMeasured) {
-      return measuredColor;
-    }
-    return placeholderColor;
-  }
 }
 
 /// Where a camera unit is drawn and where its label goes.
@@ -262,7 +265,7 @@ class _SideViewLayout {
     final List<double> tableHorizontalsM = _collectTableHorizontalsM(setupGeometry);
     final List<double> deviceHorizontalsM = [];
     double highestZM = 0;
-    for (final CameraGeometry camera in setupGeometry.cameras) {
+    for (final CameraGeometry camera in getDrawnCameras(setupGeometry)) {
       deviceHorizontalsM.add(_getHorizontalM(setupGeometry, camera.positionM));
       highestZM = math.max(highestZM, camera.positionM.zM);
     }
@@ -328,7 +331,7 @@ class _SideViewLayout {
         tableHorizontalsM.add(_getHorizontalM(setupGeometry, cornerM));
       }
     }
-    for (final CameraGeometry camera in setupGeometry.cameras) {
+    for (final CameraGeometry camera in getDrawnCameras(setupGeometry)) {
       for (final WorldPointM footprintPointM in camera.tableFootprintM ?? const <WorldPointM>[]) {
         tableHorizontalsM.add(_getHorizontalM(setupGeometry, footprintPointM));
       }
@@ -373,12 +376,13 @@ class _SideViewLayout {
       placedLabelRects.add(projector.labelTopLeftPx & projector.labelPainter.size);
       placedLabelRects.add(projector.housingRect);
     }
-    for (final CameraGeometry camera in setupGeometry.cameras) {
+    final List<CameraGeometry> drawnCameras = getDrawnCameras(setupGeometry);
+    for (final CameraGeometry camera in drawnCameras) {
       placedLabelRects.add(
         Rect.fromCircle(center: toCanvasFromWorld(camera.positionM), radius: cameraIconRadiusLogicalPx),
       );
     }
-    for (final CameraGeometry camera in setupGeometry.cameras) {
+    for (final CameraGeometry camera in drawnCameras) {
       final Offset positionPx = toCanvasFromWorld(camera.positionM);
       // Turned so the lens faces along the optical axis; straight down without one
       double viewAngleRad = math.pi / 2;
@@ -387,15 +391,8 @@ class _SideViewLayout {
         final Offset axisDirectionPx = toCanvas(getHorizontalM(axisHitM), 0) - positionPx;
         viewAngleRad = math.atan2(axisDirectionPx.dy, axisDirectionPx.dx);
       }
-      String labelText = '${camera.cameraId} · ${camera.positionM.zM.toStringAsFixed(2)} m';
-      if (camera.isSelected) {
-        labelText = '$labelText · selected';
-      }
-      final TextPainter labelPainter = _createLabelPainter(
-        labelText,
-        labelTextStyle,
-        sideViewColors.getCameraColor(camera),
-      );
+      final String labelText = '${camera.cameraId} · ${camera.positionM.zM.toStringAsFixed(2)} m';
+      final TextPainter labelPainter = _createLabelPainter(labelText, labelTextStyle, sideViewColors.cameraColor);
       final Offset labelTopLeftPx = _findFreeLabelTopLeft(
         positionPx + const Offset(22, -26),
         labelPainter.size,
@@ -561,7 +558,7 @@ class _SetupSideViewPainter extends CustomPainter {
 
   void _paintCameraView(Canvas canvas, _CameraPlacement cameraPlacement) {
     final CameraGeometry camera = cameraPlacement.camera;
-    final Color cameraColor = sideViewColors.getCameraColor(camera);
+    final Color cameraColor = sideViewColors.cameraColor;
     final Offset cameraPx = cameraPlacement.positionPx;
     final List<WorldPointM>? footprintM = camera.tableFootprintM;
     if (footprintM != null && footprintM.isNotEmpty) {
@@ -577,7 +574,7 @@ class _SetupSideViewPainter extends CustomPainter {
         ..lineTo(viewRightPx.dx, viewRightPx.dy)
         ..close();
       canvas.drawPath(viewPath, Paint()..color = cameraColor.withValues(alpha: 0.10));
-      _strokePath(canvas, viewPath, cameraColor, isDashed: !camera.isPoseMeasured);
+      _strokePath(canvas, viewPath, cameraColor, isDashed: false);
     }
     final WorldPointM? axisHitM = camera.opticalAxisTableHitM;
     if (axisHitM != null) {
@@ -622,8 +619,7 @@ class _SetupSideViewPainter extends CustomPainter {
   /// A camera seen from the side: a body with a lens barrel pointing along its view.
   void _paintCamera(Canvas canvas, _CameraPlacement cameraPlacement) {
     final CameraGeometry camera = cameraPlacement.camera;
-    final Color cameraColor = sideViewColors.getCameraColor(camera);
-    final Color iconInsideColor = sideViewColors.iconInsideColor;
+    final Color cameraColor = sideViewColors.cameraColor;
     final Offset cameraPx = cameraPlacement.positionPx;
     if (hoveredDeviceKey == _createCameraDeviceKey(camera)) {
       _paintHighlightRing(canvas, cameraPx, cameraHitRadiusLogicalPx);
@@ -644,15 +640,8 @@ class _SetupSideViewPainter extends CustomPainter {
       ..lineTo(8, 11)
       ..lineTo(-8, 11)
       ..close();
-    if (camera.isPoseMeasured) {
-      canvas.drawRRect(bodyRect, Paint()..color = cameraColor);
-      canvas.drawPath(lensBarrelPath, Paint()..color = cameraColor);
-    } else {
-      canvas.drawRRect(bodyRect, Paint()..color = iconInsideColor);
-      canvas.drawPath(lensBarrelPath, Paint()..color = iconInsideColor);
-      _strokePath(canvas, Path()..addRRect(bodyRect), cameraColor, isDashed: true, strokeWidthPx: 2);
-      _strokePath(canvas, lensBarrelPath, cameraColor, isDashed: false, strokeWidthPx: 1.5);
-    }
+    canvas.drawRRect(bodyRect, Paint()..color = cameraColor);
+    canvas.drawPath(lensBarrelPath, Paint()..color = cameraColor);
     canvas.restore();
 
     cameraPlacement.labelPainter.paint(canvas, cameraPlacement.labelTopLeftPx);
@@ -711,6 +700,6 @@ class _SetupSideViewPainter extends CustomPainter {
   bool shouldRepaint(_SetupSideViewPainter oldDelegate) {
     return oldDelegate.sideViewLayout != sideViewLayout ||
         oldDelegate.hoveredDeviceKey != hoveredDeviceKey ||
-        oldDelegate.sideViewColors.measuredColor != sideViewColors.measuredColor;
+        oldDelegate.sideViewColors.cameraColor != sideViewColors.cameraColor;
   }
 }

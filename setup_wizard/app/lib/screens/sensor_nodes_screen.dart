@@ -4,8 +4,9 @@
 // true), "Add sensor node" for the installed ones it does not start yet. A node's tab shows what it is, Disable (not
 // for a node another enabled one needs, which comes along with it) and its settings. The settings are read once from
 // the node and saved into the profile without a run (NodeSettingsEditorView). The floating "Debug node" button
-// starts the profile's camera with the enabled nodes, without the projector app; the tab in front then shows the
-// camera image and its node's outputs (image outputs as frames, the others as their latest message), and saving
+// starts the profile's camera with the enabled nodes, without the projector app and with their debug parameter on,
+// so each node opens its own preview window on the PAR machine; the tab in front then shows the camera image and
+// its node's outputs (image outputs as frames, the others as their latest message), and saving
 // settings meanwhile starts the run again with them.
 
 import 'dart:async';
@@ -304,7 +305,8 @@ class _SensorNodesScreenState extends State<SensorNodesScreen> {
     return FloatingActionButton.extended(
       onPressed: onPressed,
       tooltip: 'Start the camera ($cameraName) with the enabled nodes, as the profile does but without the projector '
-          'app, and show what the node in front publishes.',
+          'app and with debug on (each node opens its preview window on the PAR machine), and show what the node '
+          'in front publishes.',
       icon: icon,
       label: const Text('Debug node'),
     );

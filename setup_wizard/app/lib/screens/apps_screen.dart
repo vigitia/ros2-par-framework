@@ -206,11 +206,6 @@ class _AppsScreenState extends State<AppsScreen> with ProfileSummaryLoading<Apps
     } else if (installedApp != null && installedApp.settingsNodeNames.isEmpty) {
       tabRows.add(Text('This app declares no settings (settings_node_names in its entry).', style: mutedTextStyle));
     } else if (installedApp != null) {
-      // Simplification: reading starts the app as it would run, see node_settings_api.py
-      tabRows.add(Text(
-        'Reading the settings the first time starts the app for a moment; it may show its window meanwhile.',
-        style: mutedTextStyle,
-      ));
       for (final String settingsNodeName in installedApp.settingsNodeNames) {
         tabRows.add(const SizedBox(height: 12));
         tabRows.add(NodeSettingsEditorView(

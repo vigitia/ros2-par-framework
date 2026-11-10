@@ -178,7 +178,12 @@ class _NodeSettingsEditorViewState extends State<NodeSettingsEditorView> {
     }
     if (nodeSettings == null) {
       settingsRows.add(const LinearProgressIndicator());
-      settingsRows.add(Text('Reading the settings: the node starts once for a moment …', style: mutedTextStyle));
+      // Simplification: reading starts an app as it would run, see node_settings_api.py
+      String readingText = 'Reading the settings: the node starts once for a moment …';
+      if (widget.nodeKind == SettingsNodeKind.app) {
+        readingText = 'Reading the settings: the app starts once for a moment and may show its window meanwhile …';
+      }
+      settingsRows.add(Text(readingText, style: mutedTextStyle));
       return Column(crossAxisAlignment: CrossAxisAlignment.start, children: settingsRows);
     }
     if (nodeSettings.isEmpty) {

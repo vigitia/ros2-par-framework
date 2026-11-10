@@ -1,8 +1,9 @@
 // Written by Claude Code
 //
 // Hub area "Overview" of a profile: the projector's warnings (not connected, display id or mode changed since it was
-// chosen) with the way to the Projectors area, the setup seen from the front (SetupSideView) and the calibration
-// steps the profile still misses. Each missing step that can run has a button that opens it in the Cameras area
+// chosen) with the way to the Projectors area, the setup seen from the front (SetupSideView), below it the cameras
+// and the projector the drawing cannot show yet with what each still needs, and the other calibration steps the
+// profile misses. Each missing step that can run has a button that opens it in the Cameras area
 // (cameras_screen.dart, through the hub); a step that cannot run yet says what it needs. Clicking a camera in the
 // drawing opens its images and settings in the Cameras area, clicking the projector opens the Projectors area. The
 // Run button floats over this area (profile_hub_screen.dart).
@@ -24,6 +25,7 @@ class _MissingCalibrationStep {
     required this.titleText,
     this.cameraSectionRequest,
     this.blockedReasonText,
+    this.missingInDrawingText,
     this.isOptional = false,
   });
 
@@ -34,6 +36,9 @@ class _MissingCalibrationStep {
 
   /// What the step needs before it can run; null when it can run.
   final String? blockedReasonText;
+
+  /// Set for a step without which its device (titleText) is not in the drawing: what the drawing lacks.
+  final String? missingInDrawingText;
 
   /// True for a step the framework works without, e.g. the projector's position.
   final bool isOptional;
@@ -114,7 +119,8 @@ class _ProfileOverviewScreenState extends State<ProfileOverviewScreen>
     ));
   }
 
-  /// The profile's missing calibrations, camera by camera, then the projector's (they belong to the selected camera).
+  /// The profile's missing calibrations, camera by camera, then the projector's (they belong to the profile's main
+  /// camera, the one a run starts).
   List<_MissingCalibrationStep> _createMissingCalibrationSteps(
     ProfileSummary profileSummary,
     SetupGeometry setupGeometry,
@@ -128,7 +134,7 @@ class _ProfileOverviewScreenState extends State<ProfileOverviewScreen>
       // The capture camera has no preview of its own, so none of the camera sections can open it
       final bool canBeOpened = camera.previewCameraName != null;
       const String notOpenableReasonText =
-          'This camera only starts together with the selected camera, so the wizard cannot calibrate it yet.';
+          'This camera only starts together with the profile\'s main camera, so the wizard cannot calibrate it yet.';
       if (camera.intrinsicsState == IntrinsicsCalibrationState.missing) {
         final String titleText = '${camera.cameraDisplayName}: lens calibration (intrinsics)';
         if (canBeOpened) {
@@ -145,17 +151,25 @@ class _ProfileOverviewScreenState extends State<ProfileOverviewScreen>
         }
       }
       if (camera.poseState == CameraPoseState.placeholder || camera.poseState == CameraPoseState.invalid) {
-        String titleText = '${camera.cameraDisplayName}: camera pose';
+        String missingInDrawingText =
+            'Its camera pose is missing: without it, the wizard does not know where the camera is above the table.';
         if (camera.poseState == CameraPoseState.invalid) {
-          titleText = '${camera.cameraDisplayName}: camera pose (its file cannot be used)';
+          missingInDrawingText = 'Its camera pose file cannot be used. Measure the camera pose again.';
         }
         missingSteps.add(_MissingCalibrationStep(
-          titleText: titleText,
+          titleText: camera.cameraDisplayName,
+          missingInDrawingText: missingInDrawingText,
           cameraSectionRequest: (
             cameraType: camera.cameraType,
             serial: camera.serial,
             cameraSection: CameraSection.cameraPose,
           ),
+        ));
+      } else if (camera.poseState == CameraPoseState.unsupported) {
+        missingSteps.add(_MissingCalibrationStep(
+          titleText: camera.cameraDisplayName,
+          missingInDrawingText: 'The wizard cannot measure this camera\'s pose yet: it only starts together with '
+              'the profile\'s main camera.',
         ));
       }
     }
@@ -165,8 +179,14 @@ class _ProfileOverviewScreenState extends State<ProfileOverviewScreen>
     }
     final ProjectorGeometry? projector = setupGeometry.projector;
     if (projector == null) {
+      String projectorTitleText = 'Projector';
+      if (profileSummary.projectorTitleText.isNotEmpty) {
+        projectorTitleText = 'Projector ${profileSummary.projectorTitleText}';
+      }
       missingSteps.add(_MissingCalibrationStep(
-        titleText: 'Projector calibration (projector to table, with ${selectedCamera.cameraDisplayName})',
+        titleText: projectorTitleText,
+        missingInDrawingText: 'Its projector calibration with ${selectedCamera.cameraDisplayName} is missing: '
+            'without it, the wizard does not know where the projected image lies on the table.',
         cameraSectionRequest: (
           cameraType: selectedCamera.cameraType,
           serial: selectedCamera.serial,
@@ -179,8 +199,9 @@ class _ProfileOverviewScreenState extends State<ProfileOverviewScreen>
       // the Projector section of a depth camera.
       missingSteps.add(const _MissingCalibrationStep(
         titleText: 'Projector position (projector centre)',
-        blockedReasonText: 'Needs a depth camera: select one under Cameras, then measure it in its Projector '
-            'section. Only the projection mask uses it.',
+        missingInDrawingText: 'Only the projected image is drawn, not the projector itself. Its position needs a '
+            'depth camera: open one under Cameras, then measure it in its Projector section. Only the projection '
+            'mask uses it.',
         isOptional: true,
       ));
     }
@@ -196,9 +217,9 @@ class _ProfileOverviewScreenState extends State<ProfileOverviewScreen>
       titleText = '$titleText (optional)';
     }
     Widget? subtitle;
-    final String? blockedReasonText = missingStep.blockedReasonText;
-    if (blockedReasonText != null) {
-      subtitle = Text(blockedReasonText);
+    final String? explanationText = missingStep.missingInDrawingText ?? missingStep.blockedReasonText;
+    if (explanationText != null) {
+      subtitle = Text(explanationText);
     }
     Widget? trailingButton;
     final CameraSectionRequest? cameraSectionRequest = missingStep.cameraSectionRequest;
@@ -256,24 +277,49 @@ class _ProfileOverviewScreenState extends State<ProfileOverviewScreen>
       return [const LinearProgressIndicator()];
     }
 
-    final List<Widget> setupRows = [
-      SetupSideView(
+    final TextTheme textTheme = Theme.of(context).textTheme;
+    final List<Widget> setupRows = [];
+    // Nothing measured yet: an empty drawing would only take room
+    if (hasSetupDrawing(setupGeometry)) {
+      setupRows.add(SetupSideView(
         setupGeometry: setupGeometry,
         onCameraClicked: _openCameraInCamerasArea,
         onProjectorClicked: widget.onProjectorClicked,
-      ),
-      const SizedBox(height: 24),
-      Text('Calibration', style: Theme.of(context).textTheme.titleMedium),
-    ];
+      ));
+      setupRows.add(const SizedBox(height: 24));
+    }
     final List<_MissingCalibrationStep> missingSteps = _createMissingCalibrationSteps(profileSummary, setupGeometry);
+    final List<_MissingCalibrationStep> stepsMissingInDrawing = [];
+    final List<_MissingCalibrationStep> otherMissingSteps = [];
+    for (final _MissingCalibrationStep missingStep in missingSteps) {
+      if (missingStep.missingInDrawingText != null) {
+        stepsMissingInDrawing.add(missingStep);
+      } else {
+        otherMissingSteps.add(missingStep);
+      }
+    }
+    if (stepsMissingInDrawing.isNotEmpty) {
+      setupRows.add(Text('Not in the drawing yet', style: textTheme.titleMedium));
+      for (final _MissingCalibrationStep missingStep in stepsMissingInDrawing) {
+        setupRows.add(_buildMissingCalibrationStepRow(missingStep));
+      }
+      setupRows.add(const SizedBox(height: 24));
+    }
+    setupRows.add(Text('Calibration', style: textTheme.titleMedium));
     if (missingSteps.isEmpty) {
       setupRows.add(ListTile(
         contentPadding: EdgeInsets.zero,
         leading: Icon(Icons.check_circle_outline, color: colorScheme.primary),
         title: const Text('All calibrations are done.'),
       ));
+    } else if (otherMissingSteps.isEmpty) {
+      setupRows.add(ListTile(
+        contentPadding: EdgeInsets.zero,
+        leading: Icon(Icons.info_outline, color: colorScheme.onSurfaceVariant),
+        title: const Text('Nothing else is missing.'),
+      ));
     }
-    for (final _MissingCalibrationStep missingStep in missingSteps) {
+    for (final _MissingCalibrationStep missingStep in otherMissingSteps) {
       setupRows.add(_buildMissingCalibrationStepRow(missingStep));
     }
     // A file the drawing had to leave out, e.g. one edited by hand
