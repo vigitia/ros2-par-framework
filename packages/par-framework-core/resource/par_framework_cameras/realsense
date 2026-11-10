@@ -5,6 +5,10 @@ display_name: Intel RealSense
 description: Depth camera such as the D435 through realsense2_camera, with its factory calibration.
 package: par_framework_core
 launch_file: camera_realsense.launch.py
+# The released driver this launch file starts, installed separately (config/ros_packages.list)
+required_packages: [realsense2_camera]
 body_frame: link
 streams: [image_raw, camera_info, depth_registered/image_raw]
 intrinsics: factory
+# The launch file passes it as serial_no; the setup wizard does not list connected units yet
+serial: typed

@@ -3,8 +3,8 @@
 Profiles API of the setup wizard backend: the hardware setups (config/profiles/<name>.yaml).
 
 Lists them with their cameras, sensor nodes and apps and each camera's calibration state,
-remembers the one selected last time, and writes node settings changed in the wizard, the camera's
-serial and the app on the projector into them.
+remembers the one selected last time, and writes node settings changed in the wizard, the cameras
+(par_launch.cameras: name -> '<type>[:<serial>]') and the app on the projector into them.
 """
 
 import datetime
@@ -20,22 +20,23 @@ from par_framework_core.connected_displays import (
     ConnectedDisplay, find_projector_display_ids, get_display_mode_text, get_display_title_text,
     get_projector_display_mode, get_projector_identity, get_projector_identity_title_text,
     PROJECTOR_DISPLAY_MODE_PARAMETER_NAME_BY_ATTRIBUTE, read_connected_displays)
-from par_framework_core.launch_helpers import (ADDITIONAL_CAMERAS_KEY, CAMERA_DRIVER_REMAPPINGS,
-                                               CAMERA_SERIAL_SOURCE_BY_CAMERA,
-                                               CAPTURE_CAMERA_NODE_PARAMETERS_KEY,
+from par_framework_core.launch_helpers import (CAMERA_ENTRY_INTRINSICS_KEY,
+                                               CAMERA_ENTRY_SERIAL_KEY, CAMERA_NAME_PATTERN,
+                                               CAMERA_SERIAL_SOURCE_NONE, CAMERAS_NAMESPACE,
                                                FILE_NAME_PART_PATTERN,
                                                FOLDER_PATH_CAMERA_INTRINSICS,
                                                FOLDER_PATH_EXTRINSICS,
-                                               FOLDER_PATH_PROFILES, get_camera_info_file_name,
-                                               get_additional_camera_units,
+                                               FOLDER_PATH_PROFILES,
                                                get_camera_info_file_name_of_unit,
-                                               get_camera_serial, get_extrinsics_relative_path,
+                                               get_extrinsics_relative_path,
                                                get_intrinsics_folder_path,
                                                get_invalid_pose_keys,
                                                get_path_in_config_folder,
-                                               get_sensor_node_package_names, PROJECTOR_APP_NONE,
-                                               read_launch_section, read_merged_parameters,
-                                               read_par_app_entry, read_projector_identity,
+                                               get_sensor_node_package_names,
+                                               PAR_LAUNCH_CAMERAS_KEY, ProfileCamera,
+                                               PROJECTOR_APP_NONE, read_camera_entry,
+                                               read_launch_section, read_par_app_entry,
+                                               read_profile_cameras, read_projector_identity,
                                                read_stored_projector_display_id,
                                                RENDERING_MANAGER_APP_NAME)
 from pydantic import BaseModel
@@ -55,20 +56,15 @@ DELETED_PROFILES_FOLDER_NAME = '.deleted'
 DELETED_INTRINSICS_FOLDER_NAME = 'intrinsics'
 DELETED_EXTRINSICS_FOLDER_NAME = 'extrinsics'
 
-# The capture camera is always a second Blackfly (launch_helpers.create_capture_camera_node).
-CAPTURE_CAMERA_DISPLAY_NAME = 'blackfly (capture)'
 # par.launch.py's switch for RViz with rviz_bridge. The Apps area lists RViz as an app under this
 # name (apps_api.py), stored as this switch instead of in par_launch.apps.
 RVIZ_LAUNCH_SWITCH_NAME = 'rviz'
-
-# Their drivers publish the calibration stored in the device.
-FACTORY_INTRINSICS_CAMERA_NAMES = ('kinect', 'realsense')
 
 # Calibration states as the app receives them.
 INTRINSICS_STATE_CALIBRATED = 'calibrated'
 INTRINSICS_STATE_FACTORY = 'factory'
 INTRINSICS_STATE_MISSING = 'missing'
-# The event camera publishes no camera_info, so it cannot be calibrated yet.
+# The camera publishes no camera_info (intrinsics: none in its entry), so it cannot be calibrated.
 INTRINSICS_STATE_UNSUPPORTED = 'unsupported'
 # Whether the profile's projector is where par_launch.projector_display_id says, as the app
 # receives it. Launches look the projector up by its stored identity
@@ -87,8 +83,6 @@ POSE_STATE_MEASURED = 'measured'
 POSE_STATE_PLACEHOLDER = 'placeholder'
 # The measured pose file exists but lacks keys or numbers; a launch would stop on it.
 POSE_STATE_INVALID = 'invalid'
-# The capture camera publishes no transforms yet, so it has no pose.
-POSE_STATE_UNSUPPORTED = 'unsupported'
 
 # The key under each node section of a ROS 2 parameter file
 ROS_PARAMETERS_KEY = 'ros__parameters'
@@ -107,15 +101,13 @@ profiles_router = APIRouter()
 
 
 class CameraCalibrationSummary(BaseModel):
-    camera_display_name: str
-    # The camera type (a key of launch_helpers.CAMERA_DRIVER_REMAPPINGS) and the unit's serial,
-    # '' when the unit is not told apart; the selected camera is the one the next run starts
-    camera_type: str = ''
+    # The camera's name in par_launch.cameras, as in camera:= and /cameras/<name>
+    camera_name: str
+    # Its type (a camera entry's name) and its unit's serial, '' when the profile names none
+    camera_type: str
     serial: str = ''
+    # The first camera of par_launch.cameras: the framework nodes use it
     is_main_camera: bool = False
-    # The camera type for a preview (camera:= of par.launch.py); None when the camera cannot be
-    # started on its own for a preview.
-    preview_camera_name: str | None
     # One of the INTRINSICS_STATE_* values.
     intrinsics_state: str
     # One of the POSE_STATE_* values.
@@ -162,7 +154,8 @@ class LastSelectedProfileRequest(BaseModel):
 
 
 class DeletedProfileResponse(BaseModel):
-    # Where the profile file and its extrinsics were moved to, to restore them by hand
+    # Where the profile file and its extrinsics were moved to, to restore them by hand; '' when a
+    # removed camera had no files to move
     deleted_profile_folder_path: str
 
 
@@ -171,18 +164,22 @@ class NewProfileRequest(BaseModel):
     profile_name: str
     # As the user typed it, kept as a comment at the top of the file
     profile_display_name: str
-    # Simplification: one camera, since the framework launches one at a time. Upgrade: a list of
-    # camera instances, once launch_helpers starts several (card "Setup Wizard").
+    # The profile's first camera, set up in the Hardware step; more are added in the Cameras area.
+    # Its name in par_launch.cameras (a camera name: lower case letters, digits and _)
     camera_name: str
+    # A camera type from GET /api/cameras
+    camera_type: str
     # The camera unit chosen in the Hardware step; '' for a camera type without serials
     camera_serial: str = ''
     # SDL/pygame display index of the projector; None when the profile has no projector yet
     projector_display_id: int | None
 
 
-class CameraUnitRequest(BaseModel):
-    # A key of launch_helpers.CAMERA_DRIVER_REMAPPINGS
+class NewCameraRequest(BaseModel):
+    # Its name in par_launch.cameras (lower case letters, digits and _), e.g. overhead
     camera_name: str
+    # A camera type from GET /api/cameras
+    camera_type: str
     # The unit's serial; '' for a camera type that has none
     serial: str = ''
 
@@ -247,14 +244,12 @@ def create_profile(request: NewProfileRequest) -> NewProfileResponse:
         raise HTTPException(status_code=422,
                             detail=f'{request.profile_name!r} is no valid profile name: use only '
                                    f'letters, digits, _ and -')
-    if request.camera_name not in CAMERA_DRIVER_REMAPPINGS:
+    if not request.camera_type:
         # Without a camera the launch would silently take par_setup.yaml's camera
         raise HTTPException(status_code=422,
                             detail='Add a camera to the profile first (Hardware step)')
-    # It becomes part of the calibration file names
-    if request.camera_serial and not FILE_NAME_PART_PATTERN.fullmatch(request.camera_serial):
-        raise HTTPException(status_code=422,
-                            detail='A serial number has only letters, digits, _ and -')
+    new_camera = _check_new_camera([], request.camera_name, request.camera_type,
+                                   request.camera_serial)
     # Checked before the file exists, so a display that went away leaves no half-made profile
     projector_display = None
     if request.projector_display_id is not None:
@@ -271,7 +266,8 @@ def create_profile(request: NewProfileRequest) -> NewProfileResponse:
         f'# Created by the setup wizard on {creation_date_text}.',
         'par_launch:',
         f'  {ROS_PARAMETERS_KEY}:',
-        f'    camera: {request.camera_name}',
+        f'    {PAR_LAUNCH_CAMERAS_KEY}:',
+        f"      {new_camera.camera_name}: '{_create_camera_unit_text(new_camera)}'",
     ]
     try:
         # 'x' creates the file only if it does not exist, so an existing profile is never
@@ -286,19 +282,20 @@ def create_profile(request: NewProfileRequest) -> NewProfileResponse:
     # circular
     import camera_preview_api
     written_setting_names_by_node_name = {}
+    # The preview ran without a profile, so its camera was named after its type
     new_profile_setting_values = camera_preview_api.take_new_profile_setting_values(
-        request.camera_name)
+        new_camera.camera_type)
+    preview_namespace = f'{CAMERAS_NAMESPACE}/{new_camera.camera_type}/'
+    camera_namespace = f'{CAMERAS_NAMESPACE}/{new_camera.camera_name}/'
     write_results = []
     for node_name, setting_value_by_name in new_profile_setting_values.items():
+        # Saved for this camera alone, under its name
+        if node_name.startswith(preview_namespace):
+            node_name = camera_namespace + node_name.removeprefix(preview_namespace)
         write_results.append(write_node_settings_into_profile(request.profile_name, node_name,
                                                               setting_value_by_name))
     if projector_display is not None:
         _write_projector_display_into_profile(request.profile_name, projector_display)
-    serial_write_result = _write_camera_serial_into_profile(request.profile_name,
-                                                            request.camera_name,
-                                                            request.camera_serial)
-    if serial_write_result is not None:
-        write_results.append(serial_write_result)
     for write_result in write_results:
         node_setting_names = written_setting_names_by_node_name.setdefault(
             write_result.node_section_name, [])
@@ -391,108 +388,123 @@ def set_projector_display(profile_name: str, request: ProjectorDisplayChoiceRequ
 
 
 @profiles_router.post('/api/profiles/{profile_name}/cameras')
-def add_camera(profile_name: str, request: CameraUnitRequest) -> None:
-    """Add a camera unit to the profile's par_launch.additional_cameras, to set up and calibrate."""
+def add_camera(profile_name: str, request: NewCameraRequest) -> None:
+    """Add a named camera to the profile's par_launch.cameras; every run starts it."""
     check_profile_exists(profile_name)
-    camera_name = request.camera_name
-    serial = request.serial
-    if camera_name not in CAMERA_DRIVER_REMAPPINGS:
-        raise HTTPException(status_code=422, detail=f'{camera_name!r} is no supported camera')
-    # Imported here like camera_preview_api, so this module's imports stay free of the API modules
-    import cameras_api
-    for supported_camera in cameras_api.get_camera_list().cameras:
-        is_requested_camera = supported_camera.camera_name == camera_name
-        if is_requested_camera and not supported_camera.is_installed:
-            raise HTTPException(status_code=409,
-                                detail=f'The driver of {camera_name!r} is not installed')
-    if serial and not FILE_NAME_PART_PATTERN.fullmatch(serial):
-        raise HTTPException(status_code=422,
-                            detail='A serial number has only letters, digits, _ and -')
-    profile_launch_context = create_profile_launch_context(profile_name)
-    camera_units = read_camera_units(profile_launch_context)
-    units_of_type = [unit for unit in camera_units if unit[0] == camera_name]
-    if camera_name not in CAMERA_SERIAL_SOURCE_BY_CAMERA:
-        # Without a serial the units of a type cannot be told apart, so their files would collide
-        if units_of_type:
-            raise HTTPException(status_code=409,
-                                detail=f'The profile has a {camera_name!r} camera already, and '
-                                       f'two of this type cannot be told apart')
-        serial = ''
-    else:
-        if not serial:
-            raise HTTPException(status_code=422, detail='Choose which camera unit to add')
-        if (camera_name, serial) in camera_units:
-            raise HTTPException(status_code=409,
-                                detail=f'This {camera_name!r} camera is in the profile already')
-        if units_of_type and any(not unit[1] for unit in units_of_type):
-            raise HTTPException(status_code=409,
-                                detail=f'The profile\'s {camera_name!r} camera is not tied to one '
-                                       f'unit yet, so a second one cannot be told apart')
-    additional_camera_texts = _get_additional_camera_texts(profile_launch_context)
-    additional_camera_texts.append(_create_camera_unit_text(camera_name, serial))
-    write_node_settings_into_profile(profile_name, '/par_launch',
-                                     {ADDITIONAL_CAMERAS_KEY: additional_camera_texts})
+    profile_cameras = read_profile_cameras(create_profile_launch_context(profile_name))
+    new_camera = _check_new_camera(profile_cameras, request.camera_name, request.camera_type,
+                                   request.serial)
+    _write_profile_cameras(profile_name, [*profile_cameras, new_camera])
 
 
-@profiles_router.put('/api/profiles/{profile_name}/main-camera')
-def set_main_camera(profile_name: str, request: CameraUnitRequest) -> None:
-    """Make an added camera unit the one the next run starts; the previous one stays in the list."""
+# Written by Claude Code
+@profiles_router.delete('/api/profiles/{profile_name}/cameras/{camera_name}')
+def remove_camera(profile_name: str, camera_name: str) -> DeletedProfileResponse:
+    """Remove a camera from the profile; its calibrations move to config/profiles/.deleted/."""
     check_profile_exists(profile_name)
     profile_launch_context = create_profile_launch_context(profile_name)
-    launch_section = read_launch_section(profile_launch_context)
-    main_camera_name = launch_section['camera']
-    main_unit = (main_camera_name, get_camera_serial(profile_launch_context, main_camera_name))
-    new_unit = (request.camera_name, request.serial)
-    if new_unit == main_unit:
-        return
-    additional_units = get_additional_camera_units(profile_launch_context)
-    if new_unit not in additional_units:
-        raise HTTPException(status_code=404, detail='This camera is not in the profile')
-    additional_units.remove(new_unit)
-    additional_units.append(main_unit)
-    additional_camera_texts = [_create_camera_unit_text(*unit) for unit in additional_units]
-    # The new camera's serial goes into its driver's section, which the launch reads
-    if new_unit[1]:
-        node_parameters_key, serial_parameter_name = CAMERA_SERIAL_SOURCE_BY_CAMERA[new_unit[0]]
-        write_node_settings_into_profile(profile_name, node_parameters_key,
-                                         {serial_parameter_name: new_unit[1]},
-                                         always_written_setting_names=(serial_parameter_name,))
-    write_node_settings_into_profile(profile_name, '/par_launch',
-                                     {'camera': new_unit[0],
-                                      ADDITIONAL_CAMERAS_KEY: additional_camera_texts})
-
-
-@profiles_router.delete('/api/profiles/{profile_name}/cameras')
-def remove_camera(profile_name: str, camera_name: str,
-                  serial: str = '') -> DeletedProfileResponse:
-    """Remove an added camera unit; its calibrations move to config/profiles/.deleted/."""
-    check_profile_exists(profile_name)
-    profile_launch_context = create_profile_launch_context(profile_name)
-    unit = (camera_name, serial)
-    additional_units = get_additional_camera_units(profile_launch_context)
-    if unit not in additional_units:
-        # The main camera is not removed: a profile always has one to run
+    profile_cameras = read_profile_cameras(profile_launch_context)
+    removed_camera = find_profile_camera(profile_cameras, camera_name)
+    if len(profile_cameras) == 1:
         raise HTTPException(status_code=409,
-                            detail="The profile's main camera cannot be removed")
-    deleted_folder_name_stem = f'{profile_name}_{camera_name}{_create_serial_suffix(serial)}'
-    deleted_folder_path = _create_deleted_folder(deleted_folder_name_stem)
+                            detail='A profile needs at least one camera: add another one first')
     intrinsics_folder_path = get_intrinsics_folder_path(profile_launch_context)
-    file_relative_paths = [
-        f'{intrinsics_folder_path}/{get_camera_info_file_name_of_unit(camera_name, serial)}']
+    intrinsics_file_name = get_camera_info_file_name_of_unit(removed_camera.camera_type,
+                                                             removed_camera.serial)
+    file_relative_paths = [f'{intrinsics_folder_path}/{intrinsics_file_name}']
     for file_prefix in ('camera_pose', 'projection_mapping', 'projection_corners'):
         file_relative_paths.append(
-            get_extrinsics_relative_path(profile_launch_context, file_prefix, camera_name, serial))
+            get_extrinsics_relative_path(profile_launch_context, file_prefix, camera_name))
+    existing_file_paths = []
     for file_relative_path in file_relative_paths:
         file_path = get_path_in_config_folder(file_relative_path)
         if os.path.exists(file_path):
-            shutil.move(file_path, deleted_folder_path)
-    additional_units.remove(unit)
-    additional_camera_texts = [_create_camera_unit_text(*each) for each in additional_units]
-    # No entry left: the key goes, since ROS cannot read an empty list as a parameter
-    write_node_settings_into_profile(
-        profile_name, '/par_launch',
-        {ADDITIONAL_CAMERAS_KEY: additional_camera_texts or None})
+            existing_file_paths.append(file_path)
+    # A camera never calibrated leaves nothing to keep, so no empty folder is created for it
+    deleted_folder_path = ''
+    if existing_file_paths:
+        deleted_folder_path = _create_deleted_folder(f'{profile_name}_{camera_name}')
+    for existing_file_path in existing_file_paths:
+        shutil.move(existing_file_path, deleted_folder_path)
+    remaining_cameras = [camera for camera in profile_cameras if camera.camera_name != camera_name]
+    _write_profile_cameras(profile_name, remaining_cameras)
     return DeletedProfileResponse(deleted_profile_folder_path=deleted_folder_path)
+
+
+# Written by Claude Code
+def _check_new_camera(profile_cameras: list[ProfileCamera], camera_name: str, camera_type: str,
+                      serial: str) -> ProfileCamera:
+    """
+    Return the camera to add to a profile with profile_cameras, checked; HTTP 4xx when it cannot.
+
+    The name must be new; a type without serials (serial: none in its entry) once per profile,
+    and a type with serials only once without one, since units that cannot be told apart would
+    share their files.
+    """
+    if not CAMERA_NAME_PATTERN.fullmatch(camera_name):
+        raise HTTPException(status_code=422,
+                            detail=f'{camera_name!r} is no camera name: use lower case letters, '
+                                   f'digits and _, starting with a letter, e.g. overhead')
+    for profile_camera in profile_cameras:
+        if profile_camera.camera_name == camera_name:
+            raise HTTPException(status_code=409,
+                                detail=f'The profile has a camera named {camera_name!r} '
+                                       f'already; choose another name')
+    # Imported here like camera_preview_api, so this module's imports stay free of the API modules
+    import cameras_api
+    camera_entry = cameras_api.read_installed_camera_entry(camera_type)
+    # It becomes part of the calibration file names
+    if serial and not FILE_NAME_PART_PATTERN.fullmatch(serial):
+        raise HTTPException(status_code=422,
+                            detail='A serial number has only letters, digits, _ and -')
+    has_serials = camera_entry[CAMERA_ENTRY_SERIAL_KEY] != CAMERA_SERIAL_SOURCE_NONE
+    if serial and not has_serials:
+        raise HTTPException(status_code=422,
+                            detail=f'Cameras of type {camera_type} have no serial numbers')
+    cameras_of_type = [camera for camera in profile_cameras if camera.camera_type == camera_type]
+    if not cameras_of_type:
+        return ProfileCamera(camera_name, camera_type, serial)
+    if not has_serials:
+        raise HTTPException(status_code=409,
+                            detail=f'The profile has a {camera_type} camera already, and two of '
+                                   f'this type cannot be told apart')
+    for camera_of_type in cameras_of_type:
+        if not camera_of_type.serial:
+            raise HTTPException(status_code=409,
+                                detail=f"The profile's {camera_type} camera "
+                                       f'{camera_of_type.camera_name} is not tied to one unit, so '
+                                       f'a second one cannot be told apart')
+        if camera_of_type.serial == serial:
+            raise HTTPException(status_code=409,
+                                detail=f'This {camera_type} is in the profile already, as '
+                                       f'{camera_of_type.camera_name}')
+    if not serial:
+        raise HTTPException(status_code=422,
+                            detail=f'The profile has a {camera_type} camera already: choose '
+                                   f'which unit to add')
+    return ProfileCamera(camera_name, camera_type, serial)
+
+
+# Written by Claude Code
+def find_profile_camera(profile_cameras: list[ProfileCamera], camera_name: str) -> ProfileCamera:
+    """Return the profile's camera of this name; HTTP 404 when it has none."""
+    for profile_camera in profile_cameras:
+        if profile_camera.camera_name == camera_name:
+            return profile_camera
+    raise HTTPException(status_code=404, detail=f'The profile has no camera {camera_name!r}')
+
+
+# Written by Claude Code
+def _write_profile_cameras(profile_name: str, profile_cameras: list[ProfileCamera]) -> None:
+    """Write par_launch.cameras, keeping the cameras' order: the first is the main camera."""
+    camera_unit_text_by_name = {}
+    for profile_camera in profile_cameras:
+        camera_unit_text_by_name[profile_camera.camera_name] = _create_camera_unit_text(
+            profile_camera)
+    # Pinned even when it equals par_setup.yaml's: the profile names its own cameras
+    write_node_settings_into_profile(profile_name, '/par_launch',
+                                     {PAR_LAUNCH_CAMERAS_KEY: camera_unit_text_by_name},
+                                     always_written_setting_names=(PAR_LAUNCH_CAMERAS_KEY,))
 
 
 @profiles_router.delete('/api/profiles/{profile_name}')
@@ -584,26 +596,14 @@ def _read_profile_summary(profile_name: str, connected_displays: list[ConnectedD
     profile_launch_context = create_profile_launch_context(profile_name)
     try:
         launch_section = read_launch_section(profile_launch_context)
-        main_camera_name = launch_section['camera']
         enabled_app_names = _read_enabled_app_names(launch_section)
         projector_display_summary = _create_projector_display_summary(
             launch_section, connected_displays, displays_error_text)
-        main_serial = get_camera_serial(profile_launch_context, main_camera_name)
-        cameras = [_create_camera_summary(profile_launch_context, main_camera_name, main_serial,
-                                          True)]
-        for additional_camera_name, additional_serial in get_additional_camera_units(
-                profile_launch_context):
-            cameras.append(_create_camera_summary(profile_launch_context, additional_camera_name,
-                                                  additional_serial, False))
-        if launch_section.get('capture_camera') is True:
-            # Simplification: the capture camera only starts together with the main camera
-            # (capture_camera:=true), so it has no preview of its own. Upgrade: start cameras as
-            # instances (card "Setup Wizard", "Multiple cameras").
-            cameras.append(CameraCalibrationSummary(
-                camera_display_name=CAPTURE_CAMERA_DISPLAY_NAME,
-                preview_camera_name=None,
-                intrinsics_state=_read_capture_camera_intrinsics_state(profile_launch_context),
-                pose_state=POSE_STATE_UNSUPPORTED))
+        cameras = []
+        profile_cameras = read_profile_cameras(profile_launch_context)
+        for camera_index, profile_camera in enumerate(profile_cameras):
+            cameras.append(_create_camera_summary(profile_launch_context, profile_camera,
+                                                  camera_index == 0))
     except (RuntimeError, KeyError, OSError, yaml.YAMLError) as error:
         # A profile is written by hand: one broken file must not hide the other profiles.
         return ProfileSummary(profile_name=profile_name, cameras=[], sensor_node_names=[],
@@ -725,45 +725,23 @@ def _compare_projector_display_mode(launch_section: dict,
     return display_mode_comparison
 
 
-def _create_camera_summary(profile_launch_context: LaunchContext, camera_name: str,
-                           serial: str, is_main_camera: bool) -> CameraCalibrationSummary:
-    """Return the calibration state of a camera unit that can be started for a preview."""
+def _create_camera_summary(profile_launch_context: LaunchContext, profile_camera: ProfileCamera,
+                           is_main_camera: bool) -> CameraCalibrationSummary:
+    """Return the calibration state of a profile's camera."""
     return CameraCalibrationSummary(
-        camera_display_name=f'{camera_name} {serial}'.strip(),
-        camera_type=camera_name,
-        serial=serial,
+        camera_name=profile_camera.camera_name,
+        camera_type=profile_camera.camera_type,
+        serial=profile_camera.serial,
         is_main_camera=is_main_camera,
-        preview_camera_name=camera_name,
-        intrinsics_state=_read_camera_intrinsics_state(profile_launch_context, camera_name, serial),
-        pose_state=_read_camera_pose_state(profile_launch_context, camera_name, serial))
+        intrinsics_state=_read_camera_intrinsics_state(profile_launch_context, profile_camera),
+        pose_state=_read_camera_pose_state(profile_launch_context, profile_camera.camera_name))
 
 
-def _create_camera_unit_text(camera_name: str, serial: str) -> str:
-    """Return the entry of par_launch.additional_cameras: '<camera>' or '<camera>:<serial>'."""
-    if serial:
-        return f'{camera_name}:{serial}'
-    return camera_name
-
-
-def _create_serial_suffix(serial: str) -> str:
-    """Return '_<serial>' for a name, nothing without a serial."""
-    if serial:
-        return f'_{serial}'
-    return ''
-
-
-def _get_additional_camera_texts(profile_launch_context: LaunchContext) -> list[str]:
-    """Return par_launch.additional_cameras as it is written."""
-    return [_create_camera_unit_text(*unit)
-            for unit in get_additional_camera_units(profile_launch_context)]
-
-
-def read_camera_units(profile_launch_context: LaunchContext) -> list[tuple[str, str]]:
-    """Return the profile's camera units as (camera, serial): the selected one, then the rest."""
-    main_camera_name = read_launch_section(profile_launch_context)['camera']
-    main_serial = get_camera_serial(profile_launch_context, main_camera_name)
-    return [(main_camera_name, main_serial),
-            *get_additional_camera_units(profile_launch_context)]
+def _create_camera_unit_text(profile_camera: ProfileCamera) -> str:
+    """Return the camera's value in par_launch.cameras: '<type>' or '<type>:<serial>'."""
+    if profile_camera.serial:
+        return f'{profile_camera.camera_type}:{profile_camera.serial}'
+    return profile_camera.camera_type
 
 
 def _create_deleted_folder(folder_name_stem: str) -> str:
@@ -776,30 +754,17 @@ def _create_deleted_folder(folder_name_stem: str) -> str:
     return deleted_folder_path
 
 
-def _read_camera_intrinsics_state(profile_launch_context: LaunchContext, camera_name: str,
-                                  serial: str) -> str:
-    """Return whether the camera unit has its lens calibration (INTRINSICS_STATE_*)."""
-    if camera_name in FACTORY_INTRINSICS_CAMERA_NAMES:
+def _read_camera_intrinsics_state(profile_launch_context: LaunchContext,
+                                  profile_camera: ProfileCamera) -> str:
+    """Return whether the camera's unit has its lens calibration (INTRINSICS_STATE_*)."""
+    intrinsics_source = read_camera_entry(profile_camera.camera_type)[CAMERA_ENTRY_INTRINSICS_KEY]
+    if intrinsics_source == 'factory':
         return INTRINSICS_STATE_FACTORY
-    intrinsics_file_name = _get_camera_intrinsics_file_name(camera_name, serial)
-    if intrinsics_file_name is None:
+    if intrinsics_source == 'none':
         return INTRINSICS_STATE_UNSUPPORTED
+    intrinsics_file_name = get_camera_info_file_name_of_unit(profile_camera.camera_type,
+                                                             profile_camera.serial)
     return _get_intrinsics_file_state(profile_launch_context, intrinsics_file_name)
-
-
-# Written by Claude Code
-def _get_camera_intrinsics_file_name(camera_name: str, serial: str) -> str | None:
-    """
-    Return the intrinsics file name the framework gives the camera unit at launch.
-
-    None when it gives none: a camera with its own calibration (FACTORY_INTRINSICS_CAMERA_NAMES)
-    or one whose units the framework cannot tell apart yet.
-    """
-    if camera_name in FACTORY_INTRINSICS_CAMERA_NAMES:
-        return None
-    if camera_name != 'webcam' and camera_name not in CAMERA_SERIAL_SOURCE_BY_CAMERA:
-        return None
-    return get_camera_info_file_name_of_unit(camera_name, serial)
 
 
 # Written by Claude Code
@@ -808,23 +773,19 @@ def get_camera_intrinsics_file_path(profile_name: str, camera_name: str) -> str 
     Return the path of the intrinsics file the framework gives the profile's camera at launch.
 
     The same file launch_helpers.get_camera_info_url names, whatever the driver calls its
-    parameter for it. None when the framework gives the camera none (see
-    _get_camera_intrinsics_file_name).
+    parameter for it. None when the framework gives the camera none: its type is not
+    calibratable (intrinsics: factory or none in its entry).
     """
     profile_launch_context = create_profile_launch_context(profile_name)
-    serial = get_camera_serial(profile_launch_context, camera_name)
-    intrinsics_file_name = _get_camera_intrinsics_file_name(camera_name, serial)
-    if intrinsics_file_name is None:
+    profile_camera = find_profile_camera(read_profile_cameras(profile_launch_context),
+                                         camera_name)
+    intrinsics_source = read_camera_entry(profile_camera.camera_type)[CAMERA_ENTRY_INTRINSICS_KEY]
+    if intrinsics_source != 'calibratable':
         return None
+    intrinsics_file_name = get_camera_info_file_name_of_unit(profile_camera.camera_type,
+                                                             profile_camera.serial)
     intrinsics_folder_path = get_intrinsics_folder_path(profile_launch_context)
     return get_path_in_config_folder(f'{intrinsics_folder_path}/{intrinsics_file_name}')
-
-
-def _read_capture_camera_intrinsics_state(profile_launch_context: LaunchContext) -> str:
-    """Return whether the capture camera, a second Blackfly, has its lens calibration."""
-    intrinsics_file_name = get_camera_info_file_name(
-        profile_launch_context, 'blackfly', CAPTURE_CAMERA_NODE_PARAMETERS_KEY, 'serial_number')
-    return _get_intrinsics_file_state(profile_launch_context, intrinsics_file_name)
 
 
 def _get_intrinsics_file_state(profile_launch_context: LaunchContext,
@@ -840,12 +801,11 @@ def _get_intrinsics_file_state(profile_launch_context: LaunchContext,
     return INTRINSICS_STATE_MISSING
 
 
-def _read_camera_pose_state(profile_launch_context: LaunchContext, camera_name: str,
-                            serial: str) -> str:
-    """Return whether the profile has a measured pose for the camera unit (POSE_STATE_*)."""
+def _read_camera_pose_state(profile_launch_context: LaunchContext, camera_name: str) -> str:
+    """Return whether the profile has a measured pose for the named camera (POSE_STATE_*)."""
     # The same file launch_helpers.create_mount_tf_publisher reads instead of the placeholder.
     pose_path = get_path_in_config_folder(
-        get_extrinsics_relative_path(profile_launch_context, 'camera_pose', camera_name, serial))
+        get_extrinsics_relative_path(profile_launch_context, 'camera_pose', camera_name))
     if not os.path.exists(pose_path):
         return POSE_STATE_PLACEHOLDER
     with open(pose_path) as pose_file:
@@ -920,32 +880,6 @@ def _write_projector_display_into_profile(profile_name: str,
     setting_value_by_name.update(get_projector_display_mode(projector_display))
     write_node_settings_into_profile(profile_name, '/par_launch', setting_value_by_name,
                                      always_written_setting_names=('projector_display_id',))
-
-
-# Written by Claude Code
-def _write_camera_serial_into_profile(profile_name: str, camera_name: str,
-                                      chosen_serial: str) -> NodeSettingsWriteResult | None:
-    """
-    Write the camera's serial into the profile; None when there is none.
-
-    chosen_serial is the unit chosen in the wizard; '' keeps the one the parameter files name.
-    """
-    # Pinned even when par_setup.yaml has the same serial: the profile's intrinsics file is named
-    # after it, so a later change of par_setup.yaml's serial would otherwise start another unit
-    # with this unit's calibration
-    if camera_name not in CAMERA_SERIAL_SOURCE_BY_CAMERA:
-        return None
-    node_parameters_key, serial_parameter_name = CAMERA_SERIAL_SOURCE_BY_CAMERA[camera_name]
-    merged_parameters = read_merged_parameters(create_profile_launch_context(profile_name))
-    node_section = merged_parameters.get(node_parameters_key) or {}
-    node_parameters = node_section.get(ROS_PARAMETERS_KEY) or {}
-    serial = chosen_serial or str(node_parameters.get(serial_parameter_name, ''))
-    if not serial:
-        # No unit chosen and none named: the driver opens what it finds first, if it opens any
-        return None
-    return write_node_settings_into_profile(profile_name, node_parameters_key,
-                                            {serial_parameter_name: serial},
-                                            always_written_setting_names=(serial_parameter_name,))
 
 
 # Co-authored by Claude Code: settings that are kept even when equal to par_setup.yaml's

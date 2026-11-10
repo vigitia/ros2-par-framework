@@ -1,9 +1,11 @@
 # Written by Claude Code
 """
-Cameras API of the setup wizard backend: which cameras the framework supports and which are usable.
+Cameras API of the setup wizard backend: the camera types installed and their connected units.
 
-A camera counts as available when every ROS package its driver start needs is installed in the
-sourced workspace or system, the same check par.launch.py uses for optional nodes.
+The camera types are those registered in the ament index (launch_helpers.CAMERA_RESOURCE_TYPE),
+each described by its entry, so any camera package following templates/par_camera/ appears here
+without code in the wizard. A type counts as installed when every package of its entry's
+required_packages is, the same check par.launch.py uses for optional nodes.
 """
 
 import glob
@@ -11,55 +13,44 @@ import os
 
 from ament_index_python.resources import has_resource
 from fastapi import APIRouter, HTTPException
-from par_framework_core.launch_helpers import (CAMERA_DRIVER_REMAPPINGS,
-                                               CAMERA_SERIAL_SOURCE_BY_CAMERA,
-                                               FILE_NAME_PART_PATTERN)
+from par_framework_core.launch_helpers import (CAMERA_ENTRY_INTRINSICS_KEY,
+                                               CAMERA_ENTRY_REQUIRED_PACKAGES_KEY,
+                                               CAMERA_ENTRY_SERIAL_KEY,
+                                               CAMERA_ENTRY_STREAMS_KEY,
+                                               CAMERA_ENTRY_USB_SERIAL_BASE_KEY,
+                                               CAMERA_ENTRY_USB_VENDOR_ID_KEY,
+                                               CAMERA_ENTRY_V4L_BY_ID_PREFIX_KEY,
+                                               CAMERA_SERIAL_SOURCE_LISTED,
+                                               FILE_NAME_PART_PATTERN, get_camera_type_names,
+                                               read_camera_entry)
 from pydantic import BaseModel
 
-# The ROS packages each camera's start in launch_helpers.create_camera_nodes runs (the
-# Node(package=...) in its create_*_node functions), without tf2_ros, which every ROS installation
-# has.
-# Simplification: this copies knowledge of those functions. Upgrade: launch_helpers lists the
-# driver packages per camera, used by them and by this backend.
-DRIVER_PACKAGE_NAMES_BY_CAMERA = {
-    'brio': ('logitech_brio',),
-    'kinect': ('azure_kinect_ros_driver',),
-    'realsense': ('realsense2_camera',),
-    'webcam': ('v4l2_camera',),
-    'blackfly': ('spinnaker_camera_driver',),
-    'cu40': ('see3cam_cu40',),
-    'event': ('metavision_driver', 'event_camera_renderer'),
-}
-
-# The cameras whose connected units are told apart by their /dev/v4l/by-id entry, the same entry
-# their driver matches the serial parameter against (find_brio_camera_id, find_cu40_device_path):
-# the part of the name after the product name is the serial.
-V4L_BY_ID_PREFIX_BY_CAMERA = {
-    'brio': 'usb-046d_Logitech_BRIO',
-    'cu40': 'usb-e-con_systems_See3CAM_CU40',
-}
+# serial: listed with v4l_by_id_prefix: the connected units are
+# /dev/v4l/by-id/<prefix>_<serial>-video-index0, the names UVC drivers match a serial against
 V4L_BY_ID_FOLDER_PATH = '/dev/v4l/by-id'
 V4L_BY_ID_CAPTURE_SUFFIX = '-video-index0'
-
-# The cameras whose connected units are found as USB devices of one vendor, without their driver:
-# Linux lists each device's vendor id and serial text under USB_DEVICES_FOLDER_PATH.
-# Special case: the Blackfly S reports its serial number there in hexadecimal, while its driver
-# and the print on the camera use the decimal number, so it is converted. Seen on USB3 Blackfly S
-# units; a GigE model is not a USB device and is not listed, its serial is typed by hand.
-USB_VENDOR_ID_BY_CAMERA = {
-    'blackfly': '1e10',
-}
+# serial: listed with usb_vendor_id: Linux lists each USB device's vendor id and serial text here
 USB_DEVICES_FOLDER_PATH = '/sys/bus/usb/devices'
 
 cameras_router = APIRouter()
 
 
 class SupportedCamera(BaseModel):
-    # A key of launch_helpers.CAMERA_DRIVER_REMAPPINGS, as used in par_launch.camera and camera:=.
-    camera_name: str
-    driver_package_names: list[str]
-    # True when every package of driver_package_names is installed.
-    is_installed: bool
+    # The camera type, the entry's file name, as in par_launch.cameras and camera:=
+    camera_type: str
+    display_name: str = ''
+    description: str = ''
+    required_package_names: list[str] = []
+    # True when every package of required_package_names is installed
+    is_installed: bool = False
+    # The entry's serial: none, typed or listed
+    serial_source: str = 'none'
+    # The entry's intrinsics: calibratable, factory or none
+    intrinsics_source: str = 'none'
+    # The streams the camera offers below its namespace, e.g. depth_registered/image_raw
+    stream_names: list[str] = []
+    # Set when the entry cannot be read; the type cannot be used then
+    entry_error_text: str | None = None
 
 
 class CameraListResponse(BaseModel):
@@ -68,44 +59,74 @@ class CameraListResponse(BaseModel):
 
 @cameras_router.get('/api/cameras')
 def get_camera_list() -> CameraListResponse:
-    """List every camera the framework supports, with whether its driver packages are installed."""
+    """List every installed camera type with its entry and whether its packages are installed."""
     cameras = []
-    for camera_name in CAMERA_DRIVER_REMAPPINGS:
-        # A camera added to launch_helpers but not here counts as not installed instead of failing.
-        driver_package_names = DRIVER_PACKAGE_NAMES_BY_CAMERA.get(camera_name, ())
-        is_installed = len(driver_package_names) > 0
-        for driver_package_name in driver_package_names:
-            if not has_resource('packages', driver_package_name):
+    for camera_type in get_camera_type_names():
+        try:
+            camera_entry = read_camera_entry(camera_type)
+        except RuntimeError as error:
+            # One broken entry must not hide the other camera types
+            cameras.append(SupportedCamera(camera_type=camera_type, entry_error_text=str(error)))
+            continue
+        required_package_names = camera_entry[CAMERA_ENTRY_REQUIRED_PACKAGES_KEY]
+        is_installed = True
+        for required_package_name in required_package_names:
+            if not has_resource('packages', required_package_name):
                 is_installed = False
-        cameras.append(SupportedCamera(camera_name=camera_name,
-                                       driver_package_names=list(driver_package_names),
-                                       is_installed=is_installed))
+        cameras.append(SupportedCamera(
+            camera_type=camera_type,
+            display_name=camera_entry['display_name'],
+            description=camera_entry['description'],
+            required_package_names=required_package_names,
+            is_installed=is_installed,
+            serial_source=camera_entry[CAMERA_ENTRY_SERIAL_KEY],
+            intrinsics_source=camera_entry[CAMERA_ENTRY_INTRINSICS_KEY],
+            stream_names=camera_entry[CAMERA_ENTRY_STREAMS_KEY]))
     return CameraListResponse(cameras=cameras)
 
 
+def read_installed_camera_entry(camera_type: str) -> dict:
+    """Return the entry of an installed, startable camera type; 404, 409 or 422 when it is not."""
+    for supported_camera in get_camera_list().cameras:
+        if supported_camera.camera_type != camera_type:
+            continue
+        if supported_camera.entry_error_text is not None:
+            raise HTTPException(status_code=409, detail=supported_camera.entry_error_text)
+        if not supported_camera.is_installed:
+            required_package_names_text = ', '.join(supported_camera.required_package_names)
+            raise HTTPException(status_code=409,
+                                detail=f'The driver of {camera_type} is not installed '
+                                       f'({required_package_names_text}): add it to '
+                                       f'config/ros_packages.list and run '
+                                       f'./scripts/local_build.sh')
+        return read_camera_entry(camera_type)
+    raise HTTPException(status_code=404, detail=f'No camera type {camera_type!r} is installed')
+
+
 class ConnectedCameraUnitsResponse(BaseModel):
-    # True for a camera type that has serials: several units of it can be in one profile
-    is_serial_supported: bool = True
-    # False when the backend cannot list this camera's units: the serial is typed by hand
-    is_listing_supported: bool
+    # The entry's serial: none (one unit per setup), typed or listed
+    serial_source: str
+    # The connected units' serials; only filled for serial_source listed
     serials: list[str]
 
 
-@cameras_router.get('/api/cameras/{camera_name}/units')
-def get_connected_camera_units(camera_name: str) -> ConnectedCameraUnitsResponse:
-    """List the serials of the connected units of a camera type that has serials."""
-    if camera_name not in CAMERA_DRIVER_REMAPPINGS:
-        raise HTTPException(status_code=404, detail=f'Unknown camera {camera_name!r}')
-    if camera_name not in CAMERA_SERIAL_SOURCE_BY_CAMERA:
-        return ConnectedCameraUnitsResponse(is_serial_supported=False, is_listing_supported=False,
-                                            serials=[])
-    usb_vendor_id = USB_VENDOR_ID_BY_CAMERA.get(camera_name)
+@cameras_router.get('/api/cameras/{camera_type}/units')
+def get_connected_camera_units(camera_type: str) -> ConnectedCameraUnitsResponse:
+    """List the serials of the connected units of a camera type whose entry says how."""
+    camera_entry = read_installed_camera_entry(camera_type)
+    serial_source = camera_entry[CAMERA_ENTRY_SERIAL_KEY]
+    if serial_source != CAMERA_SERIAL_SOURCE_LISTED:
+        return ConnectedCameraUnitsResponse(serial_source=serial_source, serials=[])
+    usb_vendor_id = camera_entry[CAMERA_ENTRY_USB_VENDOR_ID_KEY]
     if usb_vendor_id is not None:
-        return ConnectedCameraUnitsResponse(is_listing_supported=True,
-                                            serials=_find_usb_serials(usb_vendor_id))
-    name_prefix = V4L_BY_ID_PREFIX_BY_CAMERA.get(camera_name)
-    if name_prefix is None:
-        return ConnectedCameraUnitsResponse(is_listing_supported=False, serials=[])
+        serials = _find_usb_serials(usb_vendor_id, camera_entry[CAMERA_ENTRY_USB_SERIAL_BASE_KEY])
+    else:
+        serials = _find_v4l_by_id_serials(camera_entry[CAMERA_ENTRY_V4L_BY_ID_PREFIX_KEY])
+    return ConnectedCameraUnitsResponse(serial_source=serial_source, serials=serials)
+
+
+def _find_v4l_by_id_serials(name_prefix: str) -> list[str]:
+    """Return the serials in /dev/v4l/by-id/<name_prefix>_<serial>-video-index0, sorted."""
     serials = []
     entry_pattern = os.path.join(V4L_BY_ID_FOLDER_PATH,
                                  f'{name_prefix}*{V4L_BY_ID_CAPTURE_SUFFIX}')
@@ -116,11 +137,16 @@ def get_connected_camera_units(camera_name: str) -> ConnectedCameraUnitsResponse
         # Only what profile and file names accept
         if serial and FILE_NAME_PART_PATTERN.fullmatch(serial):
             serials.append(serial)
-    return ConnectedCameraUnitsResponse(is_listing_supported=True, serials=serials)
+    return serials
 
 
-def _find_usb_serials(usb_vendor_id: str) -> list[str]:
-    """Return the serials of the connected USB devices of a vendor, as decimal numbers, sorted."""
+def _find_usb_serials(usb_vendor_id: str, usb_serial_base: int) -> list[str]:
+    """
+    Return the serials of the connected USB devices of a vendor, sorted.
+
+    usb_serial_base 16 converts a serial the device reports in hexadecimal to the decimal number
+    its driver takes.
+    """
     serials = []
     vendor_id_path_pattern = os.path.join(USB_DEVICES_FOLDER_PATH, '*', 'idVendor')
     for vendor_id_path in sorted(glob.glob(vendor_id_path_pattern)):
@@ -131,9 +157,15 @@ def _find_usb_serials(usb_vendor_id: str) -> list[str]:
             if device_vendor_id != usb_vendor_id:
                 continue
             with open(serial_path) as serial_file:
-                hexadecimal_serial = serial_file.read().strip()
-            serials.append(str(int(hexadecimal_serial, 16)))
+                reported_serial = serial_file.read().strip()
+            if usb_serial_base == 16:
+                serial = str(int(reported_serial, 16))
+            else:
+                serial = reported_serial
         except (OSError, ValueError):
             # Unplugged meanwhile, or a device without a serial number: not a unit to offer
             continue
+        # Only what profile and file names accept
+        if serial and FILE_NAME_PART_PATTERN.fullmatch(serial):
+            serials.append(serial)
     return sorted(serials)

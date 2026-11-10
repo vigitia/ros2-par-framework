@@ -4483,3 +4483,33 @@ so the launches that draw on the projector can be tried without one; a real setu
 
 **Alternatives considered:** only changing the default of the selector's own `display_id` (would keep two places
 for one display); a launch argument for the selector alone (the same display under another name).
+
+## 2026-11-10: camera entries say how units are told apart; wizard profiles name their cameras (multi-camera step 6a)
+
+**What changed:** camera entries (`par_framework_cameras`) take optional keys, checked by
+`launch_helpers.read_camera_entry`: `required_packages` (ROS packages the launch file starts besides its own package;
+the type counts as installed when all are), `serial` (`none` default, `typed`, `listed`) and, for `listed`, one unit
+lookup: `v4l_by_id_prefix` (`/dev/v4l/by-id/<prefix>_<serial>-video-index0`) or `usb_vendor_id` with
+`usb_serial_base` (USB devices of a vendor, serial read in base 10 or 16). Core's entries name their released drivers
+and serial sources (blackfly listed by USB vendor in hexadecimal, kinect and realsense typed, webcam and event none);
+the Brio and CU40 entries in their repos are listed by `/dev/v4l/by-id`. `parse_camera_unit_text` refuses a serial for
+a type with `serial: none`. Setup wizard backend: `cameras_api.py` lists the camera types and their connected units
+from the entries only (its driver package, v4l prefix and USB vendor tables are gone, unknown types are a 404, a
+broken entry is reported per type). `profiles_api.py` works on `par_launch.cameras`: a new profile writes its first
+camera by name, `POST /api/profiles/<p>/cameras` adds a named camera (name pattern and uniqueness checked; a type
+without serials once per profile; a second unit of a type only with serials on both), `DELETE
+/api/profiles/<p>/cameras/<name>` removes one (not the last; files to `.deleted/`), the summary lists every camera by
+name with intrinsics state from the entry's `intrinsics` and pose state per name. Gone: `PUT .../main-camera`, the
+capture camera summary, the camera serial written into driver sections, `FACTORY_INTRINSICS_CAMERA_NAMES` and the
+`== 'webcam'` case. Driver settings changed in a new profile's preview are saved under the new camera's name
+(`/cameras/<name>/<driver node>`), so two units of a type keep their own.
+
+**Why:** step 6 of the multi-camera plan: the wizard must work with any camera package that follows the camera
+blueprint, so everything it needs to know about a type comes from that type's entry, written as data by the package.
+The two unit lookups are plain Linux (device names and USB sysfs), so no driver has to run to list units.
+
+**Alternatives considered:** only `serial: true/false` with the serial always typed (simpler, but connected units
+could no longer be picked from a list); an executable per camera package that prints its connected serials (most
+general, but code in every package where two lookups cover all current cameras); a way to choose the main camera
+(dropped with the old main-camera switch; the first camera is the main one until the sensor nodes run per camera,
+step 8).

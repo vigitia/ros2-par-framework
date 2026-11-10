@@ -6,7 +6,11 @@ description: Depth camera through azure_kinect_ros_driver, with its factory cali
 package: par_framework_core
 launch_file: camera_kinect.launch.py
 # The driver's own body frame, x forward and z up
+# The released driver this launch file starts, installed separately (config/ros_packages.list)
+required_packages: [azure_kinect_ros_driver]
 body_frame: camera_base
 streams: [image_raw, camera_info, depth_registered/image_raw, ir/image_raw,
           depth_sensor/ir/image_raw, depth_sensor/depth/image_raw, depth_sensor/camera_info]
 intrinsics: factory
+# The launch file passes it as sensor_sn; the setup wizard does not list connected units yet
+serial: typed

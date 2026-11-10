@@ -52,6 +52,26 @@ CAMERA_ENTRY_STREAMS_KEY = 'streams'
 # publishes its own; none: no camera_info
 CAMERA_ENTRY_INTRINSICS_KEY = 'intrinsics'
 CAMERA_INTRINSICS_SOURCES = ('calibratable', 'factory', 'none')
+# Optional: how the units of a type are told apart. none: one unit per setup, no serial (the
+# default); typed: the launch file passes a serial, which the user types; listed: as typed, and
+# the setup wizard lists the connected units' serials with one of CAMERA_ENTRY_UNIT_LOOKUP_KEYS
+CAMERA_ENTRY_SERIAL_KEY = 'serial'
+# Optional: ROS packages the launch file starts besides its own package, e.g. a released driver an
+# entry in core starts; a camera type counts as installed when all of them are (default: none)
+CAMERA_ENTRY_REQUIRED_PACKAGES_KEY = 'required_packages'
+CAMERA_SERIAL_SOURCES = ('none', 'typed', 'listed')
+CAMERA_SERIAL_SOURCE_NONE = 'none'
+CAMERA_SERIAL_SOURCE_LISTED = 'listed'
+# The unit lookups of serial: listed, both plain Linux, no driver needed:
+# v4l_by_id_prefix: /dev/v4l/by-id/<prefix>_<serial>-video-index0 (UVC cameras);
+# usb_vendor_id: the USB devices of this vendor (4 hexadecimal digits), their serial text read in
+# usb_serial_base (16 when the device reports in hexadecimal what its driver takes in decimal)
+CAMERA_ENTRY_V4L_BY_ID_PREFIX_KEY = 'v4l_by_id_prefix'
+CAMERA_ENTRY_USB_VENDOR_ID_KEY = 'usb_vendor_id'
+CAMERA_ENTRY_USB_SERIAL_BASE_KEY = 'usb_serial_base'
+CAMERA_ENTRY_UNIT_LOOKUP_KEYS = (CAMERA_ENTRY_V4L_BY_ID_PREFIX_KEY, CAMERA_ENTRY_USB_VENDOR_ID_KEY)
+USB_SERIAL_BASES = (10, 16)
+USB_VENDOR_ID_PATTERN = re.compile(r'[0-9a-f]{4}')
 # The launch arguments every camera launch file declares (templates/par_camera/)
 CAMERA_LAUNCH_ARGUMENT_NAMES = ('namespace', 'camera_name', 'serial', 'camera_info_url',
                                 'params_files')
@@ -291,6 +311,13 @@ def parse_camera_unit_text(camera_unit_text, source_text):
     if serial and not FILE_NAME_PART_PATTERN.fullmatch(serial):
         raise RuntimeError(f'[launch_helpers]: {source_text}: {serial!r} is no serial number: '
                            f'use only letters, digits, _ and -')
+    # The launch file would ignore it, while the intrinsics file is named after it
+    is_serial_unsupported = (
+        read_camera_entry(camera_type)[CAMERA_ENTRY_SERIAL_KEY] == CAMERA_SERIAL_SOURCE_NONE)
+    if serial and is_serial_unsupported:
+        raise RuntimeError(f'[launch_helpers]: {source_text}: camera type {camera_type} has no '
+                           f'serial numbers ({CAMERA_ENTRY_SERIAL_KEY}: none in its entry); '
+                           f'write {camera_type!r} alone')
     return camera_type, serial
 
 
@@ -495,7 +522,10 @@ def read_camera_entry(camera_type):
                         f'(share/ament_index/resource_index/{CAMERA_RESOURCE_TYPE}/{camera_type})')
     other_keys = (CAMERA_ENTRY_BODY_FRAME_KEY, CAMERA_ENTRY_STREAMS_KEY,
                   CAMERA_ENTRY_INTRINSICS_KEY)
-    known_keys = CAMERA_ENTRY_TEXT_KEYS + CAMERA_ENTRY_NAME_KEYS + other_keys
+    required_keys = CAMERA_ENTRY_TEXT_KEYS + CAMERA_ENTRY_NAME_KEYS + other_keys
+    optional_keys = (CAMERA_ENTRY_REQUIRED_PACKAGES_KEY, CAMERA_ENTRY_SERIAL_KEY,
+                     CAMERA_ENTRY_USB_SERIAL_BASE_KEY, *CAMERA_ENTRY_UNIT_LOOKUP_KEYS)
+    known_keys = required_keys + optional_keys
     unknown_keys = sorted(set(entry) - set(known_keys))
     if unknown_keys:
         raise RuntimeError(f'{error_start_text} has unknown keys {unknown_keys}; known: '
@@ -524,10 +554,72 @@ def read_camera_entry(camera_type):
                            f'{list(CAMERA_INTRINSICS_SOURCES)}')
 
     checked_entry = {}
-    for known_key in known_keys:
-        checked_entry[known_key] = entry[known_key]
+    for required_key in required_keys:
+        checked_entry[required_key] = entry[required_key]
     checked_entry[CAMERA_ENTRY_STREAMS_KEY] = list(streams)
+    required_package_names = entry.get(CAMERA_ENTRY_REQUIRED_PACKAGES_KEY, [])
+    is_list_of_package_names = isinstance(required_package_names, list) and all(
+        isinstance(package_name, str) and PAR_APP_START_NAME_PATTERN.fullmatch(package_name)
+        for package_name in required_package_names)
+    if not is_list_of_package_names:
+        raise RuntimeError(f'{error_start_text}: {CAMERA_ENTRY_REQUIRED_PACKAGES_KEY} must be a '
+                           f'list of ROS package names, e.g. [v4l2_camera]')
+    checked_entry[CAMERA_ENTRY_REQUIRED_PACKAGES_KEY] = list(required_package_names)
+    checked_entry.update(_check_camera_entry_serial_keys(entry, error_start_text))
     return checked_entry
+
+
+# Written by Claude Code
+def _check_camera_entry_serial_keys(entry, error_start_text):
+    """
+    Return the entry's serial keys checked, every one set (None for an unused lookup).
+
+    Raises RuntimeError naming the fix for a value or combination the format does not allow.
+    """
+    serial_source = entry.get(CAMERA_ENTRY_SERIAL_KEY, CAMERA_SERIAL_SOURCE_NONE)
+    if serial_source not in CAMERA_SERIAL_SOURCES:
+        raise RuntimeError(f'{error_start_text}: {CAMERA_ENTRY_SERIAL_KEY} must be one of '
+                           f'{list(CAMERA_SERIAL_SOURCES)}')
+    v4l_by_id_prefix = entry.get(CAMERA_ENTRY_V4L_BY_ID_PREFIX_KEY)
+    usb_vendor_id = entry.get(CAMERA_ENTRY_USB_VENDOR_ID_KEY)
+    usb_serial_base = entry.get(CAMERA_ENTRY_USB_SERIAL_BASE_KEY, 10)
+    unit_lookup_count = 0
+    if v4l_by_id_prefix is not None:
+        unit_lookup_count += 1
+    if usb_vendor_id is not None:
+        unit_lookup_count += 1
+    is_listed = serial_source == CAMERA_SERIAL_SOURCE_LISTED
+    if is_listed and unit_lookup_count != 1:
+        raise RuntimeError(f'{error_start_text}: {CAMERA_ENTRY_SERIAL_KEY}: listed needs exactly '
+                           f'one of {list(CAMERA_ENTRY_UNIT_LOOKUP_KEYS)}')
+    if not is_listed and unit_lookup_count > 0:
+        raise RuntimeError(f'{error_start_text}: {list(CAMERA_ENTRY_UNIT_LOOKUP_KEYS)} only go '
+                           f'with {CAMERA_ENTRY_SERIAL_KEY}: listed')
+    # Part of a glob pattern over /dev/v4l/by-id: a plain name, no wildcards or path
+    if v4l_by_id_prefix is not None:
+        is_plain_name = isinstance(v4l_by_id_prefix, str) and FILE_NAME_PART_PATTERN.fullmatch(
+            v4l_by_id_prefix)
+        if not is_plain_name:
+            raise RuntimeError(f'{error_start_text}: {CAMERA_ENTRY_V4L_BY_ID_PREFIX_KEY} must be '
+                               f'the start of the camera\'s /dev/v4l/by-id names before the '
+                               f'serial, e.g. usb-046d_Logitech_BRIO')
+    if usb_vendor_id is not None:
+        is_vendor_id = isinstance(usb_vendor_id, str) and USB_VENDOR_ID_PATTERN.fullmatch(
+            usb_vendor_id)
+        if not is_vendor_id:
+            raise RuntimeError(f'{error_start_text}: {CAMERA_ENTRY_USB_VENDOR_ID_KEY} must be 4 '
+                               f'lower case hexadecimal digits as text, as lsusb shows it, e.g. '
+                               f"'1e10'")
+    elif CAMERA_ENTRY_USB_SERIAL_BASE_KEY in entry:
+        raise RuntimeError(f'{error_start_text}: {CAMERA_ENTRY_USB_SERIAL_BASE_KEY} only goes '
+                           f'with {CAMERA_ENTRY_USB_VENDOR_ID_KEY}')
+    if usb_serial_base not in USB_SERIAL_BASES:
+        raise RuntimeError(f'{error_start_text}: {CAMERA_ENTRY_USB_SERIAL_BASE_KEY} must be one '
+                           f'of {list(USB_SERIAL_BASES)}')
+    return {CAMERA_ENTRY_SERIAL_KEY: serial_source,
+            CAMERA_ENTRY_V4L_BY_ID_PREFIX_KEY: v4l_by_id_prefix,
+            CAMERA_ENTRY_USB_VENDOR_ID_KEY: usb_vendor_id,
+            CAMERA_ENTRY_USB_SERIAL_BASE_KEY: usb_serial_base}
 
 
 # Written by Claude Code
