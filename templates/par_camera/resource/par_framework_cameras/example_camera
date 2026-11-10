@@ -1,0 +1,28 @@
+# Written by Claude Code
+# The camera type's entry in the ament index (resource type par_framework_cameras). The file name is
+# the camera type (lower case, letters, digits and _), the name profiles and camera:= use.
+# par.launch.py and the setup wizard read it through ament_index_python; the format is checked by
+# par_framework_core.launch_helpers.read_camera_entry (see README.md).
+
+# Shown in the setup wizard
+display_name: Example camera
+description: One sentence on the camera and its driver.
+
+# The package that installs launch_file, and the file in its share/<package>/launch/
+package: example_camera
+launch_file: example_camera.launch.py
+
+# The camera's body frame without the camera name: the framework's mount transform goes
+# world -> <camera name>_<body_frame>. link for a driver that publishes <camera name>_link
+body_frame: link
+
+# The streams the launch file offers below the camera's namespace, from the framework's list
+# (launch_helpers.CAMERA_STREAM_NAMES): image_raw, image_raw/compressed, camera_info,
+# set_camera_info, depth_registered/image_raw, ir/image_raw, depth_sensor/ir/image_raw,
+# depth_sensor/depth/image_raw, depth_sensor/camera_info, events
+streams: [image_raw, camera_info, set_camera_info]
+
+# Where the intrinsics come from: calibratable (a file per unit, written through set_camera_info by
+# scripts/run_cameracalibrator.sh and passed as camera_info_url), factory (the driver publishes its
+# own) or none (no camera_info)
+intrinsics: calibratable
