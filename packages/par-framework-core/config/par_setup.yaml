@@ -21,16 +21,10 @@
     camera_resolution_x: 1920
     camera_resolution_y: 1080
     camera_fps: 60
-    # Exposure per frame in ms (node default 10.0) and gain (0-255, node default 0). A short exposure keeps fast
-    # moving pages sharp enough for the marker detection; the gain makes up for the lost brightness at the cost of
-    # noise. Below 10 ms, mains-powered lamps (and later the projector) may make the image pulse or show bands:
-    # check the image after changing it. Write the exposure with a decimal point, e.g. 4.0.
-    exposure_time_ms: 4.0
+    exposure_time_ms: 10.0
+    # (0-255, node default 0).
     gain: 64
-    # The calibration is calibration/intrinsics/[<profile>/]camera_info_brio.yaml below this file: the launch
-    # files set camera_info_url, cameracalibrator's COMMIT button writes it there. Missing file = uncalibrated
-    # CameraInfo.
-    # Publish image_rect_color, needs that calibration.
+    # Publish image_rect_color, needs calibration.
     undistort_frame: false
 
 # Camera: Generic webcam (camera: webcam), any UVC camera through v4l2_camera, started as
@@ -46,8 +40,6 @@
     # Must be a size the camera offers in pixel_format: v4l2-ctl -d <device> --list-formats-ext
     image_size: [640, 480]
     pixel_format: YUYV
-    # Like the Brio's encoding. The optical frame (<camera>_optical_frame) and the calibration
-    # (calibration/intrinsics/[<profile>/]camera_info_webcam.yaml below this file) are set by the launch files.
     output_encoding: bgr8
 
 # Camera: Intel RealSense, e.g. the D435, through realsense2_camera; launch/camera_realsense.launch.py starts it as
@@ -55,34 +47,26 @@
 # More options: ros2 param list /cameras/realsense/realsense
 /cameras/*/realsense:
   ros__parameters:
-    # The streams explicitly: newer drivers start only the streams the device marks as default, and the node
-    # without rs_launch.py also streams the two infrared images, which nothing in the framework uses.
     enable_color: true
     enable_depth: true
     enable_infra1: false
     enable_infra2: false
     rgb_camera:
-      # <width>x<height>x<fps>, one the camera offers (rs-enumerate-devices). The aligned depth image has the
-      # same size.
+      # <width>x<height>x<fps>. The aligned depth image has the same size.
       color_profile: 1280x720x30
-      # Like the Brio's encoding; the driver's default is RGB8.
+      # the driver's default is RGB8.
       color_format: BGR8
-    # Depth on the colour image's pixel grid, which the framework uses (/cameras/<camera>/depth_registered/image_raw).
+    # Depth on the colour image's pixel grid (/cameras/<camera>/depth_registered/image_raw).
     align_depth:
       enable: true
 
 # FLIR Blackfly S (camera: blackfly), e.g. the monochrome BFS-U3-23S3M-C, through spinnaker_camera_driver;
 # launch/camera_blackfly.launch.py starts it as /cameras/<camera>/blackfly. A monochrome model publishes mono8
-# frames. The calibration is
-# calibration/intrinsics/[<profile>/]camera_info_blackfly_<serial_number>.yaml below this file, set by the launch
-# files.
+# frames.
 # More options: ros2 param list /cameras/blackfly/blackfly. USB3 models need a larger USB buffer than Linux's default
 # (usbcore.usbfs_memory_mb, e.g. 1000), otherwise frames are dropped at high frame rates.
-# Write string values in quotes: YAML reads a bare Off as false, which the driver ignores.
 /cameras/*/blackfly:
   ros__parameters:
-    # The frame interval at frame_rate must be longer than the exposure; the gain (dB) makes up for the short
-    # exposure at the cost of noise.
     exposure_auto: 'Off'
     exposure_time: 300.0
     gain_auto: 'Off'
@@ -90,8 +74,8 @@
     frame_rate_auto: 'Off'
     frame_rate_enable: true
     frame_rate: 158.0
-    # Frames the driver holds between the camera and publishing: 1 publishes only the newest, for the lowest
-    # latency.
+    # Frames the driver holds between the camera and publishing:
+    # 1 publishes only the newest, for the lowest latency.
     buffer_queue_size: 1
     # 2x2 binning: a quarter of the pixels, brighter, but pixel coordinates (corners, intrinsics) change with it.
     # Binning and image size are set explicitly, because the camera keeps them until it loses power, the driver
@@ -104,7 +88,6 @@
     image_width: 1920
     image_height: 1200
 
-# Added by Claude Code:
 # A Blackfly in software trigger mode, e.g. a camera that takes single high-resolution frames on request, is an
 # ordinary camera of par_launch.cameras whose own section switches the trigger on. It sends no frames by itself:
 # every
@@ -128,12 +111,10 @@
 #     image_height: 3000
 
 # e-con See3CAM_CU40 RGB-IR camera (camera: cu40) through see3cam_cu40, started as /cameras/<camera>/see3cam_cu40_node
-# by that package's launch file. It also publishes its infrared image, on the colour image's pixel grid
-# (/cameras/<camera>/ir/image_raw). The colour image is not
-# white-balanced and contains infrared light. The calibration is
-# calibration/intrinsics/[<profile>/]camera_info_cu40[_<serial>].yaml below this file, set by the launch files,
-# and only fits
-# the image size it was made at.
+# by that package's launch file. It publishes its infrared image, on the colour image's pixel grid
+# (/cameras/<camera>/ir/image_raw).
+# The colour image is not white-balanced and contains infrared light.
+# An existing calibration file only fits the image size it was created at.
 /cameras/*/see3cam_cu40_node:
   ros__parameters:
     # Part of the camera's /dev/v4l/by-id/ name, only needed if several are connected.
@@ -147,13 +128,8 @@
     # it, so e.g. projected content fades from the infrared image. Depends on the sensor and on the light's
     # spectrum: measured with this setup's projector showing red, green and blue, each against black, as the
     # infrared increase divided by the colour increase (least squares). [0.0, 0.0, 0.0] leaves it uncorrected.
-    # Uncorrected for now: the share varies across the image, so one set of shares for the whole image (this
-    # setup's average: [0.0565, 0.0018, 0.0914]) leaves bright and dark patches where the projector shines, which
-    # ir_gain makes clearly visible.
     visible_to_ir_leakage_bgr: [0.0, 0.0, 0.0]
-    # Factor for the infrared image after that correction (1.0 to 64.0). Indoors without infrared lighting the
-    # infrared signal is weak; the gain brightens it without costing frame rate, unlike a longer exposure, which
-    # would also saturate the colour pixels. Noise is amplified with it.
+    # Factor for the infrared image after that correction (1.0 to 64.0). <Noise is amplified with it.
     ir_gain: 16.0
 
 # Event camera (camera: event) through metavision_driver, started as /cameras/<camera>/event by
@@ -185,8 +161,10 @@
 
 object_detector_node:
   ros__parameters:
-    # Only with use_depth (depth cameras: kinect, realsense): objects lower than this above the table around them (metres) are not
-    # published, e.g. pictures of objects projected onto the table. 0 = off; about 0.015 is above the Kinect's noise.
+    # Only with use_depth (depth cameras: kinect, realsense).
+    # objects lower than this above the table (metres) are not published,
+    # e.g. pictures of objects projected onto the table. 0 = off;
+    # about 0.015 is above the  noise of a camera like the Azure Kinect.
     min_object_height: 0.015
 
 hand_landmarks_node:

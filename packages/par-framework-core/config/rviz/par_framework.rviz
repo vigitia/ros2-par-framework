@@ -1,10 +1,14 @@
-# Written by Claude Code
-# RViz view of the PAR setup, for every camera (par.launch.py with rviz): world grid, TF frames, the camera's
-# frustum (drawn by the CameraInfo display from /camera/camera_info), its live image and what rviz_bridge projects
-# onto the table. One file serves all cameras, because every driver is remapped onto the same /camera/... topics.
-# What only some cameras or sensors publish is in here too, switched off; a disabled display subscribes to
-# nothing. The camera topics are subscribed Best Effort: that also receives from drivers that publish Reliable,
-# while RViz's default Reliable would receive nothing from a Best Effort driver.
+# Written with the help of Claude Code
+# Configuration for the RViz2 tool.
+#
+# RViz view of the current PAR setup.
+# It takes car of displaying:
+# - world grid
+# - TF frames
+# - the camera's frustum (drawn by the CameraInfo display from /camera/camera_info)
+# - its live image
+# - the output of all published custom messages of the PAR framework (fiducials, objects, hand landmarks, etc.)
+#
 Panels:
   - Class: rviz_common/Displays
     Name: Displays
@@ -47,12 +51,11 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Best Effort
         Value: /camera/image_raw
-    # Coloured depth point cloud from the Kinect driver, in depth_camera_link. Not remapped, since no framework
-    # node reads it, so only the Kinect fills this topic
+    # Coloured depth point cloud from e.g. the Kinect driver, in depth_camera_link.
     - Class: rviz_default_plugins/PointCloud2
       # Off while point_cloud is off in par_setup.yaml
       Enabled: false
-      Name: Kinect point cloud
+      Name: Depth point cloud
       Style: Points
       Size (Pixels): 2
       Color Transformer: RGB8
@@ -74,8 +77,7 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /projection_corners/markers
-    # Projector image on the table from the calibrated mapping (projection_calibrator); should
-    # coincide with the clicked projection area
+    # Projector image on the table from the calibrated mapping (projection_calibrator)
     - Class: rviz_default_plugins/MarkerArray
       Enabled: true
       Name: Projector (calibrated)
@@ -119,7 +121,7 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /fiducials/markers
-    # Pages from page_locator, projected on the table (written by Claude Code)
+    # Pages from page_locator, projected on the table
     - Class: rviz_default_plugins/MarkerArray
       Enabled: true
       Name: Pages
