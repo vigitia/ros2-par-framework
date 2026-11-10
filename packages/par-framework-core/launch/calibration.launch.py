@@ -11,10 +11,10 @@ camera:=kinect uses the Azure Kinect instead of the Brio, camera:=webcam a gener
 added with the help of Claude Code), camera:=realsense an Intel RealSense such as the D435
 (added with the help of Claude Code), and the launch ends once the corners are
 stored or the selection is cancelled with Esc (added with the help of Claude Code).
-Camera calibrations are config/calibration/intrinsics/camera_info_<camera>.yaml, shared by all
-parameter files (changed with the
-help of Claude Code). With profile:=<name>, the corners are that setup's own, in
-config/calibration/extrinsics/<name>/ (added with the help of Claude Code).
+Camera calibrations are config/calibration/intrinsics/camera_info_<camera>.yaml (changed with the
+help of Claude Code). With profile:=<name>, the camera calibration and the corners are that
+setup's own, in config/calibration/intrinsics/<name>/ and config/calibration/extrinsics/<name>/
+(added with the help of Claude Code).
 """
 
 import os
