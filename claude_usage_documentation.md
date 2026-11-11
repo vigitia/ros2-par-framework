@@ -4669,3 +4669,29 @@ real mode, and has no connector names); the first entry of `/sys/class/drm/<conn
 not necessarily the current one); GNOME's `DisplayConfig` D-Bus interface (GNOME only); `xrandr` (shows the same
 scaled sizes as SDL). Showing only SDL's size with a warning was rejected by Vitus: the wizard should name the
 display's real resolution.
+
+## 2026-11-11: Apps bind their inputs to cameras (multi-camera step 9)
+
+**What changed:** a PAR app's entry may name `inputs`, the cameras it reads, each with the topic names it reads below
+a camera's namespace (`read_par_app_entry` checks them). The profile binds each input to a camera in
+`par_launch.app_inputs` (`{demo_app: {camera: overhead}}`). `par.launch.py` remaps the app's names onto the bound
+camera (`get_app_input_camera_names`, `create_app_input_remappings`): an app with one input reads plain names
+(`pages` → `/cameras/overhead/pages`), an app with several prefixes them with the input (`tracking/pages`). An unbound
+input reads the only camera of the run and fails with a message naming the key when there are several. The app's
+required sensor nodes run on the cameras it reads instead of the main camera. The wizard's backend lists each app's
+`input_names`, reports `camera_name_by_input_by_app` in the profile summary, stores bindings through
+`PUT /api/profiles/<profile>/app-inputs`, and drops the bindings of a removed camera. Removing a camera also takes
+it out of every sensor node list (`par_launch.<sensor node>`); before, the lists kept naming it and the next launch
+refused the profile. The template entry and
+README of `templates/par_app/` describe the key.
+
+**Why:** since step 8 the sensor nodes publish in their camera's namespace, so an app in the root namespace received
+nothing; with several cameras, each input has to say which camera it means (e.g. tracking on one camera, capture on
+another).
+
+**Alternatives considered:** always prefixing with the input (`camera/pages`, one rule, but every one-camera app's
+topics change; Vitus chose plain names for one input); running the app in the camera's namespace (its outputs would
+land there too, and an app with two cameras has no single namespace); passing the bindings as a launch argument to
+launch-file apps (`SetRemap` in the app's group reaches every node its launch file starts without a new argument);
+running the required sensor nodes only on the inputs that need them (needs per-input requirements in the entry;
+marked as a simplification). RViz and the rendering manager keep using the main camera (decided by Vitus: later).

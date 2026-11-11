@@ -51,6 +51,7 @@ points (how `ros2cli` finds its verbs, but only for Python packages); a list of 
 | `executable` | one of the two | a `console_scripts` entry point, started as one node |
 | `launch_file` | one of the two | a file in `share/<pkg>/launch/`, for an app with more processes |
 | `required_launch_switches` | no | framework nodes that must run next to the app (`par_launch` switches) |
+| `inputs` | no | the cameras the app reads, each with its topic names below the camera's namespace |
 | `used_calibrations` | no | `camera_intrinsics`, `camera_pose`, `projection_mapping`, `projector_center` |
 | `settings_node_names` | no | full names of the app's nodes whose parameters the setup wizard edits, e.g. `/example_app_node` |
 
@@ -58,6 +59,13 @@ points (how `ros2cli` finds its verbs, but only for Python packages); a list of 
 and the app store read it. What must *run* next to it goes into `required_launch_switches`: shared framework nodes
 such as `fiducials_detector` and `page_locator`. `par.launch.py` switches them on for the app and starts each once,
 so two apps never run a detector twice. An app never starts them itself.
+
+**Inputs.** Every camera runs in `/cameras/<camera>/`, and so do the sensor nodes on it (`/cameras/overhead/pages`).
+The app runs in the root namespace and subscribes to relative names; `par.launch.py` remaps them onto the camera the
+profile binds to the input (`par_launch.app_inputs: {example_app: {camera: overhead}}`, set in the wizard's Apps
+area; an unbound input reads the only camera of the run). An app with one input subscribes to the plain names
+(`pages`), an app with several prefixes each name with its input (`tracking/pages`, `capture/image_raw`). The
+required sensor nodes run on every camera the app reads.
 
 **Calibrations don't block.** The app starts without the calibrations it uses; the wizard shows which ones are
 missing. The app must work uncalibrated (camera pixels), like every framework node.

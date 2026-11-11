@@ -34,6 +34,8 @@ from par_framework_core.launch_helpers import (CAMERA_ENTRY_INTRINSICS_KEY, CAME
                                                get_invalid_pose_keys,
                                                get_path_in_config_folder,
                                                get_sensor_node_package_names,
+                                               PAR_APP_ENTRY_INPUTS_KEY,
+                                               PAR_LAUNCH_APP_INPUTS_KEY,
                                                PAR_LAUNCH_CAMERAS_KEY, ProfileCamera,
                                                PROJECTOR_APP_NONE, read_camera_entry,
                                                read_launch_section, read_merged_parameters,
@@ -132,6 +134,9 @@ class ProfileSummary(BaseModel):
     app_names: list[str]
     # The apps the profile offers (par_launch.apps), in its order; the projector app is one of them
     enabled_app_names: list[str] = []
+    # par_launch.app_inputs: per app, the camera bound to each input; an input left out reads the
+    # only camera of a run
+    camera_name_by_input_by_app: dict[str, dict[str, str]] = {}
     # The display to use for the projector now: found by its stored identity, else the stored
     # id; None when the profile sets none or the projector is not found
     projector_display_id: int | None = None
@@ -203,6 +208,13 @@ class ProjectorAppChoiceRequest(BaseModel):
 class EnabledAppsRequest(BaseModel):
     # par_launch.apps: app_names of installed apps from GET /api/apps
     app_names: list[str]
+
+
+class AppInputsRequest(BaseModel):
+    # One of the profile's apps (par_launch.apps)
+    app_name: str
+    # Camera name per input of the app's entry; an input left out reads the only camera of a run
+    camera_name_by_input: dict[str, str]
 
 
 class NewProfileResponse(BaseModel):
@@ -364,6 +376,68 @@ def set_enabled_apps(profile_name: str, request: EnabledAppsRequest) -> None:
 
 
 # Written by Claude Code
+@profiles_router.put('/api/profiles/{profile_name}/app-inputs')
+def set_app_inputs(profile_name: str, request: AppInputsRequest) -> None:
+    """Store which camera each input of one of the profile's apps reads (par_launch.app_inputs)."""
+    launch_section = read_profile_launch_section(profile_name)
+    if request.app_name not in _read_enabled_app_names(launch_section):
+        raise HTTPException(status_code=422,
+                            detail=f"{request.app_name} is not one of the profile's apps; add it "
+                                   f'under Apps first')
+    _check_startable_app(request.app_name)
+    app_input_names = list(read_par_app_entry(request.app_name)[PAR_APP_ENTRY_INPUTS_KEY])
+    unknown_input_names = sorted(set(request.camera_name_by_input) - set(app_input_names))
+    if unknown_input_names:
+        raise HTTPException(status_code=422,
+                            detail=f'{request.app_name} has no inputs {unknown_input_names}; its '
+                                   f'inputs: {app_input_names}')
+    profile_camera_names = []
+    for profile_camera in read_profile_cameras(create_profile_launch_context(profile_name)):
+        profile_camera_names.append(profile_camera.camera_name)
+    unknown_camera_names = sorted(set(request.camera_name_by_input.values())
+                                  - set(profile_camera_names))
+    if unknown_camera_names:
+        raise HTTPException(status_code=422,
+                            detail=f'{unknown_camera_names} are no cameras of the profile; its '
+                                   f'cameras: {profile_camera_names}')
+    camera_name_by_input_by_app = _read_camera_name_by_input_by_app(launch_section)
+    camera_name_by_input_by_app[request.app_name] = dict(request.camera_name_by_input)
+    _write_app_inputs(profile_name, camera_name_by_input_by_app)
+
+
+# Written by Claude Code
+def _read_camera_name_by_input_by_app(launch_section: dict) -> dict[str, dict[str, str]]:
+    """Return par_launch.app_inputs; malformed parts are left out, the launch names them."""
+    stored_app_inputs = launch_section.get(PAR_LAUNCH_APP_INPUTS_KEY)
+    camera_name_by_input_by_app = {}
+    if not isinstance(stored_app_inputs, dict):
+        return camera_name_by_input_by_app
+    for app_name, camera_name_by_input in stored_app_inputs.items():
+        if not isinstance(camera_name_by_input, dict):
+            continue
+        checked_camera_name_by_input = {}
+        for input_name, camera_name in camera_name_by_input.items():
+            if isinstance(input_name, str) and isinstance(camera_name, str):
+                checked_camera_name_by_input[input_name] = camera_name
+        camera_name_by_input_by_app[str(app_name)] = checked_camera_name_by_input
+    return camera_name_by_input_by_app
+
+
+# Written by Claude Code
+def _write_app_inputs(profile_name: str,
+                      camera_name_by_input_by_app: dict[str, dict[str, str]]) -> None:
+    """Write par_launch.app_inputs, leaving out apps without a bound input."""
+    stored_app_inputs = {}
+    for app_name, camera_name_by_input in camera_name_by_input_by_app.items():
+        if camera_name_by_input:
+            stored_app_inputs[app_name] = camera_name_by_input
+    # None removes the key once no app has a bound input
+    stored_value = stored_app_inputs or None
+    write_node_settings_into_profile(profile_name, '/par_launch',
+                                     {PAR_LAUNCH_APP_INPUTS_KEY: stored_value})
+
+
+# Written by Claude Code
 def _check_startable_app(app_name: str) -> None:
     """Raise 422 for no installed app, 409 for one whose entry par.launch.py would refuse."""
     # Imported here like camera_preview_api, so this module's imports stay free of the API modules
@@ -442,6 +516,27 @@ def remove_camera(profile_name: str, camera_name: str) -> DeletedProfileResponse
         shutil.move(existing_file_path, deleted_folder_path)
     remaining_cameras = [camera for camera in profile_cameras if camera.camera_name != camera_name]
     _write_profile_cameras(profile_name, remaining_cameras)
+    # Nothing may name the removed camera any more, or the next launch refuses the profile
+    launch_section = read_profile_launch_section(profile_name)
+    camera_list_by_sensor_node = {}
+    for sensor_node_name in get_sensor_node_package_names():
+        listed_camera_names = launch_section.get(sensor_node_name)
+        if isinstance(listed_camera_names, list) and camera_name in listed_camera_names:
+            remaining_camera_names = []
+            for listed_camera_name in listed_camera_names:
+                if listed_camera_name != camera_name:
+                    remaining_camera_names.append(listed_camera_name)
+            # An empty list equals par_setup.yaml's and leaves the profile
+            camera_list_by_sensor_node[sensor_node_name] = remaining_camera_names
+    if camera_list_by_sensor_node:
+        write_node_settings_into_profile(profile_name, '/par_launch', camera_list_by_sensor_node)
+    # An app input bound to the removed camera reads the only camera again, or must be bound anew
+    camera_name_by_input_by_app = _read_camera_name_by_input_by_app(launch_section)
+    for camera_name_by_input in camera_name_by_input_by_app.values():
+        for input_name in list(camera_name_by_input):
+            if camera_name_by_input[input_name] == camera_name:
+                del camera_name_by_input[input_name]
+    _write_app_inputs(profile_name, camera_name_by_input_by_app)
     # The placeholder pose goes with the camera; a section par_setup.yaml holds stays there
     removed_pose_value_by_key = {}
     for pose_key in CAMERA_POSE_KEYS:
@@ -684,6 +779,8 @@ def _read_profile_summary(profile_name: str, connected_displays: list[ConnectedD
     return ProfileSummary(profile_name=profile_name, cameras=cameras,
                           sensor_node_names=sensor_node_names, app_names=app_names,
                           enabled_app_names=enabled_app_names,
+                          camera_name_by_input_by_app=_read_camera_name_by_input_by_app(
+                              launch_section),
                           **projector_display_summary)
 
 

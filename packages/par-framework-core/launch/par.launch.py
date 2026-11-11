@@ -19,8 +19,8 @@ Each of them can be overridden for one run, e.g. camera:=kinect rviz:=true hand_
 an argument left empty keeps the parameter file's value. camera:= starts one camera instead of all:
 a name of par_launch.cameras, or <type>[:<serial>] for a unit the profile does not name. Every
 camera gets its own projection calibration (/cameras/<name>/projection_mapping and
-projection_corners). The projector app and RViz use the first camera (the main camera) and its
-projection calibration. With a camera that offers depth on its colour image's grid
+projection_corners). RViz and the rendering manager use the first camera (the main camera) and
+its projection calibration. With a camera that offers depth on its colour image's grid
 (depth_registered in its entry's streams) the detectors also use its depth. camera_only:=true
 starts just the cameras and their mount transforms, e.g. for a preview or a calibration. An event
 camera (event) delivers its events collected into images, and the raw events on
@@ -35,7 +35,9 @@ par_launch.projector_app (or projector_app:=<name>) chooses the one app that own
 on par_launch.projector_display_id: none, an installed PAR app (a package registered in the ament
 index under par_framework_apps, see templates/par_app/; the framework nodes it requires are
 started too), or rendering_manager, the Wayland compositor whose ROS bridge shows one app on every
-detected page.
+detected page. A PAR app reads the cameras its entry's inputs name: par_launch.app_inputs binds
+each input to a camera, e.g. app_inputs: {demo_app: {camera: overhead}}; an input left unbound
+reads the only camera of the run. The app's required sensor nodes run on its bound cameras.
 
 A camera taking single high-resolution frames on request (e.g. a Blackfly S in software trigger
 mode, see par_setup.yaml) is an ordinary camera of par_launch.cameras with its own settings.
@@ -62,6 +64,8 @@ from par_framework_core.launch_helpers import (create_camera_actions,
                                                get_sensor_node_names_by_camera,
                                                get_camera_namespace,
                                                get_sensor_node_package_names,
+                                               PAR_APP_ENTRY_INPUTS_KEY,
+                                               PAR_LAUNCH_APP_INPUTS_KEY,
                                                PAR_LAUNCH_CAMERAS_KEY, PROJECTOR_APP_NONE,
                                                read_camera_entry,
                                                read_launch_section, read_par_app_entry,
@@ -166,7 +170,7 @@ def get_projector_app_name(context, launch_section):
 
 # Written by Claude Code
 def create_par_app_actions(context, app_package_name, par_app_entry, params_file_paths,
-                           projector_display_id, debug_override, camera_name):
+                           projector_display_id, debug_override, app_input_remappings):
     """Start a PAR app from its ament index entry: its executable as a node, or its launch file."""
     if par_app_entry['executable'] is not None:
         app_node_parameters = list(params_file_paths)
@@ -181,7 +185,7 @@ def create_par_app_actions(context, app_package_name, par_app_entry, params_file
                      output='screen',
                      emulate_tty=True,
                      parameters=app_node_parameters,
-                     remappings=create_camera_stream_remappings(camera_name))]
+                     remappings=app_input_remappings)]
 
     launch_file_path = os.path.join(get_package_share_directory(app_package_name), 'launch',
                                     par_app_entry['launch_file'])
@@ -197,14 +201,81 @@ def create_par_app_actions(context, app_package_name, par_app_entry, params_file
         'display_id': '' if projector_display_id is None else str(projector_display_id),
     }
     # The remappings reach every node the app's launch file starts
-    camera_stream_remap_actions = []
-    for stream_name, camera_topic_name in create_camera_stream_remappings(camera_name):
-        camera_stream_remap_actions.append(SetRemap(src=stream_name, dst=camera_topic_name))
+    app_input_remap_actions = []
+    for app_topic_name, camera_topic_name in app_input_remappings:
+        app_input_remap_actions.append(SetRemap(src=app_topic_name, dst=camera_topic_name))
     return [GroupAction([
-        *camera_stream_remap_actions,
+        *app_input_remap_actions,
         IncludeLaunchDescription(PythonLaunchDescriptionSource(launch_file_path),
                                  launch_arguments=app_launch_arguments.items()),
     ])]
+
+
+# Written by Claude Code
+def get_app_input_camera_names(launch_section, app_name, app_inputs, profile_camera_names,
+                               started_camera_names):
+    """
+    Return {input name: camera name} for every input of the app's entry.
+
+    par_launch.app_inputs.<app>.<input> binds an input to a camera of par_launch.cameras; an
+    input left unbound reads the only camera of the run. Raises RuntimeError naming the fix when
+    a binding is malformed, names an unknown input or camera, or a camera this run does not
+    start, and when an unbound input has several cameras to choose from.
+    """
+    example_text = f'e.g. {PAR_LAUNCH_APP_INPUTS_KEY}: {{{app_name}: {{<input>: <camera>}}}}'
+    input_camera_name_by_app = launch_section.get(PAR_LAUNCH_APP_INPUTS_KEY, {})
+    if not isinstance(input_camera_name_by_app, dict):
+        raise RuntimeError(f'[par.launch]: par_launch.{PAR_LAUNCH_APP_INPUTS_KEY} must map each '
+                           f'app to the cameras of its inputs, {example_text}')
+    bound_camera_name_by_input = input_camera_name_by_app.get(app_name, {})
+    error_start_text = f'[par.launch]: par_launch.{PAR_LAUNCH_APP_INPUTS_KEY}.{app_name}'
+    if not isinstance(bound_camera_name_by_input, dict):
+        raise RuntimeError(f'{error_start_text} must map each input to a camera, {example_text}')
+    unknown_input_names = sorted(set(bound_camera_name_by_input) - set(app_inputs))
+    if unknown_input_names:
+        raise RuntimeError(f'{error_start_text} names the inputs {unknown_input_names}, which '
+                           f'{app_name} does not have; its inputs: {list(app_inputs)}')
+
+    camera_name_by_input = {}
+    for input_name in app_inputs:
+        bound_camera_name = bound_camera_name_by_input.get(input_name)
+        if bound_camera_name is None:
+            if len(started_camera_names) != 1:
+                raise RuntimeError(f'{error_start_text}.{input_name} is not set, and this run '
+                                   f'starts the cameras {started_camera_names}: bind the input '
+                                   f'to one of them, {example_text}')
+            camera_name_by_input[input_name] = started_camera_names[0]
+            continue
+        if bound_camera_name not in profile_camera_names:
+            raise RuntimeError(f'{error_start_text}.{input_name}: {bound_camera_name!r} is no '
+                               f'camera of par_launch.cameras; known: {profile_camera_names}')
+        if bound_camera_name not in started_camera_names:
+            raise RuntimeError(f'{error_start_text}.{input_name} reads {bound_camera_name}, '
+                               f'which this run does not start (camera:='
+                               f'{started_camera_names[0]}): start it too, or pass '
+                               f'projector_app:={PROJECTOR_APP_NONE}')
+        camera_name_by_input[input_name] = bound_camera_name
+    return camera_name_by_input
+
+
+# Written by Claude Code
+def create_app_input_remappings(app_inputs, camera_name_by_input):
+    """
+    Return the remappings that point an app's input topics at the cameras bound to its inputs.
+
+    An app with one input reads plain names (pages -> /cameras/overhead/pages); an app with
+    several prefixes each with its input (tracking/pages -> /cameras/overhead/pages).
+    """
+    is_single_input_app = len(app_inputs) == 1
+    app_input_remappings = []
+    for input_name, topic_names in app_inputs.items():
+        camera_namespace = get_camera_namespace(camera_name_by_input[input_name])
+        for topic_name in topic_names:
+            app_topic_name = f'{input_name}/{topic_name}'
+            if is_single_input_app:
+                app_topic_name = topic_name
+            app_input_remappings.append((app_topic_name, f'{camera_namespace}/{topic_name}'))
+    return app_input_remappings
 
 
 # Written by Claude Code
@@ -255,13 +326,13 @@ def read_sensor_node_camera_names(launch_section, sensor_node_name, profile_came
 # Written by Claude Code
 def get_camera_names_by_sensor_node(context, launch_section, sensor_node_names,
                                     profile_camera_names, started_camera_names,
-                                    app_required_switch_names):
+                                    app_required_switch_names, app_camera_names):
     """
     Return, per sensor node, the started cameras it runs on, in the order of the started cameras.
 
     par_launch.<sensor node> lists them. The launch argument <sensor node>:=false turns every
     run off for one run, :=true runs the node on the only started camera. A sensor node the
-    projector app requires also runs on the main camera, the first started one.
+    projector app requires also runs on app_camera_names, the cameras the app reads.
     """
     camera_names_by_sensor_node = {}
     for sensor_node_name in sensor_node_names:
@@ -282,15 +353,13 @@ def get_camera_names_by_sensor_node(context, launch_section, sensor_node_names,
             raise RuntimeError(f'[par.launch]: {sensor_node_name}:={argument_value}: use true or '
                                f'false, or leave it out to keep par_launch.{sensor_node_name} '
                                f'from the params_file')
+        if sensor_node_name in app_required_switch_names:
+            listed_camera_names = list(listed_camera_names) + list(app_camera_names)
         # Cameras the profile lists but this run does not start (camera:=<name>) are left out
         camera_names = []
         for started_camera_name in started_camera_names:
             if started_camera_name in listed_camera_names:
                 camera_names.append(started_camera_name)
-        main_camera_name = started_camera_names[0]
-        is_required_by_app = sensor_node_name in app_required_switch_names
-        if is_required_by_app and main_camera_name not in camera_names:
-            camera_names.insert(0, main_camera_name)
         camera_names_by_sensor_node[sensor_node_name] = camera_names
     return camera_names_by_sensor_node
 
@@ -301,8 +370,8 @@ def launch_setup(context):
     params_file_paths = get_params_file_paths(context)
     launch_section = read_launch_section(context)
     cameras_to_start = get_cameras_to_start(context)
-    # Simplification: the projector app and RViz use the first camera. Upgrade (multi-camera plan,
-    # step 9): apps bind their inputs to cameras
+    # Simplification: RViz and the rendering manager use the first camera. Upgrade: bind their
+    # inputs to cameras as for a PAR app
     camera = cameras_to_start[0].camera_name
     # read_profile_cameras, not launch_section: the merged section would mix par_setup.yaml's
     # default cameras into the profile's. Empty when camera:=<type> runs without a camera list
@@ -359,8 +428,9 @@ def launch_setup(context):
     if LaunchConfiguration('camera_only').perform(context) == 'true':
         return launch_actions
     if len(cameras_to_start) > 1:
-        launch_actions.append(LogInfo(msg=f'[par.launch]: the projector app and RViz use the main '
-                                          f'camera {camera} (the first of par_launch.cameras)'))
+        launch_actions.append(LogInfo(msg=f'[par.launch]: RViz and the rendering manager use the '
+                                          f'main camera {camera} (the first of '
+                                          f'par_launch.cameras)'))
 
     # Set for every framework node; nodes without a debug parameter ignore it
     debug_override = read_true_false_argument('debug')
@@ -403,9 +473,23 @@ def launch_setup(context):
     started_camera_names = []
     for camera_to_start in cameras_to_start:
         started_camera_names.append(camera_to_start.camera_name)
+    app_input_remappings = []
+    # An app without inputs reads no camera of its own; what it requires runs on the main camera
+    app_camera_names = [camera]
+    if is_par_app:
+        app_inputs = par_app_entry[PAR_APP_ENTRY_INPUTS_KEY]
+        camera_name_by_input = get_app_input_camera_names(
+            launch_section, projector_app_name, app_inputs, profile_camera_names,
+            started_camera_names)
+        app_input_remappings = create_app_input_remappings(app_inputs, camera_name_by_input)
+        if camera_name_by_input:
+            app_camera_names = list(camera_name_by_input.values())
+    # Simplification: the app's required sensor nodes run on every camera it reads, also on a
+    # camera whose input does not use them (e.g. markers on a capture camera). Upgrade: the
+    # entry names the required sensor nodes per input
     camera_names_by_sensor_node = get_camera_names_by_sensor_node(
         context, launch_section, sensor_node_names, profile_camera_names, started_camera_names,
-        required_launch_switch_names)
+        required_launch_switch_names, app_camera_names)
     # A node that reads another one's output (required_sensor_nodes, e.g. page_locator reads
     # fiducials) starts that one along with it, on the same camera
     sensor_node_names_by_camera = get_sensor_node_names_by_camera(camera_names_by_sensor_node,
@@ -439,7 +523,7 @@ def launch_setup(context):
     if is_par_app:
         launch_actions += create_par_app_actions(context, projector_app_name, par_app_entry,
                                                  params_file_paths, projector_display_id,
-                                                 debug_override, camera)
+                                                 debug_override, app_input_remappings)
     elif projector_app_name == RENDERING_MANAGER_APP_NAME:
         launch_actions += create_rendering_manager_actions(params_file_paths, projector_display_id,
                                                            camera)

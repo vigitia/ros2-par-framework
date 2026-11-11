@@ -12,7 +12,8 @@ projector): it is listed with uses_projector false and stored as par.launch.py's
 
 from ament_index_python.resources import has_resource
 from fastapi import APIRouter
-from par_framework_core.launch_helpers import (get_par_app_package_names, read_par_app_entry,
+from par_framework_core.launch_helpers import (get_par_app_package_names,
+                                               PAR_APP_ENTRY_INPUTS_KEY, read_par_app_entry,
                                                RENDERING_MANAGER_APP_NAME)
 import profiles_api
 from pydantic import BaseModel
@@ -50,6 +51,9 @@ class InstalledAppSummary(BaseModel):
     used_calibration_names: list[str]
     # The app's nodes whose settings the wizard edits (full node names); empty without any
     settings_node_names: list[str] = []
+    # The inputs of the app's entry, each bound to one of the profile's cameras; empty for an app
+    # that reads no camera
+    input_names: list[str] = []
     # Set when the app's entry is malformed: par.launch.py would refuse to start it
     entry_error_text: str | None = None
 
@@ -101,4 +105,5 @@ def _read_installed_app_summary(app_package_name: str) -> InstalledAppSummary:
         description=par_app_entry['description'],
         required_launch_switch_names=par_app_entry['required_launch_switches'],
         used_calibration_names=par_app_entry['used_calibrations'],
-        settings_node_names=par_app_entry['settings_node_names'])
+        settings_node_names=par_app_entry['settings_node_names'],
+        input_names=list(par_app_entry[PAR_APP_ENTRY_INPUTS_KEY]))

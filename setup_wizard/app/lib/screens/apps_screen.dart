@@ -1,8 +1,9 @@
 // Written by Claude Code
 //
 // Hub area "Apps" of a profile: one tab per app the profile offers (par_launch.apps), "Add app" for the installed
-// ones it does not offer yet. A tab shows what the app is, Disable, and the settings of the nodes its ament index
-// entry names (settings_node_names), read once from the app and saved into the profile without running it
+// ones it does not offer yet. A tab shows what the app is, Disable, which camera each input of the app reads
+// (par_launch.app_inputs, chosen here when the profile has several cameras), and the settings of the nodes its
+// ament index entry names (settings_node_names), read once from the app and saved into the profile without running it
 // (NodeSettingsEditorView). Which of the profile's apps goes on the projector is chosen in the Run menu
 // (profile_run_view.dart); disabling that app leaves the projector without one. An app that does not use the
 // projector (RViz) starts with every run of the profile while it has a tab here. The Store area is for apps that are
@@ -34,6 +35,8 @@ class _AppsScreenState extends State<AppsScreen> with ProfileSummaryLoading<Apps
   String? _appListErrorText;
   bool _isSavingEnabledApps = false;
   String? _enabledAppsErrorText;
+  bool _isSavingAppInputs = false;
+  String? _appInputsErrorText;
 
   /// The app whose tab comes to the front when the tabs change, e.g. one just added.
   String? _shownTabAppName;
@@ -92,6 +95,43 @@ class _AppsScreenState extends State<AppsScreen> with ProfileSummaryLoading<Apps
     if (mounted) {
       setState(() {
         _isSavingEnabledApps = false;
+      });
+    }
+  }
+
+  /// Stores that inputName of appName reads cameraName, keeping the app's other bindings.
+  Future<void> _saveAppInput(String appName, String inputName, String cameraName) async {
+    final ProfileSummary? profileSummary = getShownProfileSummary();
+    if (profileSummary == null) {
+      return;
+    }
+    final Map<String, String> cameraNameByInput = Map<String, String>.of(
+      profileSummary.cameraNameByInputByApp[appName] ?? <String, String>{},
+    );
+    cameraNameByInput[inputName] = cameraName;
+    setState(() {
+      _isSavingAppInputs = true;
+      _appInputsErrorText = null;
+    });
+    try {
+      await widget.backendClient.setProfileAppInputs(
+        profileName: widget.profileName,
+        appName: appName,
+        cameraNameByInput: cameraNameByInput,
+      );
+    } catch (error) {
+      if (mounted) {
+        setState(() {
+          _appInputsErrorText = describeBackendErrorForUser(error, isBackendDetailShown: true);
+          _isSavingAppInputs = false;
+        });
+      }
+      return;
+    }
+    await loadProfileSummary(widget.backendClient, widget.profileName, isSpinnerShown: false);
+    if (mounted) {
+      setState(() {
+        _isSavingAppInputs = false;
       });
     }
   }
@@ -205,6 +245,10 @@ class _AppsScreenState extends State<AppsScreen> with ProfileSummaryLoading<Apps
       tabRows.add(Text(enabledAppsErrorText, style: TextStyle(color: colorScheme.error)));
     }
     tabRows.add(const SizedBox(height: 16));
+    if (installedApp != null && installedApp.entryErrorText == null && installedApp.inputNames.isNotEmpty) {
+      tabRows.addAll(_buildAppInputRows(installedApp));
+      tabRows.add(const SizedBox(height: 16));
+    }
     final String? entryErrorText = installedApp?.entryErrorText;
     if (entryErrorText != null) {
       tabRows.add(Text('Its entry cannot be used: $entryErrorText', style: TextStyle(color: colorScheme.error)));
@@ -229,5 +273,70 @@ class _AppsScreenState extends State<AppsScreen> with ProfileSummaryLoading<Apps
       padding: const EdgeInsets.fromLTRB(24, 16, 24, runButtonClearanceLogicalPx),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: tabRows),
     );
+  }
+
+  /// Which camera each input of the app reads: a choice per input when the profile has several cameras.
+  List<Widget> _buildAppInputRows(InstalledApp installedApp) {
+    final ColorScheme colorScheme = Theme.of(context).colorScheme;
+    final TextStyle mutedTextStyle = TextStyle(color: colorScheme.onSurfaceVariant);
+    final List<String> cameraNames = [];
+    for (final CameraCalibrationSummary camera in getShownProfileSummary()?.cameras ?? <CameraCalibrationSummary>[]) {
+      cameraNames.add(camera.cameraName);
+    }
+    final Map<String, String> cameraNameByInput =
+        getShownProfileSummary()?.cameraNameByInputByApp[installedApp.appName] ?? <String, String>{};
+    final List<Widget> inputRows = [Text('Cameras', style: Theme.of(context).textTheme.titleMedium)];
+    // With one camera every input reads it, so there is nothing to choose
+    if (cameraNames.length == 1) {
+      inputRows.add(Text('The app reads the camera ${cameraNames.first}.', style: mutedTextStyle));
+      return inputRows;
+    }
+    inputRows.add(Text('Choose the camera each input of the app reads.', style: mutedTextStyle));
+    bool hasUnboundInput = false;
+    for (final String inputName in installedApp.inputNames) {
+      String? boundCameraName = cameraNameByInput[inputName];
+      // A binding to a camera the profile no longer has counts as unbound
+      if (boundCameraName != null && !cameraNames.contains(boundCameraName)) {
+        boundCameraName = null;
+      }
+      if (boundCameraName == null) {
+        hasUnboundInput = true;
+      }
+      final List<DropdownMenuItem<String>> cameraItems = [];
+      for (final String cameraName in cameraNames) {
+        cameraItems.add(DropdownMenuItem<String>(value: cameraName, child: Text(cameraName)));
+      }
+      ValueChanged<String?>? onCameraChosen;
+      if (!_isSavingAppInputs) {
+        onCameraChosen = (String? cameraName) {
+          if (cameraName != null && cameraName != boundCameraName) {
+            _saveAppInput(installedApp.appName, inputName, cameraName);
+          }
+        };
+      }
+      inputRows.add(const SizedBox(height: 8));
+      inputRows.add(Row(children: [
+        SizedBox(width: 160, child: Text(inputName)),
+        DropdownButton<String>(
+          value: boundCameraName,
+          hint: const Text('Choose a camera'),
+          items: cameraItems,
+          onChanged: onCameraChosen,
+        ),
+      ]));
+    }
+    if (hasUnboundInput) {
+      inputRows.add(const SizedBox(height: 8));
+      inputRows.add(Text(
+        'An input without a camera stops the profile from starting this app on the projector.',
+        style: TextStyle(color: colorScheme.error),
+      ));
+    }
+    final String? appInputsErrorText = _appInputsErrorText;
+    if (appInputsErrorText != null) {
+      inputRows.add(const SizedBox(height: 8));
+      inputRows.add(Text(appInputsErrorText, style: TextStyle(color: colorScheme.error)));
+    }
+    return inputRows;
   }
 }

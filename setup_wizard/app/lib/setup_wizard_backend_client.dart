@@ -214,6 +214,7 @@ class ProfileSummary {
     required this.sensorNodeNames,
     required this.appNames,
     required this.enabledAppNames,
+    required this.cameraNameByInputByApp,
     required this.projectorDisplayId,
     required this.storedProjectorDisplayId,
     required this.projectorDisplayState,
@@ -232,6 +233,9 @@ class ProfileSummary {
       sensorNodeNames: (profileSummaryJson['sensor_node_names'] as List<dynamic>).cast<String>(),
       appNames: (profileSummaryJson['app_names'] as List<dynamic>).cast<String>(),
       enabledAppNames: (profileSummaryJson['enabled_app_names'] as List<dynamic>).cast<String>(),
+      cameraNameByInputByApp: _readCameraNameByInputByApp(
+        profileSummaryJson['camera_name_by_input_by_app'] as Map<String, dynamic>,
+      ),
       projectorDisplayId: profileSummaryJson['projector_display_id'] as int?,
       storedProjectorDisplayId: profileSummaryJson['stored_projector_display_id'] as int?,
       projectorDisplayState: ProjectorDisplayState.fromBackendName(profileSummaryJson['projector_display_state'] as String),
@@ -251,6 +255,10 @@ class ProfileSummary {
 
   /// The apps the profile offers (par_launch.apps), in its order; the projector app is one of them.
   final List<String> enabledAppNames;
+
+  /// par_launch.app_inputs: per app, the camera bound to each input; an input left out reads the only camera of a
+  /// run.
+  final Map<String, Map<String, String>> cameraNameByInputByApp;
 
   /// The display to use for the projector now (the framework's display_id): found by the projector's stored
   /// identity, else the stored id; null when the profile sets none or the projector is not found.
@@ -279,6 +287,15 @@ class ProfileSummary {
 
   /// Set when the backend could not read the profile's files; the lists are empty then.
   final String? profileErrorText;
+
+  static Map<String, Map<String, String>> _readCameraNameByInputByApp(Map<String, dynamic> appInputsJson) {
+    final Map<String, Map<String, String>> cameraNameByInputByApp = {};
+    for (final MapEntry<String, dynamic> appInputsEntry in appInputsJson.entries) {
+      final Map<String, dynamic> cameraNameByInputJson = appInputsEntry.value as Map<String, dynamic>;
+      cameraNameByInputByApp[appInputsEntry.key] = cameraNameByInputJson.cast<String, String>();
+    }
+    return cameraNameByInputByApp;
+  }
 
   static List<CameraCalibrationSummary> _readCameraCalibrationSummaries(List<dynamic> camerasJson) {
     final List<CameraCalibrationSummary> cameras = [];

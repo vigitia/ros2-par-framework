@@ -124,6 +124,18 @@ PAR_APP_FULL_NODE_NAME_PATTERN = re.compile(r'(/[A-Za-z_][A-Za-z0-9_]*)+')
 # What used_calibrations may name, so a misspelt name fails instead of never being reported missing
 PAR_APP_CALIBRATION_NAMES = ('camera_intrinsics', 'camera_pose', 'projection_mapping',
                              'projector_center')
+# Co-authored by Claude Code: inputs: the cameras an app reads, each with the topic names below a
+# camera's namespace it reads from it, e.g. {camera: [pages, camera_info]}. The app runs in the
+# root namespace and par.launch.py remaps its names onto the camera bound to the input in
+# par_launch.app_inputs: an app with one input reads the plain names (pages), an app with several
+# inputs prefixes each with its input (tracking/pages, capture/image_raw)
+PAR_APP_ENTRY_INPUTS_KEY = 'inputs'
+PAR_APP_INPUT_NAME_PATTERN = re.compile(r'[a-z][a-z0-9_]*')
+# A topic name relative to the camera's namespace, e.g. pages or image_raw/compressed
+PAR_APP_INPUT_TOPIC_NAME_PATTERN = re.compile(r'[a-z][a-z0-9_]*(/[a-z][a-z0-9_]*)*')
+# par_launch.app_inputs: per app, the camera name bound to each of its inputs,
+# e.g. {demo_app: {camera: overhead}}
+PAR_LAUNCH_APP_INPUTS_KEY = 'app_inputs'
 # par_launch.projector_app chooses the one app on the projector: none, the rendering manager or a
 # PAR app's package. The rendering manager has no entry in the index yet, since it has no launch
 # file of its own; par.launch.py starts it by its own code until it has.
@@ -838,7 +850,8 @@ def read_par_app_entry(app_package_name):
     entry = _read_ament_index_entry(PAR_APP_RESOURCE_TYPE, app_package_name, 'PAR app',
                                     get_par_app_package_names(), 'templates/par_app/')
 
-    known_keys = PAR_APP_ENTRY_TEXT_KEYS + PAR_APP_ENTRY_START_KEYS + PAR_APP_ENTRY_LIST_KEYS
+    known_keys = (PAR_APP_ENTRY_TEXT_KEYS + PAR_APP_ENTRY_START_KEYS + PAR_APP_ENTRY_LIST_KEYS
+                  + (PAR_APP_ENTRY_INPUTS_KEY,))
     unknown_keys = sorted(set(entry) - set(known_keys))
     if unknown_keys:
         raise RuntimeError(f'{error_start_text} has unknown keys {unknown_keys}; known: '
@@ -883,7 +896,33 @@ def read_par_app_entry(app_package_name):
         checked_entry[start_key] = entry.get(start_key)
     for list_key in PAR_APP_ENTRY_LIST_KEYS:
         checked_entry[list_key] = list(entry.get(list_key, []))
+    checked_entry[PAR_APP_ENTRY_INPUTS_KEY] = _check_par_app_inputs(
+        entry.get(PAR_APP_ENTRY_INPUTS_KEY, {}), error_start_text)
     return checked_entry
+
+
+# Written by Claude Code
+def _check_par_app_inputs(inputs, error_start_text):
+    """Return an app entry's inputs as {input name: [topic name, ...]}, checked."""
+    example_text = 'e.g. inputs: {camera: [pages, camera_info]}'
+    if not isinstance(inputs, dict):
+        raise RuntimeError(f'{error_start_text}: {PAR_APP_ENTRY_INPUTS_KEY} must map each input '
+                           f'to the topic names it reads, {example_text}')
+    checked_inputs = {}
+    for input_name, topic_names in inputs.items():
+        if not isinstance(input_name, str) or not PAR_APP_INPUT_NAME_PATTERN.fullmatch(input_name):
+            raise RuntimeError(f'{error_start_text}: input {input_name!r}: an input name may only '
+                               f'hold lower case letters, digits and _, starting with a letter')
+        is_list_of_topic_names = isinstance(topic_names, list) and bool(topic_names) and all(
+            isinstance(topic_name, str)
+            and PAR_APP_INPUT_TOPIC_NAME_PATTERN.fullmatch(topic_name)
+            for topic_name in topic_names)
+        if not is_list_of_topic_names:
+            raise RuntimeError(f'{error_start_text}: input {input_name} must list the topic names '
+                               f'it reads below the namespace of the camera, without a leading /, '
+                               f'{example_text}')
+        checked_inputs[input_name] = list(topic_names)
+    return checked_inputs
 
 
 # Co-authored by Claude Code

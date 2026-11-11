@@ -1,8 +1,8 @@
 // Written by Claude Code
 //
 // The app's calls for the apps: the installed apps (setup_wizard/backend/apps_api.py), the apps a profile offers
-// (par_launch.apps) and the one it puts on the projector (par_launch.projector_app), both in
-// setup_wizard/backend/profiles_api.py. Their settings are read and saved by node_settings_api.dart.
+// (par_launch.apps), the one it puts on the projector (par_launch.projector_app) and the cameras their inputs read
+// (par_launch.app_inputs), all three in setup_wizard/backend/profiles_api.py. Their settings are read and saved by node_settings_api.dart.
 
 import 'setup_wizard_backend_client.dart';
 
@@ -25,6 +25,19 @@ extension AppsApi on SetupWizardBackendClient {
     await sendJson('PUT', '/api/profiles/${Uri.encodeComponent(profileName)}/projector-app', {'app_name': appName});
   }
 
+  /// Stores which of the profile's cameras each input of appName reads; an input left out reads the only camera of a
+  /// run.
+  Future<void> setProfileAppInputs({
+    required String profileName,
+    required String appName,
+    required Map<String, String> cameraNameByInput,
+  }) async {
+    await sendJson('PUT', '/api/profiles/${Uri.encodeComponent(profileName)}/app-inputs', {
+      'app_name': appName,
+      'camera_name_by_input': cameraNameByInput,
+    });
+  }
+
   /// Stores which installed apps the profile offers (par_launch.apps), in this order; an app no longer among them
   /// stops being the profile's projector app.
   Future<void> setProfileEnabledApps({required String profileName, required List<String> appNames}) async {
@@ -39,6 +52,7 @@ class InstalledApp {
     required this.description,
     required this.usesProjector,
     required this.settingsNodeNames,
+    required this.inputNames,
     required this.entryErrorText,
   });
 
@@ -49,6 +63,7 @@ class InstalledApp {
       description: appJson['description'] as String,
       usesProjector: appJson['uses_projector'] as bool,
       settingsNodeNames: (appJson['settings_node_names'] as List<dynamic>).cast<String>(),
+      inputNames: (appJson['input_names'] as List<dynamic>).cast<String>(),
       entryErrorText: appJson['entry_error_text'] as String?,
     );
   }
@@ -64,6 +79,9 @@ class InstalledApp {
 
   /// The app's nodes whose settings the Apps area edits (full node names); empty when the app declares none.
   final List<String> settingsNodeNames;
+
+  /// The inputs of the app's entry, each reading one of the profile's cameras; empty for an app that reads none.
+  final List<String> inputNames;
 
   /// Set when the app's entry is malformed, so the framework would refuse to start it.
   final String? entryErrorText;

@@ -119,3 +119,17 @@ and fine content such as markers blurs, which is easy to miss.
 
 **Alternatives considered:** only a tooltip on the card (not readable without hovering, and the cards are one line per
 row); a warning only for the chosen display (the scaling should be fixed before choosing, so it shows for all).
+
+## 2026-11-11: Apps area chooses the camera of each app input
+
+**What changed:** an app tab shows a "Cameras" section for an app whose entry names inputs. With several cameras,
+each input gets a dropdown of the profile's cameras (`setProfileAppInputs`, stored in `par_launch.app_inputs`); an
+unbound input, or one bound to a camera the profile no longer has, is marked, since the profile cannot start the app
+on the projector until it is bound. With one camera, the section only says which camera the app reads.
+`InstalledApp.inputNames` and `ProfileSummary.cameraNameByInputByApp` carry the data.
+
+**Why:** step 9 of the multi-camera plan: apps bind their inputs to cameras, chosen in the Apps area.
+
+**Alternatives considered:** a dropdown with one camera too (nothing to choose; launch binds the only camera itself);
+binding all inputs of an app at once to the main camera when it is added (with several cameras the main camera is
+often the wrong one, e.g. for a capture input).
