@@ -4695,3 +4695,20 @@ land there too, and an app with two cameras has no single namespace); passing th
 launch-file apps (`SetRemap` in the app's group reaches every node its launch file starts without a new argument);
 running the required sensor nodes only on the inputs that need them (needs per-input requirements in the entry;
 marked as a simplification). RViz and the rendering manager keep using the main camera (decided by Vitus: later).
+
+## 2026-11-11: Documentation for several cameras (multi-camera step 10)
+
+**What changed:** the README describes the multi-camera scheme: cameras named by role in `par_launch.cameras`, each
+in `/cameras/<name>/` with the image pipeline names (table now relative to the namespace, with the camera types that
+offer each stream), sensor nodes per camera, app inputs, intrinsics per unit, poses and frames per camera name,
+camera types through the ament index (Adding a camera points to `templates/par_camera/`), the event camera's names,
+and per-camera projection mappings. The profile example, package table, repo structure (`setup_wizard/`,
+`templates/`) and coordinate section follow. `par_setup.yaml`'s `par_launch` comments name `app_inputs` and say that
+RViz and the rendering manager use the main camera. The sensor node entry template and the camera template README
+say that sensor nodes run in the camera's namespace.
+
+**Why:** the README still described one camera on `/camera/...` with constants (`CAMERA_DRIVER_REMAPPINGS`,
+`DEPTH_CAMERA_NAMES`, `CAMERA_DETECTOR_PARAMETER_OVERRIDES`) that no longer exist, so following it would fail.
+
+**Alternatives considered:** a separate multi-camera document next to the README (two places to keep in sync, and
+the README would stay wrong); listing every launch argument (the README's TODO for that was left to Vitus).

@@ -8,14 +8,17 @@
 #       ['resource/par_framework_sensor_nodes/' + package_name]),
 #
 # par.launch.py and the setup wizard find the node through it; the format is checked by
-# par_framework_core.launch_helpers.read_sensor_node_entry. Convention: the package name is the node's
-# par_launch switch, its console_scripts entry point has the same name, and par.launch.py names the
-# node <package>_node (its section in par_setup.yaml).
+# par_framework_core.launch_helpers.read_sensor_node_entry. Convention: the package name is the
+# par_launch key that lists the cameras the node runs on (e.g. example_detector: [overhead]), its
+# console_scripts entry point has the same name, and par.launch.py starts it as <package>_node in each
+# listed camera's namespace (/cameras/<camera>/<package>_node), where its relative topic names resolve
+# to that camera's streams and its outputs stay apart from another camera's. Its settings: defaults
+# under /cameras/*/<package>_node in par_setup.yaml, per camera under /cameras/<camera>/<package>_node.
 
 # Shown in the setup wizard
 display_name: Example detector
 description: One sentence on what the node finds in the camera image and publishes.
 
-# Other sensor nodes whose output this node reads; par.launch.py starts them along with it, and the
-# wizard selects them with it. Leave the list empty when the node reads only the camera.
+# Other sensor nodes whose output this node reads; par.launch.py starts them along with it on the
+# same camera, and the wizard selects them with it. Leave the list empty when the node reads only the camera.
 required_sensor_nodes: []

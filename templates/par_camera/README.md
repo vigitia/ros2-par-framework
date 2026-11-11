@@ -23,8 +23,9 @@ For a camera of this type that a profile names `<camera>` (`par_launch.cameras: 
 2. includes the launch file with `namespace:=/cameras/<camera>`, `camera_name:=<camera>`, `serial`,
    `camera_info_url` (for `intrinsics: calibratable`) and `params_files`;
 3. publishes the mount transform `world -> <camera>_<body_frame>` (measured pose or placeholder);
-4. points every framework node's relative stream names (`image_raw`, `camera_info`, ...) at `/cameras/<camera>/...`,
-   and sets detector options from `streams` (e.g. `use_depth` when the camera offers `depth_registered/image_raw`).
+4. runs the sensor nodes the profile lists for the camera in its namespace, where their relative stream names
+   (`image_raw`, `camera_info`, ...) resolve to `/cameras/<camera>/...`, and sets detector options from `streams`
+   (e.g. `use_depth` when the camera offers `depth_registered/image_raw`).
 
 ## The launch file's job
 

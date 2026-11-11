@@ -463,7 +463,8 @@ par_launch:
     #   cameras: {overhead: 'blackfly:22260470', capture: 'blackfly:25290614'}
     # The name makes its namespace (/cameras/<name>), frames (<name>_link, ...), placeholder pose
     # (/<name>_tf_publisher) and extrinsics files; the unit makes its intrinsics file. The first camera is the main
-    # camera the projector app and RViz use. A profile's cameras replace these instead of being merged with them.
+    # camera RViz and the rendering manager use. A profile's cameras replace these instead of being merged with
+    # them.
     cameras:
       kinect: kinect
     object_detector: []
@@ -486,6 +487,9 @@ par_launch:
     # The apps this setup offers (package names as for projector_app), set in the setup wizard's Apps area; its Run
     # menu chooses projector_app among them. par.launch.py starts only projector_app
     apps: []
+    # The camera each input of an app reads (the inputs its ament index entry names), e.g.
+    #   app_inputs: {demo_app: {camera: overhead}}
+    # set in the setup wizard's Apps area. An input left out reads the only camera of a run.
     # Display the projector is connected to, counted like SDL/pygame (0 = primary); the projector app gets it as
     # its display_id. The number changes when displays are plugged in or out, so a profile made by the setup wizard
     # also stores the projector's identity (projector_manufacturer_id, projector_model_name, projector_serial_text,
