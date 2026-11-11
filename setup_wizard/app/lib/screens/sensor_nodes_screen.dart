@@ -1,13 +1,15 @@
 // Written by Claude Code
 //
-// Hub area "Sensor nodes" of a profile: one tab per sensor processing node the profile starts (par_launch.<package>:
-// true), "Add sensor node" for the installed ones it does not start yet. A node's tab shows what it is, Disable (not
-// for a node another enabled one needs, which comes along with it) and its settings. The settings are read once from
-// the node and saved into the profile without a run (NodeSettingsEditorView). The floating "Debug node" button
-// starts the profile's camera with the enabled nodes, without the projector app and with their debug parameter on,
-// so each node opens its own preview window on the PAR machine; the tab in front then shows the camera image and
-// its node's outputs (image outputs as frames, the others as their latest message), and saving
-// settings meanwhile starts the run again with them.
+// Hub area "Sensor nodes" of a profile: one tab per sensor processing node the profile starts on at least one camera
+// (par_launch.<package>: [<camera>, ...]), "Add sensor node" for the installed ones it does not start yet; an added
+// node runs on the main camera. A node's tab shows what it is, Disable (not for a node another enabled one needs,
+// which comes along with it), with several cameras a chip per camera choosing where it runs and a switch choosing the
+// camera whose settings and debug view the tab shows, and its settings on that camera
+// (/cameras/<camera>/<package>_node). The settings are read once from the node and saved into the profile without a
+// run (NodeSettingsEditorView). The floating "Debug node" button starts the profile's cameras with their nodes,
+// without the projector app and with their debug parameter on, so each node opens its own preview window on the PAR
+// machine; the tab in front then shows the chosen camera's image and its node's outputs there (image outputs as
+// frames, the others as their latest message), and saving settings meanwhile starts the run again with them.
 
 import 'dart:async';
 
@@ -33,7 +35,7 @@ const Duration sensorNodeOutputPollInterval = Duration(milliseconds: 500);
 const double sensorNodesCameraImageHeightLogicalPx = 360;
 const double sensorNodeImageOutputHeightLogicalPx = 240;
 
-/// par.launch.py names each sensor node `<package>_node`, without a namespace.
+/// par.launch.py names each sensor node `<package>_node`, in its camera's namespace.
 const String sensorNodeNameSuffix = '_node';
 
 /// The debug button's own hero tag, distinct from the Run button's (profileRunButtonHeroTag), which is on screen too.
@@ -53,13 +55,17 @@ class _SensorNodesScreenState extends State<SensorNodesScreen> {
   SensorNodeList? _sensorNodeList;
   String? _listErrorText;
 
-  /// The profile's stored selection, with the nodes the selected ones need.
-  Set<String> _enabledPackageNames = {};
+  /// The profile's stored selection: the cameras each node runs on, with the nodes the listed ones need on the same
+  /// camera; only nodes that run on a camera.
+  Map<String, List<String>> _cameraNamesByPackage = {};
   bool _isSavingSelection = false;
   String? _selectionErrorText;
 
   /// The node whose tab comes to the front when the tabs change, e.g. one just added.
   String? _shownTabPackageName;
+
+  /// Per node, the camera whose settings and debug view its tab shows, once one was chosen.
+  final Map<String, String> _shownCameraNameByPackage = {};
 
   /// The running try's preview id; null while none runs.
   int? _runPreviewId;
@@ -90,15 +96,15 @@ class _SensorNodesScreenState extends State<SensorNodesScreen> {
       if (!mounted) {
         return;
       }
-      final Set<String> selectedPackageNames = {};
+      final Map<String, List<String>> cameraNamesByPackage = {};
       for (final SensorNodeSummary sensorNode in sensorNodeList.sensorNodes) {
-        if (sensorNode.isSelected) {
-          selectedPackageNames.add(sensorNode.packageName);
+        if (sensorNode.cameraNames.isNotEmpty) {
+          cameraNamesByPackage[sensorNode.packageName] = sensorNode.cameraNames;
         }
       }
       setState(() {
         _sensorNodeList = sensorNodeList;
-        _enabledPackageNames = selectedPackageNames;
+        _cameraNamesByPackage = cameraNamesByPackage;
         _listErrorText = null;
       });
     } catch (error) {
@@ -110,31 +116,32 @@ class _SensorNodesScreenState extends State<SensorNodesScreen> {
     }
   }
 
-  /// Enables or disables the node; an enabled one comes to the front as its tab.
-  Future<void> _setSensorNodeEnabled(String packageName, bool isEnabled) async {
-    final Set<String> requestedPackageNames = Set<String>.of(_enabledPackageNames);
-    if (isEnabled) {
-      requestedPackageNames.add(packageName);
+  /// Sets the cameras the node runs on; none disables it. A node just enabled comes to the front as its tab.
+  Future<void> _setSensorNodeCameras(String packageName, List<String> cameraNames) async {
+    final Map<String, List<String>> requestedCameraNamesByPackage = Map<String, List<String>>.of(_cameraNamesByPackage);
+    final bool isNewlyEnabled = cameraNames.isNotEmpty && !_cameraNamesByPackage.containsKey(packageName);
+    if (cameraNames.isEmpty) {
+      requestedCameraNamesByPackage.remove(packageName);
     } else {
-      requestedPackageNames.remove(packageName);
+      requestedCameraNamesByPackage[packageName] = cameraNames;
     }
     setState(() {
       _isSavingSelection = true;
       _selectionErrorText = null;
-      if (isEnabled) {
+      if (isNewlyEnabled) {
         _shownTabPackageName = packageName;
       }
     });
     try {
-      final List<String> storedPackageNames = await widget.backendClient.saveSensorNodeSelection(
+      final Map<String, List<String>> storedCameraNamesByPackage = await widget.backendClient.saveSensorNodeSelection(
         profileName: widget.profileName,
-        selectedPackageNames: requestedPackageNames.toList(),
+        cameraNamesByPackage: requestedCameraNamesByPackage,
       );
       if (!mounted) {
         return;
       }
       setState(() {
-        _enabledPackageNames = storedPackageNames.toSet();
+        _cameraNamesByPackage = storedCameraNamesByPackage;
         _isSavingSelection = false;
       });
     } catch (error) {
@@ -229,7 +236,7 @@ class _SensorNodesScreenState extends State<SensorNodesScreen> {
   List<SensorNodeSummary> _getEnabledSensorNodes(SensorNodeList sensorNodeList) {
     final List<SensorNodeSummary> enabledSensorNodes = [];
     for (final SensorNodeSummary sensorNode in sensorNodeList.sensorNodes) {
-      if (_enabledPackageNames.contains(sensorNode.packageName)) {
+      if (_cameraNamesByPackage.containsKey(sensorNode.packageName)) {
         enabledSensorNodes.add(sensorNode);
       }
     }
@@ -269,7 +276,7 @@ class _SensorNodesScreenState extends State<SensorNodesScreen> {
     }
     Widget? debugButton;
     if (enabledSensorNodes.isNotEmpty) {
-      debugButton = _buildDebugButton(sensorNodeList.cameraName);
+      debugButton = _buildDebugButton();
     }
     // A Scaffold of its own, so the button floats in this area's bottom right corner
     return Scaffold(
@@ -286,14 +293,14 @@ class _SensorNodesScreenState extends State<SensorNodesScreen> {
     );
   }
 
-  /// Starts the camera with the enabled nodes, or stops that run.
-  Widget _buildDebugButton(String cameraName) {
+  /// Starts the cameras with their enabled nodes, or stops that run.
+  Widget _buildDebugButton() {
     final ColorScheme colorScheme = Theme.of(context).colorScheme;
     if (_runPreviewId != null) {
       return FloatingActionButton.extended(
         heroTag: sensorNodesDebugButtonHeroTag,
         onPressed: _stopRun,
-        tooltip: 'Stop the camera and the sensor nodes.',
+        tooltip: 'Stop the cameras and the sensor nodes.',
         backgroundColor: colorScheme.error,
         foregroundColor: colorScheme.onError,
         icon: const Icon(Icons.stop),
@@ -309,56 +316,76 @@ class _SensorNodesScreenState extends State<SensorNodesScreen> {
     return FloatingActionButton.extended(
       heroTag: sensorNodesDebugButtonHeroTag,
       onPressed: onPressed,
-      tooltip: 'Start the camera ($cameraName) with the enabled nodes, as the profile does but without the projector '
-          'app and with debug on (each node opens its preview window on the PAR machine), and show what the node '
-          'in front publishes.',
+      tooltip: 'Start the cameras with their enabled nodes, as the profile does but without the projector app and '
+          'with debug on (each node opens its preview window on the PAR machine), and show what the node in front '
+          'publishes on the camera its tab shows.',
       icon: icon,
       label: const Text('Debug node'),
     );
   }
 
+  /// An added node runs on the main camera; its tab chooses further ones.
   List<Widget> _buildAddMenuEntries(SensorNodeList sensorNodeList) {
     final List<Widget> addMenuEntries = [];
     for (final SensorNodeSummary sensorNode in sensorNodeList.sensorNodes) {
-      if (_enabledPackageNames.contains(sensorNode.packageName)) {
+      if (_cameraNamesByPackage.containsKey(sensorNode.packageName)) {
         continue;
       }
-      // A broken entry cannot be started
+      // A broken entry cannot be started, and a profile without a camera has nothing to run it on
       VoidCallback? onPressed;
-      if (sensorNode.entryErrorText.isEmpty && !_isSavingSelection) {
-        onPressed = () => _setSensorNodeEnabled(sensorNode.packageName, true);
+      final bool canBeAdded =
+          sensorNode.entryErrorText.isEmpty && sensorNodeList.cameraNames.isNotEmpty && !_isSavingSelection;
+      if (canBeAdded) {
+        final String mainCameraName = sensorNodeList.cameraNames.first;
+        onPressed = () => _setSensorNodeCameras(sensorNode.packageName, [mainCameraName]);
       }
       addMenuEntries.add(MenuItemButton(onPressed: onPressed, child: Text(sensorNode.displayName)));
     }
     return addMenuEntries;
   }
 
-  /// The selected nodes that need packageName, e.g. page_locator for fiducials_detector.
-  List<String> _getSelectedNodesNeeding(String packageName) {
+  /// The nodes on cameraName that need packageName there, e.g. page_locator for fiducials_detector.
+  List<String> _getNodesNeedingOnCamera(String packageName, String cameraName) {
     final List<String> needingNodeNames = [];
     for (final SensorNodeSummary sensorNode in _sensorNodeList?.sensorNodes ?? <SensorNodeSummary>[]) {
-      final bool isSelected = _enabledPackageNames.contains(sensorNode.packageName);
-      if (isSelected && sensorNode.requiredSensorNodes.contains(packageName)) {
+      final List<String> nodeCameraNames = _cameraNamesByPackage[sensorNode.packageName] ?? <String>[];
+      if (nodeCameraNames.contains(cameraName) && sensorNode.requiredSensorNodes.contains(packageName)) {
         needingNodeNames.add(sensorNode.displayName);
       }
     }
     return needingNodeNames;
   }
 
+  /// The camera whose settings and debug view the node's tab shows: the chosen one while the node runs on it, else
+  /// the first camera it runs on.
+  String _getShownCameraName(String packageName) {
+    final List<String> nodeCameraNames = _cameraNamesByPackage[packageName] ?? <String>[];
+    final String? chosenCameraName = _shownCameraNameByPackage[packageName];
+    if (chosenCameraName != null && nodeCameraNames.contains(chosenCameraName)) {
+      return chosenCameraName;
+    }
+    return nodeCameraNames.first;
+  }
+
   Widget _buildSensorNodeTab(SensorNodeSummary sensorNode, bool isShownTab) {
     final ColorScheme colorScheme = Theme.of(context).colorScheme;
     final TextStyle mutedTextStyle = TextStyle(color: colorScheme.onSurfaceVariant);
-    final List<String> needingNodeNames = _getSelectedNodesNeeding(sensorNode.packageName);
+    final List<String> nodeCameraNames = _cameraNamesByPackage[sensorNode.packageName] ?? <String>[];
+    final Set<String> needingNodeNames = {};
+    for (final String cameraName in nodeCameraNames) {
+      needingNodeNames.addAll(_getNodesNeedingOnCamera(sensorNode.packageName, cameraName));
+    }
     final List<String> descriptionParts = [sensorNode.description];
     if (sensorNode.requiredSensorNodes.isNotEmpty) {
-      descriptionParts.add('Needs ${sensorNode.requiredSensorNodes.join(', ')}, which starts along with it.');
+      descriptionParts.add('Needs ${sensorNode.requiredSensorNodes.join(', ')}, which starts along with it on the '
+          'same camera.');
     }
     VoidCallback? onDisableClicked;
-    String disableTooltipText = 'The profile no longer starts this node.';
+    String disableTooltipText = 'The profile no longer starts this node, on any camera.';
     if (needingNodeNames.isNotEmpty) {
       disableTooltipText = 'Needed by ${needingNodeNames.join(', ')}: disable that first.';
     } else if (!_isSavingSelection) {
-      onDisableClicked = () => _setSensorNodeEnabled(sensorNode.packageName, false);
+      onDisableClicked = () => _setSensorNodeCameras(sensorNode.packageName, []);
     }
     final List<Widget> tabRows = [
       Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -374,25 +401,53 @@ class _SensorNodesScreenState extends State<SensorNodesScreen> {
         ),
       ]),
     ];
+    // With one camera, Disable is the only choice; the camera chips and the camera switch need several
+    final List<String> profileCameraNames = _sensorNodeList?.cameraNames ?? <String>[];
+    if (profileCameraNames.length > 1) {
+      tabRows.add(const SizedBox(height: 12));
+      tabRows.add(_buildCameraChipsRow(sensorNode, profileCameraNames, nodeCameraNames));
+    }
     final String? selectionErrorText = _selectionErrorText;
     if (selectionErrorText != null) {
       tabRows.add(Text(selectionErrorText, style: TextStyle(color: colorScheme.error)));
     }
+    final String shownCameraName = _getShownCameraName(sensorNode.packageName);
+    if (nodeCameraNames.length > 1) {
+      tabRows.add(const SizedBox(height: 12));
+      tabRows.add(Row(children: [
+        Text('Settings and debug view for', style: mutedTextStyle),
+        const SizedBox(width: 12),
+        SegmentedButton<String>(
+          segments: [
+            for (final String cameraName in nodeCameraNames)
+              ButtonSegment<String>(value: cameraName, label: Text(cameraName)),
+          ],
+          selected: {shownCameraName},
+          onSelectionChanged: (Set<String> selectedCameraNames) {
+            setState(() {
+              _shownCameraNameByPackage[sensorNode.packageName] = selectedCameraNames.first;
+            });
+          },
+        ),
+      ]));
+    }
     tabRows.add(const SizedBox(height: 16));
     // Only the tab in front shows the live image, so hidden tabs do not ask for frames
     if (isShownTab) {
-      final List<Widget> debugRows = _buildDebugRows(sensorNode);
+      final List<Widget> debugRows = _buildDebugRows(sensorNode, shownCameraName);
       if (debugRows.isNotEmpty) {
         tabRows.addAll(debugRows);
         tabRows.add(const SizedBox(height: 24));
       }
     }
     tabRows.add(NodeSettingsEditorView(
+      // Built anew for another camera: its values are that camera's
+      key: ValueKey<String>('${sensorNode.packageName}_$shownCameraName'),
       backendClient: widget.backendClient,
       profileName: widget.profileName,
       nodeKind: SettingsNodeKind.sensorNode,
       packageName: sensorNode.packageName,
-      fullNodeName: '/${sensorNode.packageName}$sensorNodeNameSuffix',
+      fullNodeName: '$camerasNamespace/$shownCameraName/${sensorNode.packageName}$sensorNodeNameSuffix',
       onSettingsSaved: _restartRunningDebugRun,
     ));
     return SingleChildScrollView(
@@ -402,6 +457,44 @@ class _SensorNodesScreenState extends State<SensorNodesScreen> {
     );
   }
 
+  /// A chip per camera of the profile, selected where the node runs; one the node is needed on stays selected.
+  Widget _buildCameraChipsRow(SensorNodeSummary sensorNode, List<String> profileCameraNames,
+      List<String> nodeCameraNames) {
+    final List<Widget> cameraChips = [];
+    for (final String cameraName in profileCameraNames) {
+      final bool isRunningOnCamera = nodeCameraNames.contains(cameraName);
+      final List<String> needingNodeNames = _getNodesNeedingOnCamera(sensorNode.packageName, cameraName);
+      String chipTooltipText = 'Run this node on $cameraName, in /cameras/$cameraName.';
+      ValueChanged<bool>? onSelected;
+      if (isRunningOnCamera && needingNodeNames.isNotEmpty) {
+        chipTooltipText = 'Needed by ${needingNodeNames.join(', ')} on $cameraName: remove that first.';
+      } else if (!_isSavingSelection) {
+        onSelected = (bool isSelected) {
+          final List<String> requestedCameraNames = [];
+          for (final String profileCameraName in profileCameraNames) {
+            final bool isKept = profileCameraName != cameraName && nodeCameraNames.contains(profileCameraName);
+            final bool isAdded = profileCameraName == cameraName && isSelected;
+            if (isKept || isAdded) {
+              requestedCameraNames.add(profileCameraName);
+            }
+          }
+          _setSensorNodeCameras(sensorNode.packageName, requestedCameraNames);
+        };
+      }
+      cameraChips.add(FilterChip(
+        label: Text(cameraName),
+        selected: isRunningOnCamera,
+        tooltip: chipTooltipText,
+        onSelected: onSelected,
+      ));
+    }
+    return Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
+      Text('Runs on', style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
+      const SizedBox(width: 12),
+      Expanded(child: Wrap(spacing: 8, runSpacing: 8, children: cameraChips)),
+    ]);
+  }
+
   /// A running debug run starts again, so the nodes read the saved settings.
   void _restartRunningDebugRun() {
     if (_runPreviewId != null) {
@@ -409,8 +502,8 @@ class _SensorNodesScreenState extends State<SensorNodesScreen> {
     }
   }
 
-  /// The live view while debugging: the camera image and this node's outputs; nothing while no run goes.
-  List<Widget> _buildDebugRows(SensorNodeSummary sensorNode) {
+  /// The live view while debugging: the camera's image and this node's outputs on it; nothing while no run goes.
+  List<Widget> _buildDebugRows(SensorNodeSummary sensorNode, String cameraName) {
     final ColorScheme colorScheme = Theme.of(context).colorScheme;
     final List<Widget> debugRows = [];
     if (_runPreviewId == null) {
@@ -420,7 +513,7 @@ class _SensorNodesScreenState extends State<SensorNodesScreen> {
       }
       return debugRows;
     }
-    debugRows.add(Text('Debugging', style: Theme.of(context).textTheme.titleMedium));
+    debugRows.add(Text('Debugging on $cameraName', style: Theme.of(context).textTheme.titleMedium));
     debugRows.addAll([
       if (_isStartingRun) const Text('Starting again …'),
       const SizedBox(height: 8),
@@ -429,12 +522,12 @@ class _SensorNodesScreenState extends State<SensorNodesScreen> {
         child: Align(
           alignment: Alignment.topLeft,
           child: CameraFeedImage(
-            key: ValueKey<String>('camera_$_runStartCount'),
+            key: ValueKey<String>('camera_${cameraName}_$_runStartCount'),
             backendClient: widget.backendClient,
-            // The run shows the main camera, the one the sensor nodes use
+            // The run starts every camera of the profile; this one is the node's run shown in the tab
             feedTopicName: PreviewCameraChoice.profileCamera(
               profileName: widget.profileName,
-              cameraName: _sensorNodeList?.cameraName ?? '',
+              cameraName: cameraName,
             ).imageTopicName,
           ),
         ),
@@ -456,12 +549,14 @@ class _SensorNodesScreenState extends State<SensorNodesScreen> {
       return debugRows;
     }
     for (final RunningSensorNode runningSensorNode in runState.runningSensorNodes) {
-      if (runningSensorNode.packageName != sensorNode.packageName) {
+      final bool isShownRun =
+          runningSensorNode.packageName == sensorNode.packageName && runningSensorNode.cameraName == cameraName;
+      if (!isShownRun) {
         continue;
       }
       debugRows.add(const SizedBox(height: 16));
       debugRows.add(_SensorNodeOutputsView(
-        key: ValueKey<String>('${runningSensorNode.packageName}_$_runStartCount'),
+        key: ValueKey<String>('${runningSensorNode.packageName}_${cameraName}_$_runStartCount'),
         backendClient: widget.backendClient,
         runningSensorNode: runningSensorNode,
       ));

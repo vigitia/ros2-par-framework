@@ -1,8 +1,8 @@
 // Written by Claude Code
 //
 // The app's calls to the backend's sensor processing nodes (setup_wizard/backend/sensor_nodes_api.py): the
-// installed nodes and the profile's selection, a run of the profile's camera with the selected nodes, what each
-// node publishes. Settings are read and saved by node_settings_api.dart. A run is stopped like a preview
+// installed nodes and on which cameras the profile starts each, a run of the profile's cameras with their nodes, what
+// each node publishes. Settings are read and saved by node_settings_api.dart. A run is stopped like a preview
 // (stopCameraPreview with the run's preview id).
 
 import 'dart:convert';
@@ -20,19 +20,25 @@ extension SensorNodesApi on SetupWizardBackendClient {
     return SensorNodeList.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
   }
 
-  /// Stores which nodes the profile starts; returns the stored selection, with the nodes the selected ones need.
-  Future<List<String>> saveSensorNodeSelection({
+  /// Stores on which cameras the profile starts each node; returns the stored selection, with the nodes the listed
+  /// ones need on the same camera, only for nodes that run on a camera.
+  Future<Map<String, List<String>>> saveSensorNodeSelection({
     required String profileName,
-    required List<String> selectedPackageNames,
+    required Map<String, List<String>> cameraNamesByPackage,
   }) async {
     final Map<String, dynamic> selectionJson = await sendJson('PUT', '/api/sensor-nodes/selection', {
       'profile_name': profileName,
-      'selected_package_names': selectedPackageNames,
+      'camera_names_by_package': cameraNamesByPackage,
     }) as Map<String, dynamic>;
-    return (selectionJson['selected_package_names'] as List<dynamic>).cast<String>();
+    final Map<String, List<String>> storedCameraNamesByPackage = {};
+    final Map<String, dynamic> cameraNamesJsonByPackage = selectionJson['camera_names_by_package'] as Map<String, dynamic>;
+    for (final MapEntry<String, dynamic> packageEntry in cameraNamesJsonByPackage.entries) {
+      storedCameraNamesByPackage[packageEntry.key] = (packageEntry.value as List<dynamic>).cast<String>();
+    }
+    return storedCameraNamesByPackage;
   }
 
-  /// Starts the profile's camera with its selected nodes, replacing the running preview; returns the run's preview
+  /// Starts the profile's cameras with their nodes, replacing the running preview; returns the run's preview
   /// id.
   Future<int> startSensorNodesRun(String profileName) async {
     final http.Response response = await _postSensorNodesJson('/api/sensor-nodes/run/start', {
@@ -82,18 +88,21 @@ extension SensorNodesApi on SetupWizardBackendClient {
 }
 
 class SensorNodeList {
-  const SensorNodeList({required this.cameraName, required this.sensorNodes});
+  const SensorNodeList({required this.cameraNames, required this.sensorNodes});
 
   factory SensorNodeList.fromJson(Map<String, dynamic> listJson) {
     final List<SensorNodeSummary> sensorNodes = [];
     for (final dynamic sensorNodeJson in listJson['sensor_nodes'] as List<dynamic>) {
       sensorNodes.add(SensorNodeSummary.fromJson(sensorNodeJson as Map<String, dynamic>));
     }
-    return SensorNodeList(cameraName: listJson['camera_name'] as String, sensorNodes: sensorNodes);
+    return SensorNodeList(
+      cameraNames: (listJson['camera_names'] as List<dynamic>).cast<String>(),
+      sensorNodes: sensorNodes,
+    );
   }
 
-  /// The camera the nodes run on.
-  final String cameraName;
+  /// The profile's cameras (par_launch.cameras) in their order; the first is the main camera.
+  final List<String> cameraNames;
   final List<SensorNodeSummary> sensorNodes;
 }
 
@@ -103,7 +112,7 @@ class SensorNodeSummary {
     required this.displayName,
     required this.description,
     required this.requiredSensorNodes,
-    required this.isSelected,
+    required this.cameraNames,
     required this.entryErrorText,
   });
 
@@ -113,19 +122,21 @@ class SensorNodeSummary {
       displayName: sensorNodeJson['display_name'] as String,
       description: sensorNodeJson['description'] as String,
       requiredSensorNodes: (sensorNodeJson['required_sensor_nodes'] as List<dynamic>).cast<String>(),
-      isSelected: sensorNodeJson['is_selected'] as bool,
+      cameraNames: (sensorNodeJson['camera_names'] as List<dynamic>).cast<String>(),
       entryErrorText: sensorNodeJson['entry_error_text'] as String,
     );
   }
 
-  /// Also its par_launch switch, e.g. 'page_locator'.
+  /// Also its par_launch key, e.g. 'page_locator'.
   final String packageName;
   final String displayName;
   final String description;
 
-  /// Nodes whose output it reads; selected along with it.
+  /// Nodes whose output it reads; selected along with it, on the same camera.
   final List<String> requiredSensorNodes;
-  final bool isSelected;
+
+  /// The cameras the profile starts it on (`par_launch.<package>`); empty when it does not run.
+  final List<String> cameraNames;
 
   /// Why its entry in the ament index cannot be used; empty otherwise.
   final String entryErrorText;
@@ -154,7 +165,12 @@ class SensorNodesRunState {
 }
 
 class RunningSensorNode {
-  const RunningSensorNode({required this.packageName, required this.isRunning, required this.outputTopics});
+  const RunningSensorNode({
+    required this.packageName,
+    required this.cameraName,
+    required this.isRunning,
+    required this.outputTopics,
+  });
 
   factory RunningSensorNode.fromJson(Map<String, dynamic> sensorNodeJson) {
     final List<SensorNodeOutputTopic> outputTopics = [];
@@ -168,12 +184,16 @@ class RunningSensorNode {
     }
     return RunningSensorNode(
       packageName: sensorNodeJson['package_name'] as String,
+      cameraName: sensorNodeJson['camera_name'] as String,
       isRunning: sensorNodeJson['is_running'] as bool,
       outputTopics: outputTopics,
     );
   }
 
   final String packageName;
+
+  /// The camera this run of the node reads, in whose namespace it runs.
+  final String cameraName;
 
   /// In the ROS graph; false while it starts, or after it ended.
   final bool isRunning;

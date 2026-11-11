@@ -667,8 +667,10 @@ def _read_profile_summary(profile_name: str, connected_displays: list[ConnectedD
         except RuntimeError:
             # Not installed or a broken entry: GET /api/apps reports it; the card shows the rest
             pass
+    # A sensor node runs when par_launch.<package> lists a camera; other lists (apps) are
+    # filtered out below with every other non-sensor key
     for switch_name, switch_value in launch_section.items():
-        if switch_value is True:
+        if isinstance(switch_value, list) and switch_value:
             switched_on_launch_switch_names.append(switch_name)
 
     # The same nodes as the Sensor nodes area: those registered in the ament index

@@ -75,3 +75,18 @@ reported two heroes with the same tag.
 
 **Alternatives considered:** `heroTag: null` (switches the animation off for that button; a named tag keeps it and
 says which button it is).
+
+## 2026-11-10: Sensor nodes area per camera (multi-camera step 8b)
+
+**What changed:** the Sensor nodes area keeps on which cameras each node runs (`SensorNodeSummary.cameraNames`,
+`saveSensorNodeSelection` with `cameraNamesByPackage`). An added node runs on the main camera. With several cameras, a
+node's tab shows a chip per camera ("Runs on") and a switch for the camera whose settings and debug view it shows; the
+settings editor is that camera's (`/cameras/<camera>/<package>_node`), and the debug view shows that camera's image and
+the node's outputs there. A chip stays on while another node needs this one on that camera; Disable removes the node
+from every camera.
+
+**Why:** step 8 runs sensor nodes per camera; the plan replaced the on/off switch with a checkbox per camera.
+
+**Alternatives considered:** a settings editor per camera stacked in the tab (twice as long with two cameras, and the
+debug view would still need one camera); adding a node on every camera (with several cameras, a node usually belongs to
+one, e.g. markers on the RGB camera). With one camera, chips and switch are hidden, so the area looks as before.

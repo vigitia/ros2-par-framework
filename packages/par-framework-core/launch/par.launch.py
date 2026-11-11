@@ -51,7 +51,7 @@ from launch.actions import (DeclareLaunchArgument, ExecuteProcess, GroupAction,
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node, SetRemap
-from par_framework_core.launch_helpers import (add_required_sensor_nodes, create_camera_actions,
+from par_framework_core.launch_helpers import (create_camera_actions,
                                                create_camera_choice_launch_argument,
                                                create_camera_stream_remappings,
                                                create_profile_launch_argument,
@@ -59,6 +59,7 @@ from par_framework_core.launch_helpers import (add_required_sensor_nodes, create
                                                create_projector_display_id_launch_argument,
                                                get_cameras_to_start, get_params_file_paths,
                                                get_profile_name, get_projector_display_id,
+                                               get_sensor_node_names_by_camera,
                                                get_camera_namespace,
                                                get_sensor_node_package_names,
                                                PAR_LAUNCH_CAMERAS_KEY, PROJECTOR_APP_NONE,
@@ -405,15 +406,13 @@ def launch_setup(context):
     camera_names_by_sensor_node = get_camera_names_by_sensor_node(
         context, launch_section, sensor_node_names, profile_camera_names, started_camera_names,
         required_launch_switch_names)
+    # A node that reads another one's output (required_sensor_nodes, e.g. page_locator reads
+    # fiducials) starts that one along with it, on the same camera
+    sensor_node_names_by_camera = get_sensor_node_names_by_camera(camera_names_by_sensor_node,
+                                                                  started_camera_names)
     for camera_to_start in cameras_to_start:
-        listed_sensor_node_names = []
-        for sensor_node_name, camera_names in camera_names_by_sensor_node.items():
-            if camera_to_start.camera_name in camera_names:
-                listed_sensor_node_names.append(sensor_node_name)
         camera_stream_names = read_camera_entry(camera_to_start.camera_type)['streams']
-        # A node that reads another one's output (required_sensor_nodes, e.g. page_locator reads
-        # fiducials) starts that one along with it, on the same camera
-        for sensor_node_name in add_required_sensor_nodes(listed_sensor_node_names):
+        for sensor_node_name in sensor_node_names_by_camera[camera_to_start.camera_name]:
             sensor_node_overrides = {}
             for stream_name, (parameter_name, detector_names) in (
                     DETECTOR_PARAMETER_BY_CAMERA_STREAM.items()):

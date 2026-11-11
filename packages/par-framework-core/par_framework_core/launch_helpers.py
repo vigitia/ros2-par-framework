@@ -972,3 +972,24 @@ def add_required_sensor_nodes(selected_sensor_node_names):
         sensor_node_names.add(sensor_node_name)
         pending_names += read_sensor_node_entry(sensor_node_name)['required_sensor_nodes']
     return sorted(sensor_node_names)
+
+
+# Written by Claude Code
+def get_sensor_node_names_by_camera(camera_names_by_sensor_node, camera_names):
+    """
+    Return, per camera of camera_names, the sensor nodes that run on it, sorted.
+
+    camera_names_by_sensor_node is par_launch's lists, {sensor node: [camera name]}. A camera
+    runs the nodes listed for it plus every node they need (add_required_sensor_nodes): a node
+    reads the outputs of its required ones in its own camera's namespace. Raises RuntimeError
+    when a node needs one that is not installed.
+    """
+    sensor_node_names_by_camera = {}
+    for camera_name in camera_names:
+        listed_sensor_node_names = []
+        for sensor_node_name, listed_camera_names in camera_names_by_sensor_node.items():
+            if camera_name in listed_camera_names:
+                listed_sensor_node_names.append(sensor_node_name)
+        sensor_node_names_by_camera[camera_name] = add_required_sensor_nodes(
+            listed_sensor_node_names)
+    return sensor_node_names_by_camera

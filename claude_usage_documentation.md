@@ -4624,3 +4624,27 @@ namespace does both without remappings, following the ROS convention of relative
   server without remappings.
 - *Profile camera names from `read_profile_cameras`,* not the merged `par_launch` section, which merges
   `cameras` key by key with `par_setup.yaml`'s default camera.
+
+## 2026-11-10: setup wizard backend selects and configures sensor nodes per camera (multi-camera step 8b)
+
+**What changed:** `launch_helpers.get_sensor_node_names_by_camera` turns par_launch's lists into the nodes each camera
+runs, required nodes included; `par.launch.py` and the wizard backend both use it. The sensor nodes API reports and
+stores `camera_names` per node (`PUT /api/sensor-nodes/selection` takes `camera_names_by_package`) and lists the run
+state per node and camera (`/cameras/<camera>/<package>_node`). The node settings API reads a sensor node once in the
+namespace `/cameras/settings_read`, so it gets `par_setup.yaml`'s `/cameras/*/` defaults, and shows and saves its
+settings per camera in `/cameras/<camera>/<package>_node`; a cache read under other node names is read again. The
+profile summary counts a sensor node whose list names a camera.
+
+**Why:** step 8a made par_launch's sensor keys camera lists and moved the nodes into camera namespaces; the wizard
+wrote `true`/`false` and bare sections, which the launch no longer reads.
+
+**Decisions:**
+- *One shared helper for "required nodes on the same camera"* instead of the rule written twice, so the wizard shows
+  exactly the runs the launch starts.
+- *One settings read per package for all cameras:* a node declares the same parameters on every camera; only the
+  profile's per-camera values differ. Rejected: a read per camera (slower, same result).
+- *A fixed read camera name* (`settings_read`) instead of a real camera's name: the read must not depend on the
+  profile. It can only clash with a camera of that name running at the same time, and reads start only while the
+  backend runs no launch (`Simplification:` comment).
+- *Settings only per camera,* no shared section for all cameras in the profile, as the plan decided; a profile's own
+  `/cameras/*/` section written by hand still works in the launch but is not shown.

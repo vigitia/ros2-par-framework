@@ -11,9 +11,12 @@ the node's own defaults), and saving writes the changes into the profile, conver
 types, which the node reads at its next start.
 
 Which nodes: a sensor node is started as par.launch.py starts it (executable = package, node name
-<package>_node); an app as its ament index entry says (executable or launch_file), and its
-settings nodes are the ones the entry names in settings_node_names. Node names from the network
-must be one of these, since they reach parameter clients and launch arguments.
+<package>_node), in a namespace below /cameras, so it reads the defaults every camera gets
+(par_setup.yaml's /cameras/*/<package>_node). Its settings are edited per camera, in the profile
+section /cameras/<camera>/<package>_node. An app is started as its ament index entry says
+(executable or launch_file), and its settings nodes are the ones the entry names in
+settings_node_names. Node names from the network must be one of these, since they reach
+parameter clients and launch arguments.
 """
 
 from dataclasses import dataclass
@@ -28,8 +31,9 @@ import time
 from ament_index_python.packages import get_package_share_directory
 import camera_preview_api
 from fastapi import APIRouter, HTTPException
-from par_framework_core.launch_helpers import (get_par_app_package_names,
-                                               get_sensor_node_package_names, read_par_app_entry)
+from par_framework_core.launch_helpers import (get_camera_namespace, get_par_app_package_names,
+                                               get_sensor_node_package_names, read_par_app_entry,
+                                               read_profile_cameras)
 from process_groups import LAUNCH_STOP_SIGNALS, stop_process_group
 import profiles_api
 from pydantic import BaseModel
@@ -38,8 +42,12 @@ import run_api
 
 NODE_KIND_SENSOR_NODE = 'sensor_node'
 NODE_KIND_APP = 'app'
-# par.launch.py names each sensor node <package>_node, without a namespace
+# par.launch.py names each sensor node <package>_node, in its camera's namespace
 SENSOR_NODE_NAME_SUFFIX = '_node'
+# A sensor node is read in this camera's namespace, so the sections every camera gets
+# (/cameras/*/<node>) apply. Simplification: a profile camera of this name running at the same
+# time would clash; reads only start while this backend runs no launch
+SENSOR_NODE_SETTINGS_READ_CAMERA_NAME = 'settings_read'
 # How long a node may take to start and answer before the read counts as failed
 SETTINGS_READ_TIMEOUT_S = 20.0
 SETTINGS_READ_POLL_INTERVAL_S = 0.5
@@ -102,7 +110,7 @@ def get_node_settings(profile_name: str, node_kind: str, package_name: str,
     409 when reading failed, with the reason; Refresh tries again.
     """
     profiles_api.check_profile_exists(profile_name)
-    _check_settings_node(node_kind, package_name, full_node_name)
+    read_node_name = _get_read_node_name(profile_name, node_kind, package_name, full_node_name)
     cached_settings_by_node_name = _read_cached_settings(node_kind, package_name)
     if cached_settings_by_node_name is None:
         _start_settings_read_unless_known(node_kind, package_name)
@@ -111,13 +119,9 @@ def get_node_settings(profile_name: str, node_kind: str, package_name: str,
             if settings_read.error_text is not None:
                 raise HTTPException(status_code=409, detail=settings_read.error_text)
         raise HTTPException(status_code=503, detail=f'Reading the settings of {package_name}')
-    if full_node_name not in cached_settings_by_node_name:
-        raise HTTPException(status_code=409,
-                            detail=f'{full_node_name} did not start when {package_name} was read; '
-                                   f'check its name in the app entry, then Refresh')
     profile_value_by_name = profiles_api.read_profile_node_settings(profile_name, full_node_name)
     settings = []
-    for cached_setting in cached_settings_by_node_name[full_node_name]:
+    for cached_setting in cached_settings_by_node_name[read_node_name]:
         shown_setting = cached_setting.model_copy()
         # The value read without a profile is what the node uses when the profile sets nothing
         shown_setting.has_default_value = True
@@ -131,14 +135,15 @@ def get_node_settings(profile_name: str, node_kind: str, package_name: str,
 @node_settings_router.post('/api/node-settings/save')
 def save_node_settings(request: NodeSettingsSaveRequest) -> NodeSettingsSaveResponse:
     """Write the changed settings into the profile, in the types the node reported."""
-    _check_settings_node(request.node_kind, request.package_name, request.full_node_name)
+    read_node_name = _get_read_node_name(request.profile_name, request.node_kind,
+                                         request.package_name, request.full_node_name)
     if not request.setting_value_by_name:
         raise HTTPException(status_code=400, detail='No setting changed')
     cached_settings_by_node_name = _read_cached_settings(request.node_kind, request.package_name)
     if cached_settings_by_node_name is None:
         raise HTTPException(status_code=409, detail='The settings have not been read yet')
     type_name_by_setting_name = {}
-    for cached_setting in cached_settings_by_node_name.get(request.full_node_name, []):
+    for cached_setting in cached_settings_by_node_name.get(read_node_name, []):
         type_name_by_setting_name[cached_setting.setting_name] = cached_setting.type_name
     converted_value_by_name = {}
     for setting_name, setting_value in request.setting_value_by_name.items():
@@ -176,12 +181,12 @@ def refresh_node_settings(request: NodeSettingsRefreshRequest) -> None:
 
 
 def _get_settings_node_names(node_kind, package_name):
-    """Return the package's nodes with settings; 404 for an unknown kind or package."""
+    """Return the nodes a settings read starts and asks; 404 for an unknown kind or package."""
     if node_kind == NODE_KIND_SENSOR_NODE:
         if package_name not in get_sensor_node_package_names():
             raise HTTPException(status_code=404,
                                 detail=f'No installed sensor node {package_name!r}')
-        return ['/' + package_name + SENSOR_NODE_NAME_SUFFIX]
+        return [_get_sensor_node_full_name(SENSOR_NODE_SETTINGS_READ_CAMERA_NAME, package_name)]
     if node_kind == NODE_KIND_APP:
         return _read_par_app_entry_or_raise(package_name)['settings_node_names']
     raise HTTPException(status_code=404, detail=f'Unknown node kind {node_kind!r}')
@@ -196,10 +201,37 @@ def _read_par_app_entry_or_raise(package_name):
         raise HTTPException(status_code=409, detail=str(error)) from error
 
 
-def _check_settings_node(node_kind, package_name, full_node_name):
-    if full_node_name not in _get_settings_node_names(node_kind, package_name):
-        raise HTTPException(status_code=404,
-                            detail=f'{full_node_name} is no settings node of {package_name}')
+def _get_sensor_node_full_name(camera_name, package_name):
+    """Return the sensor node's full name on a camera: /cameras/<camera>/<package>_node."""
+    return f'{get_camera_namespace(camera_name)}/{package_name}{SENSOR_NODE_NAME_SUFFIX}'
+
+
+def _get_read_node_name(profile_name, node_kind, package_name, full_node_name):
+    """
+    Return the node whose cached settings full_node_name shows; 404 when it is none of the package.
+
+    A sensor node's full_node_name is its run on a camera of the profile, all of which show the
+    one read node's settings; an app's settings node is read under its own name.
+    """
+    if node_kind != NODE_KIND_SENSOR_NODE:
+        if full_node_name not in _get_settings_node_names(node_kind, package_name):
+            raise HTTPException(status_code=404,
+                                detail=f'{full_node_name} is no settings node of {package_name}')
+        return full_node_name
+    read_node_names = _get_settings_node_names(node_kind, package_name)
+    profile_launch_context = profiles_api.create_profile_launch_context(profile_name)
+    try:
+        profile_cameras = read_profile_cameras(profile_launch_context)
+    except RuntimeError as error:
+        raise HTTPException(status_code=409,
+                            detail=f'Cannot read the cameras of {profile_name}: {error}'
+                            ) from error
+    for profile_camera in profile_cameras:
+        if full_node_name == _get_sensor_node_full_name(profile_camera.camera_name, package_name):
+            return read_node_names[0]
+    raise HTTPException(status_code=404,
+                        detail=f'{full_node_name} is no run of {package_name} on a camera of '
+                               f'{profile_name}')
 
 
 def _get_cache_file_path(node_kind, package_name):
@@ -224,6 +256,10 @@ def _read_cached_settings(node_kind, package_name):
     except (OSError, json.JSONDecodeError):
         return None
     if cache_document.get('installed_package_stamp') != _get_installed_package_stamp(package_name):
+        return None
+    # Read under other node names, e.g. before an app entry named another node: read again
+    expected_node_names = set(_get_settings_node_names(node_kind, package_name))
+    if not expected_node_names <= set(cache_document['settings_by_node_name']):
         return None
     cached_settings_by_node_name = {}
     for full_node_name, settings_json in cache_document['settings_by_node_name'].items():
@@ -315,9 +351,12 @@ def _create_start_command(node_kind, package_name):
     par_setup_path = os.path.join(get_package_share_directory('par_framework_core'), 'config',
                                   'par_setup.yaml')
     if node_kind == NODE_KIND_SENSOR_NODE:
-        # As par.launch.py starts it: executable and package share the name
+        # As par.launch.py starts it: executable and package share the name, in a camera's
+        # namespace
+        read_camera_namespace = get_camera_namespace(SENSOR_NODE_SETTINGS_READ_CAMERA_NAME)
         return [ros2_executable_path, 'run', package_name, package_name, '--ros-args',
                 '-r', f'__node:={package_name}{SENSOR_NODE_NAME_SUFFIX}',
+                '-r', f'__ns:={read_camera_namespace}',
                 '--params-file', par_setup_path]
     par_app_entry = _read_par_app_entry_or_raise(package_name)
     # Simplification: the app starts as it would on the projector, so an app that opens a window
