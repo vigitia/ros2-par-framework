@@ -1,9 +1,8 @@
 // Written by Claude Code
 //
 // Step-by-step wizard for a new hardware setup (profile): hardware, camera image, projector, intrinsics, camera
-// pose, projector calibration. Every step that works per camera has one page per camera, and the camera image has
-// two (focus, then the other image settings), so each page handles one topic for one camera; Next names the page
-// that follows. Each step lives in its own file and only talks to this shell through NewProfileDraft and
+// pose, projector calibration. Every step that works per camera has one page per camera, so each page handles one
+// topic for one camera; Next names the page that follows. Each step lives in its own file and only talks to this shell through NewProfileDraft and
 // onCanContinueChanged, so the steps can be built independently. The projector is chosen before the calibrations,
 // since they project onto it. The profile is created when leaving the Projector page, because every calibration
 // after it (intrinsics, camera pose, projector calibration) is stored per profile. The step after them (camera to
@@ -91,8 +90,7 @@ class CameraInstanceDraft {
 /// What one page of the wizard is about; several pages can belong to one stepper step.
 enum WizardPageTopic {
   hardware('Hardware'),
-  focus('Focus'),
-  imageSettings('Image settings'),
+  cameraSetup('Camera setup & focus'),
   projector('Projector'),
   intrinsics('Intrinsics'),
   cameraPose('Camera pose'),
@@ -161,26 +159,10 @@ class _NewProfileWizardScreenState extends State<NewProfileWizardScreen> {
   /// The pages for the cameras chosen so far. Built again on every change, since the Hardware page changes the
   /// cameras; the pages after it only exist once it is left, so the current index stays valid.
   List<WizardPage> _createWizardPages() {
-    final int cameraCount = _newProfileDraft.cameraInstances.length;
     final List<WizardPage> wizardPages = [
       const WizardPage(pageTopic: WizardPageTopic.hardware, stepIndex: hardwareStepIndex),
     ];
-    // Focus and image settings of one camera follow each other, so its preview keeps running between them
-    if (cameraCount == 0) {
-      wizardPages.add(const WizardPage(pageTopic: WizardPageTopic.focus, stepIndex: cameraImageStepIndex));
-    }
-    for (int cameraInstanceIndex = 0; cameraInstanceIndex < cameraCount; cameraInstanceIndex += 1) {
-      wizardPages.add(WizardPage(
-        pageTopic: WizardPageTopic.focus,
-        stepIndex: cameraImageStepIndex,
-        cameraInstanceIndex: cameraInstanceIndex,
-      ));
-      wizardPages.add(WizardPage(
-        pageTopic: WizardPageTopic.imageSettings,
-        stepIndex: cameraImageStepIndex,
-        cameraInstanceIndex: cameraInstanceIndex,
-      ));
-    }
+    wizardPages.addAll(_createOnePagePerCamera(WizardPageTopic.cameraSetup, cameraImageStepIndex));
     wizardPages.add(const WizardPage(pageTopic: WizardPageTopic.projector, stepIndex: projectorStepIndex));
     wizardPages.addAll(_createOnePagePerCamera(WizardPageTopic.intrinsics, intrinsicsStepIndex));
     wizardPages.addAll(_createOnePagePerCamera(WizardPageTopic.cameraPose, cameraPoseStepIndex));
@@ -319,7 +301,7 @@ class _NewProfileWizardScreenState extends State<NewProfileWizardScreen> {
     final WizardPage currentPage = wizardPages[_currentPageIndex];
     const List<String> stepTitleTexts = [
       'Hardware',
-      'Camera image',
+      'Camera setup & focus',
       'Projector',
       'Intrinsics',
       'Camera pose',
@@ -366,8 +348,7 @@ class _NewProfileWizardScreenState extends State<NewProfileWizardScreen> {
   }
 
   /// The page's header (topic and camera) above its content. Every page of a step has the same layout, so going
-  /// from one page to the next of the same step updates its content instead of building it anew: the camera
-  /// preview keeps running from Focus to Image settings.
+  /// from one page to the next of the same step updates its content instead of building it anew.
   Widget _buildPage(WizardPage wizardPage) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -433,20 +414,11 @@ class _NewProfileWizardScreenState extends State<NewProfileWizardScreen> {
           newProfileDraft: _newProfileDraft,
           onCanContinueChanged: (bool canContinue) => _setCanContinue(projectorStepIndex, canContinue),
         );
-      case WizardPageTopic.focus:
-      case WizardPageTopic.imageSettings:
+      case WizardPageTopic.cameraSetup:
         if (cameraInstance == null) {
           return const Text('No camera was chosen in the Hardware step, so there is no camera image to set up.');
         }
-        CameraImagePageTopic cameraImagePageTopic = CameraImagePageTopic.focus;
-        if (wizardPage.pageTopic == WizardPageTopic.imageSettings) {
-          cameraImagePageTopic = CameraImagePageTopic.imageSettings;
-        }
-        return CameraImageStep(
-          backendClient: widget.backendClient,
-          cameraInstance: cameraInstance,
-          cameraImagePageTopic: cameraImagePageTopic,
-        );
+        return CameraImageStep(backendClient: widget.backendClient, cameraInstance: cameraInstance);
       case WizardPageTopic.intrinsics:
         if (cameraInstance == null) {
           return const Text('No camera was chosen in the Hardware step, so there is nothing to calibrate.');
@@ -482,7 +454,7 @@ class _NewProfileWizardScreenState extends State<NewProfileWizardScreen> {
     return StepperType.horizontal;
   }
 
-  /// What Next leads to, e.g. 'Image settings: brio_1'.
+  /// What Next leads to, e.g. 'Intrinsics: brio_1'.
   String _getPageLabelText(WizardPage wizardPage) {
     final int? cameraInstanceIndex = wizardPage.cameraInstanceIndex;
     if (cameraInstanceIndex == null) {

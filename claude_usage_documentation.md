@@ -4648,3 +4648,24 @@ wrote `true`/`false` and bare sections, which the launch no longer reads.
   backend runs no launch (`Simplification:` comment).
 - *Settings only per camera,* no shared section for all cameras in the profile, as the plan decided; a profile's own
   `/cameras/*/` section written by hand still works in the launch but is not shown.
+
+## 2026-11-11: Displays report their real mode, not the desktop's scaled size
+
+**What changed:** `connected_displays.read_connected_displays` takes each display's width, height and refresh rate
+from the kernel's display driver (DRM: connector → encoder → CRTC, read-only through ctypes on libdrm) and keeps SDL's
+size as `sdl_width_px`/`sdl_height_px`, the size apps get for a fullscreen window. Without libdrm or access to the
+card's device it falls back to SDL's size. The connector's sysfs folder is found once (`_find_drm_connector_path`) for
+both the EDID and the mode, and an X11/GNOME name `HDMI-<n>` also matches the kernel's `HDMI-A-<n>`. The wizard's
+backend passes both sizes on (`/api/displays`).
+
+**Why:** with fractional scaling, GNOME gives XWayland one scale factor for all displays, so SDL (and `xrandr`)
+reported e.g. a 3840 × 2160 display at 150 % as 5120 × 2880. The wizard showed and stored that size as the projector's
+resolution. The rendering manager draws at SDL's size and the desktop resamples the image to the real mode, which
+blurs projected markers, so the wizard now shows the real mode and warns when the two differ. The HDMI naming
+mismatch meant the EDID (make, model, serial) of an HDMI projector was never read.
+
+**Alternatives considered:** SDL's Wayland driver (reports the logical size, e.g. 2560 × 1440 at 150 %, also not the
+real mode, and has no connector names); the first entry of `/sys/class/drm/<connector>/modes` (the preferred mode,
+not necessarily the current one); GNOME's `DisplayConfig` D-Bus interface (GNOME only); `xrandr` (shows the same
+scaled sizes as SDL). Showing only SDL's size with a warning was rejected by Vitus: the wizard should name the
+display's real resolution.

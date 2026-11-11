@@ -90,3 +90,32 @@ from every camera.
 **Alternatives considered:** a settings editor per camera stacked in the tab (twice as long with two cameras, and the
 debug view would still need one camera); adding a node on every camera (with several cameras, a node usually belongs to
 one, e.g. markers on the RGB camera). With one camera, chips and switch are hidden, so the area looks as before.
+
+## 2026-11-11: One wizard page per camera for image settings and focus
+
+**What changed:** the new-profile wizard's two pages per camera, "Focus" (only the settings named `*focus*`, with the
+focus help) and "Image settings" (all other settings), are one page "Camera setup & focus" with every setting and the
+focus help. `CameraImagePageTopic`, `isFocusSettingName` and `isNotFocusSettingName` are gone. The instructions no
+longer assume a lens ring: the focus may be a driver setting, a ring on the lens or a control on the device, and a
+fixed-focus camera needs no focusing.
+
+**Why:** focus and image settings depend on each other. An image that is too dark or too bright cannot be focused, so
+exposure, gain or brightness often has to be set first. With Focus as the first page, those settings were only
+reachable afterwards.
+
+**Alternatives considered:** swapping the two pages (image settings first) still separates them, and a focus change
+can call for another brightness change; showing the focus settings on both pages would list them twice. The Cameras
+area already showed both on one screen ("Image & settings"), so the wizard now matches it.
+
+## 2026-11-11: Projector choice shows the real resolution and warns about desktop scaling
+
+**What changed:** `ConnectedDisplay` carries the size apps draw at (`sdlWidthPx`, `sdlHeightPx`) next to the real
+mode (`widthPx`, `heightPx`); `isScaledByDesktop()` compares them. Each display card has a row "Desktop scale" ("None",
+or the size apps draw at in the error colour, wrapped over several lines so it is never cut off), and every scaled display gets a full warning below the cards with the
+fix (scale 100 % in the display settings, then Refresh).
+
+**Why:** the backend now reports the real mode; when the desktop scales a projector, the projected image is resampled
+and fine content such as markers blurs, which is easy to miss.
+
+**Alternatives considered:** only a tooltip on the card (not readable without hovering, and the cards are one line per
+row); a warning only for the chosen display (the scaling should be fixed before choosing, so it shows for all).

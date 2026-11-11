@@ -5,9 +5,14 @@ The connected displays and how a profile recognises its projector among them.
 The framework's display_id is SDL's display index: surface_selector lists displays through pygame
 (SDL), and the rendering manager counts its --display-id the same way. So this module asks SDL
 too, through ctypes on the system's SDL 2 library (the one pygame uses), for each display's name,
-resolution, refresh rate and position on the desktop. SDL names only the connector (e.g. "DP-1"),
-so the projector's make, model and serial come from its EDID, which Linux exposes under
+size and position on the desktop. SDL names only the connector (e.g. "DP-1"), so the projector's
+make, model and serial come from its EDID, which Linux exposes under
 /sys/class/drm/<card>-<connector>/edid.
+
+SDL's size is what apps get for a fullscreen window, not always the display's real mode: a
+desktop that scales a display (e.g. GNOME with fractional scaling, where XWayland multiplies every
+display by one factor) reports it larger or smaller. The real mode comes from the kernel's display
+driver (DRM) through ctypes on libdrm, read-only, and falls back to SDL's when DRM cannot be read.
 
 The index changes when displays are plugged in or out, so a profile also stores the projector's
 identity (EDID make, model and serial, and the connector) in par_launch, and the launch files look
@@ -20,12 +25,16 @@ import ctypes
 import ctypes.util
 from dataclasses import dataclass
 import glob
+import os
 import threading
 
 SDL_INIT_VIDEO_FLAG = 0x00000020
 SDL_LIBRARY_NAME = 'SDL2'
-# Where Linux exposes each connector's EDID, e.g. /sys/class/drm/card1-HDMI-A-1/edid
-EDID_PATH_PATTERN = '/sys/class/drm/card*-{connector_name}/edid'
+DRM_LIBRARY_NAME = 'drm'
+# Where Linux exposes each connector (its EDID and DRM id), e.g. /sys/class/drm/card1-HDMI-A-1
+DRM_CONNECTOR_PATH_PATTERN = '/sys/class/drm/card*-{connector_name}'
+# The display driver's device of a card, e.g. /dev/dri/card1
+DRM_DEVICE_PATH_PATTERN = '/dev/dri/{card_name}'
 # EDID layout (VESA E-EDID 1.4): manufacturer id at bytes 8-9, then four 18-byte descriptors
 EDID_MINIMUM_LENGTH_BYTES = 128
 EDID_MANUFACTURER_ID_OFFSET = 8
@@ -71,10 +80,15 @@ class ConnectedDisplay:
     manufacturer_id: str
     model_name: str
     serial_text: str
+    # The display's real mode from DRM; SDL's when DRM cannot be read
     width_px: int
     height_px: int
     # None when the driver does not report it
     refresh_rate_hz: int | None
+    # What apps get for a fullscreen window on it; differs from width_px and height_px when the
+    # desktop scales the display, and the image is then resampled to the real mode
+    sdl_width_px: int
+    sdl_height_px: int
     # Top left corner on the desktop
     position_x_px: int
     position_y_px: int
@@ -91,6 +105,41 @@ class _SdlRect(ctypes.Structure):
                 ('height_px', ctypes.c_int)]
 
 
+class _DrmModeInfo(ctypes.Structure):
+    # libdrm's drmModeModeInfo
+    _fields_ = [('clock_khz', ctypes.c_uint32),
+                ('width_px', ctypes.c_uint16), ('hsync_start', ctypes.c_uint16),
+                ('hsync_end', ctypes.c_uint16), ('htotal', ctypes.c_uint16),
+                ('hskew', ctypes.c_uint16),
+                ('height_px', ctypes.c_uint16), ('vsync_start', ctypes.c_uint16),
+                ('vsync_end', ctypes.c_uint16), ('vtotal', ctypes.c_uint16),
+                ('vscan', ctypes.c_uint16),
+                ('refresh_rate_hz', ctypes.c_uint32), ('flags', ctypes.c_uint32),
+                ('type', ctypes.c_uint32), ('name', ctypes.c_char * 32)]
+
+
+class _DrmModeCrtc(ctypes.Structure):
+    # libdrm's drmModeCrtc: the scanout unit that drives a connector, with its current mode
+    _fields_ = [('crtc_id', ctypes.c_uint32), ('buffer_id', ctypes.c_uint32),
+                ('x_px', ctypes.c_uint32), ('y_px', ctypes.c_uint32),
+                ('width_px', ctypes.c_uint32), ('height_px', ctypes.c_uint32),
+                ('is_mode_valid', ctypes.c_int), ('mode', _DrmModeInfo),
+                ('gamma_size', ctypes.c_int)]
+
+
+class _DrmModeEncoderStart(ctypes.Structure):
+    # The first fields of libdrm's drmModeEncoder, the ones read here (libdrm allocates and frees
+    # it)
+    _fields_ = [('encoder_id', ctypes.c_uint32), ('encoder_type', ctypes.c_uint32),
+                ('crtc_id', ctypes.c_uint32)]
+
+
+class _DrmModeConnectorStart(ctypes.Structure):
+    # The first fields of libdrm's drmModeConnector, the ones read here (libdrm allocates and
+    # frees it)
+    _fields_ = [('connector_id', ctypes.c_uint32), ('encoder_id', ctypes.c_uint32)]
+
+
 def read_connected_displays():
     """
     Return the connected displays in the framework's display_id order.
@@ -98,6 +147,7 @@ def read_connected_displays():
     Raises RuntimeError naming the cause when SDL is missing or cannot open the displays.
     """
     sdl_library = _load_sdl_library()
+    drm_library = _load_drm_library()
     with _sdl_lock:
         # Initialised per call, so displays plugged in since the last call show up
         if sdl_library.SDL_InitSubSystem(SDL_INIT_VIDEO_FLAG) != 0:
@@ -105,7 +155,7 @@ def read_connected_displays():
             raise RuntimeError(f'[connected_displays]: SDL could not open the displays: '
                                f'{sdl_error_text}. Is this started inside the desktop session?')
         try:
-            return _read_displays(sdl_library)
+            return _read_displays(sdl_library, drm_library)
         finally:
             sdl_library.SDL_QuitSubSystem(SDL_INIT_VIDEO_FLAG)
 
@@ -205,7 +255,25 @@ def _load_sdl_library():
     return sdl_library
 
 
-def _read_displays(sdl_library):
+def _load_drm_library():
+    """Return libdrm, or None without it (then the sizes are SDL's)."""
+    drm_library_path = ctypes.util.find_library(DRM_LIBRARY_NAME)
+    if drm_library_path is None:
+        return None
+    drm_library = ctypes.CDLL(drm_library_path)
+    drm_library.drmModeGetConnectorCurrent.restype = ctypes.POINTER(_DrmModeConnectorStart)
+    drm_library.drmModeGetConnectorCurrent.argtypes = [ctypes.c_int, ctypes.c_uint32]
+    drm_library.drmModeGetEncoder.restype = ctypes.POINTER(_DrmModeEncoderStart)
+    drm_library.drmModeGetEncoder.argtypes = [ctypes.c_int, ctypes.c_uint32]
+    drm_library.drmModeGetCrtc.restype = ctypes.POINTER(_DrmModeCrtc)
+    drm_library.drmModeGetCrtc.argtypes = [ctypes.c_int, ctypes.c_uint32]
+    drm_library.drmModeFreeConnector.argtypes = [ctypes.POINTER(_DrmModeConnectorStart)]
+    drm_library.drmModeFreeEncoder.argtypes = [ctypes.POINTER(_DrmModeEncoderStart)]
+    drm_library.drmModeFreeCrtc.argtypes = [ctypes.POINTER(_DrmModeCrtc)]
+    return drm_library
+
+
+def _read_displays(sdl_library, drm_library):
     displays = []
     display_count = sdl_library.SDL_GetNumVideoDisplays()
     for display_id in range(display_count):
@@ -216,16 +284,22 @@ def _read_displays(sdl_library):
         sdl_display_name_bytes = sdl_library.SDL_GetDisplayName(display_id) or b''
         sdl_display_name = sdl_display_name_bytes.decode(errors='replace')
         connector_name = _get_connector_name(sdl_display_name)
-        manufacturer_id, model_name, serial_text = _read_edid_identity(connector_name)
+        connector_path = _find_drm_connector_path(connector_name)
+        manufacturer_id, model_name, serial_text = _read_edid_identity(connector_path)
+        width_px = display_mode.width_px
+        height_px = display_mode.height_px
         refresh_rate_hz = display_mode.refresh_rate_hz
+        drm_display_mode = _read_drm_display_mode(drm_library, connector_path)
+        if drm_display_mode is not None:
+            width_px, height_px, refresh_rate_hz = drm_display_mode
         if refresh_rate_hz <= 0:
             refresh_rate_hz = None
         displays.append(ConnectedDisplay(
             display_id=display_id, sdl_display_name=sdl_display_name,
             connector_name=connector_name, manufacturer_id=manufacturer_id,
             model_name=model_name, serial_text=serial_text,
-            width_px=display_mode.width_px, height_px=display_mode.height_px,
-            refresh_rate_hz=refresh_rate_hz,
+            width_px=width_px, height_px=height_px, refresh_rate_hz=refresh_rate_hz,
+            sdl_width_px=display_mode.width_px, sdl_height_px=display_mode.height_px,
             position_x_px=display_bounds.x_px, position_y_px=display_bounds.y_px))
     return displays
 
@@ -242,15 +316,83 @@ def _get_connector_name(sdl_display_name):
     return first_name_part
 
 
-def _read_edid_identity(connector_name):
-    """Return (manufacturer id, model name, serial text) from the connector's EDID, or ''."""
+def _find_drm_connector_path(connector_name):
+    """Return the connector's folder in /sys/class/drm, or '' when there is none."""
     if not connector_name:
-        return '', '', ''
-    edid_paths = glob.glob(EDID_PATH_PATTERN.format(connector_name=connector_name))
-    if not edid_paths:
+        return ''
+    candidate_connector_names = [connector_name]
+    # Special case: X11 and GNOME name HDMI type A connectors 'HDMI-<n>', the kernel 'HDMI-A-<n>'
+    name_parts = connector_name.split('-')
+    if len(name_parts) == 2 and name_parts[0] == 'HDMI':
+        candidate_connector_names.append(f'HDMI-A-{name_parts[1]}')
+    for candidate_connector_name in candidate_connector_names:
+        connector_paths = glob.glob(
+            DRM_CONNECTOR_PATH_PATTERN.format(connector_name=candidate_connector_name))
+        if connector_paths:
+            return connector_paths[0]
+    return ''
+
+
+def _read_drm_display_mode(drm_library, connector_path):
+    """
+    Return the connector's current mode (width_px, height_px, refresh_rate_hz) from DRM.
+
+    Returns None without libdrm, without access to the card's device, or while the connector
+    shows nothing. Only queries the mode, so it works next to the running desktop.
+    """
+    if drm_library is None or not connector_path:
+        return None
+    # Simplification: the kernel names the connector's folder '<card>-<connector>', so the card is
+    # the part before the first dash; a card name with a dash would need the folder's 'device' link
+    card_name = os.path.basename(connector_path).split('-')[0]
+    try:
+        with open(os.path.join(connector_path, 'connector_id')) as connector_id_file:
+            connector_id = int(connector_id_file.read())
+        device_file_descriptor = os.open(DRM_DEVICE_PATH_PATTERN.format(card_name=card_name),
+                                         os.O_RDONLY)
+    except (OSError, ValueError):
+        return None
+    try:
+        return _read_drm_crtc_mode(drm_library, device_file_descriptor, connector_id)
+    finally:
+        os.close(device_file_descriptor)
+
+
+def _read_drm_crtc_mode(drm_library, device_file_descriptor, connector_id):
+    """Follow connector -> encoder -> CRTC and return the CRTC's mode, or None."""
+    connector_pointer = drm_library.drmModeGetConnectorCurrent(device_file_descriptor,
+                                                               connector_id)
+    if not connector_pointer:
+        return None
+    encoder_id = connector_pointer.contents.encoder_id
+    drm_library.drmModeFreeConnector(connector_pointer)
+    # 0 while nothing is shown on the connector
+    if encoder_id == 0:
+        return None
+    encoder_pointer = drm_library.drmModeGetEncoder(device_file_descriptor, encoder_id)
+    if not encoder_pointer:
+        return None
+    crtc_id = encoder_pointer.contents.crtc_id
+    drm_library.drmModeFreeEncoder(encoder_pointer)
+    if crtc_id == 0:
+        return None
+    crtc_pointer = drm_library.drmModeGetCrtc(device_file_descriptor, crtc_id)
+    if not crtc_pointer:
+        return None
+    crtc = crtc_pointer.contents
+    drm_display_mode = None
+    if crtc.is_mode_valid:
+        drm_display_mode = (crtc.mode.width_px, crtc.mode.height_px, crtc.mode.refresh_rate_hz)
+    drm_library.drmModeFreeCrtc(crtc_pointer)
+    return drm_display_mode
+
+
+def _read_edid_identity(connector_path):
+    """Return (manufacturer id, model name, serial text) from the connector's EDID, or ''."""
+    if not connector_path:
         return '', '', ''
     try:
-        with open(edid_paths[0], 'rb') as edid_file:
+        with open(os.path.join(connector_path, 'edid'), 'rb') as edid_file:
             edid_bytes = edid_file.read()
     except OSError:
         return '', '', ''

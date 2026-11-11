@@ -1,8 +1,9 @@
 // Written by Claude Code
 //
-// The connected displays as cards of one size (name, display id, resolution, refresh rate, position on the desktop,
-// connector, serial; "–" where a display reports nothing); clicking one chooses it as the projector. Shared by the
-// new-profile wizard's Projector step and a profile's Projectors area.
+// The connected displays as cards (name, display id, real resolution, desktop scaling, refresh rate, position on the
+// desktop, connector, serial; "–" where a display reports nothing); clicking one chooses it as the projector. A
+// display the desktop scales gets a warning below the cards, since the projected image is then resampled. Shared by
+// the new-profile wizard's Projector step and a profile's Projectors area.
 
 import 'package:flutter/material.dart';
 
@@ -98,6 +99,12 @@ class _ProjectorDisplayChoiceViewState extends State<ProjectorDisplayChoiceView>
         displayCards.add(_buildDisplayCard(connectedDisplay, colorScheme));
       }
       viewRows.add(Wrap(spacing: 16, runSpacing: 16, children: displayCards));
+      for (final ConnectedDisplay connectedDisplay in _connectedDisplays) {
+        if (connectedDisplay.isScaledByDesktop()) {
+          viewRows.add(const SizedBox(height: 12));
+          viewRows.add(_buildDesktopScalingWarning(connectedDisplay, colorScheme));
+        }
+      }
     }
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: viewRows);
   }
@@ -111,7 +118,8 @@ class _ProjectorDisplayChoiceViewState extends State<ProjectorDisplayChoiceView>
       cardBorder = BorderSide(color: colorScheme.outlineVariant);
     }
 
-    // Every card has the same rows, each one line high, so all cards have the same size
+    // Every card has the same rows, each one line high except a desktop scaling warning, so cards differ in height
+    // only for a scaled display
     String refreshRateText = unknownDetailText;
     final int? refreshRateHz = connectedDisplay.refreshRateHz;
     if (refreshRateHz != null) {
@@ -120,6 +128,7 @@ class _ProjectorDisplayChoiceViewState extends State<ProjectorDisplayChoiceView>
     final List<Widget> detailRows = [
       _buildDetailRow('Display id', '${connectedDisplay.displayId}'),
       _buildDetailRow('Resolution', '${connectedDisplay.widthPx} × ${connectedDisplay.heightPx} px'),
+      _buildDesktopScalingRow(connectedDisplay, colorScheme),
       _buildDetailRow('Refresh rate', refreshRateText),
       _buildDetailRow('Position', '${connectedDisplay.positionXPx}, ${connectedDisplay.positionYPx} px'),
       _buildDetailRow('Connector', _textOrUnknown(connectedDisplay.connectorName)),
@@ -167,6 +176,33 @@ class _ProjectorDisplayChoiceViewState extends State<ProjectorDisplayChoiceView>
     );
   }
 
+  /// The size apps draw at, marked as a problem when the desktop scales the display.
+  Widget _buildDesktopScalingRow(ConnectedDisplay connectedDisplay, ColorScheme colorScheme) {
+    if (!connectedDisplay.isScaledByDesktop()) {
+      return _buildDetailRow('Desktop scale', 'None');
+    }
+    final String drawnSizeText = 'Apps draw ${connectedDisplay.sdlWidthPx} × ${connectedDisplay.sdlHeightPx} px';
+    return _buildDetailRow('Desktop scale', drawnSizeText, detailTextColor: colorScheme.error, isWrapped: true);
+  }
+
+  Widget _buildDesktopScalingWarning(ConnectedDisplay connectedDisplay, ColorScheme colorScheme) {
+    final String warningText =
+        '${connectedDisplay.getTitleText()}: the desktop scales this display, so apps draw at '
+        '${connectedDisplay.sdlWidthPx} × ${connectedDisplay.sdlHeightPx} px and the image is resampled to its real '
+        '${connectedDisplay.widthPx} × ${connectedDisplay.heightPx} px. A projector should show every pixel as drawn, '
+        'or projected markers and fine content get blurred. Set this display\'s scale to 100 % in the desktop\'s '
+        'display settings, then press Refresh. If the warning stays, the desktop scales all displays alike (e.g. GNOME '
+        'for older X11 apps): set the other displays to 100 % too.';
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(Icons.warning_amber, color: colorScheme.error),
+        const SizedBox(width: 8),
+        Expanded(child: Text(warningText)),
+      ],
+    );
+  }
+
   String _textOrUnknown(String detailText) {
     if (detailText.isEmpty) {
       return unknownDetailText;
@@ -174,15 +210,30 @@ class _ProjectorDisplayChoiceViewState extends State<ProjectorDisplayChoiceView>
     return detailText;
   }
 
-  Widget _buildDetailRow(String detailLabel, String detailText) {
+  /// One label and its text; the text stays on one line (cut off with '…') unless isWrapped.
+  Widget _buildDetailRow(String detailLabel, String detailText, {Color? detailTextColor, bool isWrapped = false}) {
+    int? detailMaxLines = 1;
+    TextOverflow detailOverflow = TextOverflow.ellipsis;
+    if (isWrapped) {
+      detailMaxLines = null;
+      detailOverflow = TextOverflow.clip;
+    }
     final TextTheme textTheme = Theme.of(context).textTheme;
     final Color labelColor = Theme.of(context).colorScheme.onSurfaceVariant;
     return Padding(
       padding: const EdgeInsets.only(top: 2),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SizedBox(width: 100, child: Text(detailLabel, style: textTheme.bodySmall?.copyWith(color: labelColor))),
-          Expanded(child: Text(detailText, style: textTheme.bodyMedium, maxLines: 1, overflow: TextOverflow.ellipsis)),
+          Expanded(
+            child: Text(
+              detailText,
+              style: textTheme.bodyMedium?.copyWith(color: detailTextColor),
+              maxLines: detailMaxLines,
+              overflow: detailOverflow,
+            ),
+          ),
         ],
       ),
     );

@@ -27,10 +27,15 @@ class ConnectedDisplay(BaseModel):
     manufacturer_id: str
     model_name: str
     serial_text: str
+    # The display's real mode; SDL's size when it cannot be read
     width_px: int
     height_px: int
     # None when the driver does not report it
     refresh_rate_hz: int | None
+    # What apps get for a fullscreen window on it; differs from width_px and height_px when the
+    # desktop scales the display
+    sdl_width_px: int
+    sdl_height_px: int
     # Top left corner on the desktop
     position_x_px: int
     position_y_px: int

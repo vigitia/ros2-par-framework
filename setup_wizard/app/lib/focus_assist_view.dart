@@ -2,8 +2,8 @@
 //
 // Helps focus the previewed camera: a sharpness bar with a mark at the best value so far, and the image centre where
 // the sharpness is measured, enlarged with every camera pixel as a block, to judge single-pixel edges by eye. Works
-// for a lens ring turned by hand and for a focus setting alike: change the focus until the bar reaches the mark and
-// gets no higher. The camera itself is started by the preview next to it (CameraPreviewView).
+// however the camera's focus is changed (a driver setting, a ring on the lens, a control on the device): change the
+// focus until the bar reaches the mark and gets no higher. The camera itself is started by the preview next to it (CameraPreviewView).
 
 import 'dart:typed_data';
 

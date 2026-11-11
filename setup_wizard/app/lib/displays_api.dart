@@ -35,6 +35,8 @@ class ConnectedDisplay {
     required this.widthPx,
     required this.heightPx,
     required this.refreshRateHz,
+    required this.sdlWidthPx,
+    required this.sdlHeightPx,
     required this.positionXPx,
     required this.positionYPx,
   });
@@ -50,6 +52,8 @@ class ConnectedDisplay {
       widthPx: displayJson['width_px'] as int,
       heightPx: displayJson['height_px'] as int,
       refreshRateHz: displayJson['refresh_rate_hz'] as int?,
+      sdlWidthPx: displayJson['sdl_width_px'] as int,
+      sdlHeightPx: displayJson['sdl_height_px'] as int,
       positionXPx: displayJson['position_x_px'] as int,
       positionYPx: displayJson['position_y_px'] as int,
     );
@@ -69,11 +73,23 @@ class ConnectedDisplay {
   final String modelName;
   final String serialText;
 
+  /// The display's real mode; SDL's size when the backend cannot read it.
   final int widthPx;
   final int heightPx;
 
   /// null when the driver does not report it.
   final int? refreshRateHz;
+
+  /// What apps get for a fullscreen window on this display; differs from widthPx and heightPx when the desktop
+  /// scales the display.
+  final int sdlWidthPx;
+  final int sdlHeightPx;
+
+  /// Whether the desktop scales this display, so apps draw at another size and the image is resampled to the real
+  /// mode, which blurs fine detail such as projected markers.
+  bool isScaledByDesktop() {
+    return sdlWidthPx != widthPx || sdlHeightPx != heightPx;
+  }
 
   /// Top left corner on the desktop.
   final int positionXPx;
