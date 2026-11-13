@@ -359,3 +359,17 @@ paths, widget keys, and pure format strings without words (e.g. `'$titleText: $c
 - The literals were replaced by a script that parses Dart strings (adjacent literals, nested interpolations) and a
   hand-written name table, so no text was retyped. Long call sites were wrapped with `dart format`'s result for only
   those statements, because formatting whole files would have rewrapped untouched code.
+
+## 2026-11-13 — Setup wizard: Store area removed for now
+
+**What changed:** the profile hub has five areas (Overview, Projectors, Cameras, Sensor nodes, Apps); the Store tab,
+its placeholder screen `app_store_screen.dart` and its texts are gone. The hint for "no app installed" points only to
+`config/nodes.list` and `./scripts/local_build.sh`, like the sensor nodes' hint.
+
+**Why:** Vitus' request: the Store was only a placeholder (its catalog is still undecided), and a tab that does
+nothing distracts.
+
+**Decisions and rejected alternatives:**
+- Deleted the screen instead of only hiding the tab: an unused file would go stale, and git keeps it for when the
+  Store is built.
+- Store was the last area, so the other area indices stay unchanged.

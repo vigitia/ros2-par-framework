@@ -4923,3 +4923,19 @@ factory calibration exists only while the driver runs, so the drawing had no fie
 - Storing the factory calibration as `camera_info_<id>.yaml`: that file is handed to the driver as its calibration
   (`camera_info_url`) and counts as the camera's own calibration. A nominal field of view in the camera entry: not
   the unit's real one.
+
+## 2026-11-13: Apps' display_id no longer offered in the wizard's Apps area
+
+**What:** `node_settings_api.get_node_settings` leaves out the settings in `APP_SETTING_NAMES_SET_BY_PROFILE`
+(`display_id`) for apps. Sensor nodes keep theirs.
+
+**Why:** `par.launch.py` passes the profile's `projector_display_id` to every app as `display_id`, which overrides
+the app's own settings. The Apps area showed the value the app reported when started alone (its code default), and
+saving a change there had no effect, so the setting was both misleading and useless. The projector is chosen per
+profile, where the wizard already sets it. A sensor node's `display_id` (e.g. `projection_mask`'s debug window) is not
+set by the profile, so it stays editable.
+
+**Alternatives:** *Showing the profile's projector display there, read-only*: a second place for one value, which is
+already shown with the profile's projector. *Removing `display_id` from the apps*: apps started alone, outside
+`par.launch.py`, still need it (`templates/par_app/`). *Filtering when the cache is written*: the cache would no longer
+hold what the node reported, and a later change of the rule would need a re-read.

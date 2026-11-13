@@ -6,8 +6,7 @@
 // ament index entry names (settings_node_names), read once from the app and saved into the profile without running it
 // (NodeSettingsEditorView). Which of the profile's apps goes on the projector is chosen in the Run menu
 // (profile_run_view.dart); disabling that app leaves the projector without one. An app that does not use the
-// projector (RViz) starts with every run of the profile while it has a tab here. The Store area is for apps that are
-// not installed yet.
+// projector (RViz) starts with every run of the profile while it has a tab here.
 
 import 'package:flutter/material.dart';
 

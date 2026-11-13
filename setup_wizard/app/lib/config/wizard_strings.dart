@@ -74,7 +74,6 @@ abstract final class WizardStrings {
   static const String camerasNavigationLabel = 'Cameras';
   static const String sensorNodesNavigationLabel = 'Sensor nodes';
   static const String appsNavigationLabel = 'Apps';
-  static const String storeNavigationLabel = 'Store';
   static const String noProfileTitle = 'Profile: none yet';
   static String getProfileTitle({required String shownProfileName}) {
     return 'Profile: $shownProfileName';
@@ -776,9 +775,6 @@ abstract final class WizardStrings {
   static const String settingNotSetText = 'not set';
 
   // Apps
-  static const String appStorePlaceholderText =
-      'Store for new camera nodes, sensor nodes and apps. Not built yet: the catalog of what can be installed '
-      'is still open (card "Setup Wizard").';
   static String getAppListErrorText({required String appListErrorText}) {
     return 'Cannot list the apps: $appListErrorText';
   }
@@ -786,8 +782,7 @@ abstract final class WizardStrings {
   static const String noAppInProfileText =
       'The profile offers no app. Add one with "Add app"; the Run menu then offers it.';
   static const String noAppInstalledText =
-      'No app is installed. The Store will offer them; for now add their repos to config/nodes.list and '
-      'run ./scripts/local_build.sh.';
+      'No app is installed. Add their repos to config/nodes.list and run ./scripts/local_build.sh.';
   static const String addAppButtonLabel = 'Add app';
   static const String appNotInstalledText = 'Not installed (any more): disable it, or install it again.';
   static const String disableAppOfferTooltip = 'The profile no longer offers this app in the Run menu.';

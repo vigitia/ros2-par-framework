@@ -3,8 +3,8 @@
 // The setup wizard's home: the hardware setup (profile) used last time, opened right away (the first profile when that
 // one no longer exists); the app bar reads "Profile: <name>". A bar below it leads to the overview (the setup
 // drawing and the missing calibration steps), the projector's display, the profile's cameras with their calibrations,
-// the profile's sensor processing nodes, the profile's apps and the app store; the Run button sits in the bottom
-// right corner of the Overview. The profile menu (hamburger icon, top right of the app bar) switches profiles, starts
+// the profile's sensor processing nodes and the profile's apps; the Run button sits in the bottom right
+// corner of the Overview. The profile menu (hamburger icon, top right of the app bar) switches profiles, starts
 // the new-profile wizard and deletes a profile; the hub remembers the choice for the next start. Without any profile
 // the Overview shows only a hint, and the other areas and the Run button are disabled. Each area lives in its own
 // file and gets only the backend client and the profile name, so the areas can be built independently; switching
@@ -18,7 +18,6 @@ import '../core/ui/profile_run_view.dart';
 import 'profile_selector_view.dart';
 import '../core/ui/top_aligned_page_content.dart';
 import '../../data/services/setup_wizard_backend_client.dart';
-import '../apps/app_store_screen.dart';
 import '../apps/apps_screen.dart';
 import '../cameras/cameras_screen.dart';
 import '../new_profile/new_profile_wizard_screen.dart';
@@ -45,7 +44,6 @@ class _ProfileHubScreenState extends State<ProfileHubScreen> {
   static const int camerasAreaIndex = 2;
   static const int sensorNodesAreaIndex = 3;
   static const int appsAreaIndex = 4;
-  static const int storeAreaIndex = 5;
 
   bool _isLoadingProfileList = true;
 
@@ -254,8 +252,6 @@ class _ProfileHubScreenState extends State<ProfileHubScreen> {
         return SensorNodesScreen(key: areaKey, backendClient: widget.backendClient, profileName: shownProfileName);
       case appsAreaIndex:
         return AppsScreen(key: areaKey, backendClient: widget.backendClient, profileName: shownProfileName);
-      case storeAreaIndex:
-        return AppStoreScreen(key: areaKey, backendClient: widget.backendClient, profileName: shownProfileName);
       default:
         return ProfileOverviewScreen(
           key: areaKey,
@@ -307,11 +303,6 @@ class _ProfileHubScreenState extends State<ProfileHubScreen> {
           NavigationDestination(
             icon: const Icon(Icons.apps),
             label: WizardStrings.appsNavigationLabel,
-            enabled: isProfileShown,
-          ),
-          NavigationDestination(
-            icon: const Icon(Icons.storefront_outlined),
-            label: WizardStrings.storeNavigationLabel,
             enabled: isProfileShown,
           ),
         ],
