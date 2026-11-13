@@ -326,3 +326,36 @@ case covers the label running off the edge).
 
 **Why:** Vitus' choice; x and y relate to the projected image's corner, which is hard to read off the drawing, while
 the height is what the front and side views show.
+
+## 2026-11-13 — Setup wizard: feature folders and all user texts in `WizardStrings`
+
+**What changed:** `lib/` follows the package structure of Flutter's architecture guide
+(https://docs.flutter.dev/app-architecture/case-study): `ui/<feature>/` (`profiles`, `new_profile`, `cameras`,
+`calibration`, `projectors`, `sensor_nodes`, `apps`) for screens and the widgets only they use, `ui/core/ui/` for
+widgets shared by several features (`profile_run_view`, `addable_tabs_view`, `setting_row_view`,
+`node_settings_editor_view`, …), `data/services/` for the backend client and every `*_api.dart`. `lib/screens/` is gone.
+Every text shown to the user is in `lib/config/wizard_strings.dart`: `abstract final class WizardStrings` with
+`static const String` for fixed texts and a `get…Text`/`get…Label` function with named parameters for each text with
+a value in it (number formatting such as `toStringAsFixed` moves along with the text). Texts used in several places
+(`Cancel`, `Try again`, the checkerboard fields) are one constant. Not moved: texts the backend writes (they arrive as
+data), console logs (`debugPrint`), exception messages for developers (`FormatException`, `toString`), JSON keys, API
+paths, widget keys, and pure format strings without words (e.g. `'$titleText: $cameraName'`).
+
+**Why:** Vitus' request: texts in one place to review and change, and a folder per feature instead of 39 flat files.
+
+**Decisions and rejected alternatives:**
+- Dart constants class instead of Flutter's localisation workflow (ARB files in `lib/l10n/` plus `gen-l10n` and
+  `AppLocalizations.of(context)`, https://docs.flutter.dev/ui/accessibility-and-internationalization/internationalization):
+  that one is Flutter's documented way, but needs two more dependencies (`flutter_localizations`, `intl`) and a
+  `BuildContext` for every text, which the backend client building its error sentences does not have. It pays off only
+  once the wizard is translated; moving the class's entries into an ARB file then is mechanical.
+- The strings file lives in `lib/config/`, not `lib/ui/core/`: `data/services/` uses it too (user-facing error
+  sentences), and data should not import from ui.
+- Folders sorted by feature (Flutter's guide) rather than by type (`screens/`, `widgets/`, `services/`): a feature's
+  screen and its widgets stay together. The guide's `view_models/` and `widgets/` subfolders per feature are left out,
+  the wizard has no view models, so a second level would hold a single folder. The `*_api.dart` files keep their data
+  classes; splitting them into `domain/models/` would be a separate refactor.
+- Names follow Effective Dart (`lowerCamelCase` constants, no `k` prefix); functions returning a text start with `get`.
+- The literals were replaced by a script that parses Dart strings (adjacent literals, nested interpolations) and a
+  hand-written name table, so no text was retyped. Long call sites were wrapped with `dart format`'s result for only
+  those statements, because formatting whole files would have rewrapped untouched code.
