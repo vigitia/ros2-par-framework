@@ -14,8 +14,10 @@ projector): it is listed with uses_projector false and stored as par.launch.py's
 from ament_index_python.resources import has_resource
 from fastapi import APIRouter, HTTPException
 from par_framework_core.launch_helpers import (get_par_app_package_names,
+                                               get_sensor_node_package_names,
                                                PAR_APP_ENTRY_INPUTS_KEY, PROJECTOR_APP_NONE,
-                                               read_par_app_entry, RENDERING_MANAGER_APP_NAME)
+                                               read_par_app_entry, read_sensor_node_entry,
+                                               RENDERING_MANAGER_APP_NAME)
 from profile_files import (PAR_LAUNCH_NODE_NAME, read_camera_name_by_input_by_app,
                            read_enabled_app_names, read_profile_cameras_or_raise,
                            read_profile_launch_section, RVIZ_LAUNCH_SWITCH_NAME, write_app_inputs,
@@ -51,6 +53,8 @@ class InstalledAppSummary(BaseModel):
     description: str
     # par_launch switches par.launch.py turns on for the app
     required_launch_switch_names: list[str]
+    # The display names of the sensor nodes among them, which run on the cameras the app reads
+    required_sensor_node_display_names: list[str] = []
     # launch_helpers.PAR_APP_CALIBRATION_NAMES the app uses; it also starts without them
     used_calibration_names: list[str]
     # The app's nodes whose settings the wizard edits (full node names); empty without any
@@ -130,6 +134,8 @@ def _read_installed_app_summary(app_package_name: str) -> InstalledAppSummary:
         display_name=par_app_entry['display_name'],
         description=par_app_entry['description'],
         required_launch_switch_names=par_app_entry['required_launch_switches'],
+        required_sensor_node_display_names=_get_sensor_node_display_names(
+            par_app_entry['required_launch_switches']),
         used_calibration_names=par_app_entry['used_calibrations'],
         settings_node_names=par_app_entry['settings_node_names'],
         input_names=list(par_app_entry[PAR_APP_ENTRY_INPUTS_KEY]))
@@ -218,3 +224,18 @@ def _check_startable_app(app_name: str) -> None:
         return
     raise HTTPException(status_code=422,
                         detail=f'{app_name!r} is no installed app; choose one from GET /api/apps')
+
+
+def _get_sensor_node_display_names(launch_switch_names: list[str]) -> list[str]:
+    """Return the display names of the sensor nodes among the switches; others (rviz) are left out."""
+    installed_sensor_node_names = get_sensor_node_package_names()
+    display_names = []
+    for launch_switch_name in launch_switch_names:
+        if launch_switch_name not in installed_sensor_node_names:
+            continue
+        try:
+            display_names.append(read_sensor_node_entry(launch_switch_name)['display_name'])
+        except RuntimeError:
+            # A broken entry shows under Sensor nodes with its error; its package name suffices
+            display_names.append(launch_switch_name)
+    return display_names

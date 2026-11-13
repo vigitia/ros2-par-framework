@@ -1,7 +1,8 @@
 // Written by Claude Code
 //
 // Hub area "Apps" of a profile: one tab per app the profile offers (par_launch.apps), "Add app" for the installed
-// ones it does not offer yet. A tab shows what the app is, Disable, which camera each input of the app reads
+// ones it does not offer yet. A tab shows what the app is and which sensor nodes it needs (they show under Sensor
+// nodes while the profile offers it), Disable, which camera each input of the app reads
 // (par_launch.app_inputs, chosen here when the profile has several cameras), and the settings of the nodes its
 // ament index entry names (settings_node_names), read once from the app and saved into the profile without running it
 // (NodeSettingsEditorView). Which of the profile's apps goes on the projector is chosen in the Run menu
@@ -232,9 +233,15 @@ class _AppsScreenState extends State<AppsScreen> with ProfileSummaryLoading<Apps
         _saveEnabledApps(remainingAppNames);
       };
     }
+    final List<String> descriptionParts = [descriptionText];
+    if (installedApp != null && installedApp.requiredSensorNodeDisplayNames.isNotEmpty) {
+      descriptionParts.add(WizardStrings.getAppRequiredSensorNodesText(
+        requiredSensorNodeNames: installedApp.requiredSensorNodeDisplayNames,
+      ));
+    }
     final List<Widget> tabRows = [
       Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Expanded(child: Text(descriptionText, style: mutedTextStyle)),
+        Expanded(child: Text(descriptionParts.join(' '), style: mutedTextStyle)),
         const SizedBox(width: 12),
         Tooltip(
           message: disableTooltipText,

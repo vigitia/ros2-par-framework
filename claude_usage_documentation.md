@@ -4961,3 +4961,60 @@ with Vitus: two sources of truth, and entries stay behind when the app is remove
 *Passing `<node>:=true` per required node in the wizard's run*: `:=true` runs a node only on the single started camera,
 so it fails with several cameras and ignores the app's input binding. *Only skipping the app's own node with an
 argument naming it*: an app may start several processes through its launch file; skipping the whole app is simpler.
+
+## 2026-11-13: Wizard backend lists and runs the projector app's sensor nodes
+
+**What:** `sensor_nodes_api.py`: `GET /api/sensor-nodes` gives every node `camera_names_needed_by_projector_app` (the
+cameras it runs on because the profile's projector app needs it, directly or through a node the app needs) and the
+response `projector_app_display_name` and `projector_app_error_text`. The run state includes those nodes, and the run
+starts with `start_projector_app:=false` instead of `projector_app:=none`. The selection save is unchanged: it stores
+only the user's own choices. `apps_api.py`: every app reports `required_sensor_node_display_names`, for the notice
+when an app is chosen.
+
+**Why:** An app such as Object teaching needs `hand_landmarks` and `gesture_detector`, which `par.launch.py` starts on
+the camera the app reads, but the Sensor nodes area did not show them, and its run did not start them, so they could
+not be tuned there. The placement comes from the same `launch_helpers` functions `par.launch.py` uses, so the wizard
+shows what a launch starts. A broken binding (e.g. an input left unbound with several cameras) becomes an error text in
+the list, so the profile's own nodes still show; the run then fails with the same message.
+
+**Alternatives:** *Writing them into the profile's selection* (as a node's own required nodes are): rejected, they
+would stay behind when the app is removed or bound to another camera in the Apps area. *Separate endpoint for the app's
+nodes*: the UI needs them together with the list it already loads. *Package names instead of display names for the
+notice*: the Apps area has no sensor node list to translate them.
+
+## 2026-11-13: RViz draws the frustum of every started camera
+
+**What:** `par.launch.py` (`write_rviz_config_with_camera_frustums`) reads `config/rviz/par_framework.rviz` as a
+template and writes a per-run copy to the temporary folder in which the `CameraInfo` display ("Camera frustum") is
+replaced by one copy per started camera that has a `camera_info` stream, named `Camera frustum <camera>` with the topic
+`/cameras/<camera>/camera_info`. The `/camera/camera_info` remapping is gone; the image, point cloud and markers still
+follow the main camera.
+
+**Why:** With several cameras (e.g. RViz switched on in the setup wizard) only the main camera's frustum was drawn: the
+configuration had one `CameraInfo` display, remapped onto the main camera. RViz draws one frustum per `CameraInfo`
+display, and the camera names are only known at launch, so the displays are created there. Cameras without
+`camera_info` (an event camera) are skipped.
+
+**Alternatives:** *Frustum markers from `rviz_bridge`*: would re-implement what RViz's own `CameraInfo` display does,
+and the bridge would need to learn the camera list. *A fixed number of frustum displays in the configuration*: the
+camera names differ per profile. *Writing the generated file next to the template*: the installed share folder is not
+meant to be written at launch; the temporary file's limits (one file per run, Ctrl+S saves there) are marked as a
+simplification in the code.
+
+## 2026-11-13: Required sensor nodes of every offered app, not only the projector app's
+
+**What:** `launch_helpers.read_offered_par_app_names(launch_section)` returns the installed PAR apps of
+`par_launch.apps` (new constant `PAR_LAUNCH_APPS_KEY`). With `start_projector_app:=false`, `par.launch.py` also starts
+the sensor nodes these apps require, on the cameras each reads; a real run still starts only the projector app's. The
+wizard backend reports per node `needing_app_names_by_camera` (`{camera: [app display name]}`) for every offered app
+and the projector app, and `app_requirement_error_texts`, one per app with a broken entry or binding; it replaces
+`camera_names_needed_by_projector_app`, `projector_app_display_name` and `projector_app_error_text`.
+
+**Why:** In the wizard an app is offered in the Apps area and only later chosen for the projector in the Run menu. Vitus
+added Object teaching and expected its sensor nodes under Sensor nodes at once, to tune them before choosing it; with
+only the projector app's requirements they appeared only after that choice. Several offered apps can need the same
+node on one camera, so the names are kept per camera.
+
+**Alternatives:** *Only the projector app's requirements*: matches a real run exactly, but hides the nodes of an app
+just added. *Making the only offered app the projector app automatically*: keeps the rule, but surprises with two
+offered apps and changes the Run menu's choice behind the user's back.

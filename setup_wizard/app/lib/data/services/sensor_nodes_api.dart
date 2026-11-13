@@ -88,7 +88,11 @@ extension SensorNodesApi on SetupWizardBackendClient {
 }
 
 class SensorNodeList {
-  const SensorNodeList({required this.cameraNames, required this.sensorNodes});
+  const SensorNodeList({
+    required this.cameraNames,
+    required this.sensorNodes,
+    required this.appRequirementErrorTexts,
+  });
 
   factory SensorNodeList.fromJson(Map<String, dynamic> listJson) {
     final List<SensorNodeSummary> sensorNodes = [];
@@ -98,12 +102,16 @@ class SensorNodeList {
     return SensorNodeList(
       cameraNames: (listJson['camera_names'] as List<dynamic>).cast<String>(),
       sensorNodes: sensorNodes,
+      appRequirementErrorTexts: (listJson['app_requirement_error_texts'] as List<dynamic>).cast<String>(),
     );
   }
 
   /// The profile's cameras (par_launch.cameras) in their order; the first is the main camera.
   final List<String> cameraNames;
   final List<SensorNodeSummary> sensorNodes;
+
+  /// Per app of the profile whose sensor nodes cannot be placed (e.g. an input not bound to a camera): why.
+  final List<String> appRequirementErrorTexts;
 }
 
 class SensorNodeSummary {
@@ -113,6 +121,7 @@ class SensorNodeSummary {
     required this.description,
     required this.requiredSensorNodes,
     required this.cameraNames,
+    required this.needingAppNamesByCamera,
     required this.entryErrorText,
   });
 
@@ -123,6 +132,7 @@ class SensorNodeSummary {
       description: sensorNodeJson['description'] as String,
       requiredSensorNodes: (sensorNodeJson['required_sensor_nodes'] as List<dynamic>).cast<String>(),
       cameraNames: (sensorNodeJson['camera_names'] as List<dynamic>).cast<String>(),
+      needingAppNamesByCamera: _readNeedingAppNamesByCamera(sensorNodeJson['needing_app_names_by_camera']),
       entryErrorText: sensorNodeJson['entry_error_text'] as String,
     );
   }
@@ -137,6 +147,18 @@ class SensorNodeSummary {
 
   /// The cameras the profile starts it on (`par_launch.<package>`); empty when it does not run.
   final List<String> cameraNames;
+
+  /// The cameras it runs on because apps of the profile need it there, each with those apps' display names; not part
+  /// of the profile's selection, so never sent back when the selection is saved.
+  final Map<String, List<String>> needingAppNamesByCamera;
+
+  static Map<String, List<String>> _readNeedingAppNamesByCamera(dynamic needingAppNamesByCameraJson) {
+    final Map<String, List<String>> needingAppNamesByCamera = {};
+    for (final MapEntry<String, dynamic> cameraEntry in (needingAppNamesByCameraJson as Map<String, dynamic>).entries) {
+      needingAppNamesByCamera[cameraEntry.key] = (cameraEntry.value as List<dynamic>).cast<String>();
+    }
+    return needingAppNamesByCamera;
+  }
 
   /// Why its entry in the ament index cannot be used; empty otherwise.
   final String entryErrorText;

@@ -697,6 +697,10 @@ abstract final class WizardStrings {
   }
 
   static const String disableSensorNodeTooltip = 'The profile no longer starts this node, on any camera.';
+  static String getAppSensorNodesErrorText({required String errorText}) {
+    return 'The sensor nodes of an app cannot be shown: $errorText';
+  }
+
   static String getSensorNodeNeededByText({required Iterable<String> needingNodeNames}) {
     return 'Needed by ${needingNodeNames.join(', ')}: disable that first.';
   }
@@ -789,6 +793,11 @@ abstract final class WizardStrings {
   static const String disableAppStartTooltip = 'The profile no longer starts this app.';
   static String getAppEntryErrorText({required String entryErrorText}) {
     return 'Its entry cannot be used: $entryErrorText';
+  }
+
+  static String getAppRequiredSensorNodesText({required Iterable<String> requiredSensorNodeNames}) {
+    return 'It needs ${requiredSensorNodeNames.join(' and ')} on the camera it reads; they start with it, and '
+        'their settings are under Sensor nodes.';
   }
 
   static const String appWithoutSettingsText = 'This app declares no settings (settings_node_names in its entry).';

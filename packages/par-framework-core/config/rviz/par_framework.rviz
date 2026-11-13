@@ -5,7 +5,8 @@
 # It takes car of displaying:
 # - world grid
 # - TF frames
-# - the camera's frustum (drawn by the CameraInfo display from /camera/camera_info)
+# - every camera's frustum (par.launch.py copies the CameraInfo display once per started camera,
+#   with the topic /cameras/<name>/camera_info)
 # - its live image
 # - the output of all published custom messages of the PAR framework (fiducials, objects, hand landmarks, etc.)
 #

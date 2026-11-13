@@ -151,6 +151,9 @@ PAR_APP_INPUT_TOPIC_NAME_PATTERN = re.compile(r'[a-z][a-z0-9_]*(/[a-z][a-z0-9_]*
 # par_launch.app_inputs: per app, the camera name bound to each of its inputs,
 # e.g. {demo_app: {camera: overhead}}
 PAR_LAUNCH_APP_INPUTS_KEY = 'app_inputs'
+# par_launch.apps: the apps a profile offers, from which the setup wizard's Run menu chooses the
+# projector app
+PAR_LAUNCH_APPS_KEY = 'apps'
 # par_launch.projector_app chooses the one app on the projector: none, the rendering manager or a
 # PAR app's package. The rendering manager has no entry in the index yet, since it has no launch
 # file of its own; par.launch.py starts it by its own code until it has.
@@ -897,6 +900,27 @@ def create_projection_calibration_server_node(context, camera):
 def get_par_app_package_names():
     """Return the packages that registered a PAR app in the ament index, sorted."""
     return sorted(get_resources(PAR_APP_RESOURCE_TYPE))
+
+
+# Written by Claude Code
+def read_offered_par_app_names(launch_section):
+    """
+    Return the installed PAR apps par_launch.apps offers, in its order.
+
+    Other names (rviz, the rendering manager, an app not installed) are left out. Raises
+    RuntimeError naming the fix when par_launch.apps is no list.
+    """
+    listed_app_names = launch_section.get(PAR_LAUNCH_APPS_KEY) or []
+    if not isinstance(listed_app_names, list):
+        raise RuntimeError(f'[launch_helpers]: par_launch.{PAR_LAUNCH_APPS_KEY} must be a list of '
+                           f'app names, e.g. {PAR_LAUNCH_APPS_KEY}: [demo_app], not '
+                           f'{listed_app_names!r}')
+    installed_app_names = get_par_app_package_names()
+    offered_app_names = []
+    for app_name in listed_app_names:
+        if str(app_name) in installed_app_names:
+            offered_app_names.append(str(app_name))
+    return offered_app_names
 
 
 # Written by Claude Code

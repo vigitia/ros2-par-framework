@@ -1,13 +1,14 @@
 // Written by Claude Code
 //
 // Hub area "Sensor nodes" of a profile: one tab per sensor processing node the profile starts on at least one camera
-// (par_launch.<package>: [<camera>, ...]), "Add sensor node" for the installed ones it does not start yet; an added
+// (par_launch.<package>: [<camera>, ...]) or the profile's apps need (shown as needed by those apps, never saved
+// into the selection), "Add sensor node" for the installed ones it does not start yet; an added
 // node runs on the main camera. A node's tab shows what it is, Disable (not for a node another enabled one needs,
 // which comes along with it), with several cameras a chip per camera choosing where it runs and a switch choosing the
 // camera whose settings and debug view the tab shows, and its settings on that camera
 // (/cameras/<camera>/<package>_node). The settings are read once from the node and saved into the profile without a
 // run (NodeSettingsEditorView). The floating "Debug node" button starts the profile's cameras with their nodes,
-// without the projector app and with their debug parameter on, so each node opens its own preview window on the PAR
+// without the apps (but with the nodes they need) and with their debug parameter on, so each node opens its own preview window on the PAR
 // machine; the tab in front then shows the chosen camera's image and its node's outputs there (image outputs as
 // frames, the others as their latest message), and saving settings meanwhile starts the run again with them.
 
@@ -254,7 +255,7 @@ class _SensorNodesScreenState extends State<SensorNodesScreen> {
   List<SensorNodeSummary> _getEnabledSensorNodes(SensorNodeList sensorNodeList) {
     final List<SensorNodeSummary> enabledSensorNodes = [];
     for (final SensorNodeSummary sensorNode in sensorNodeList.sensorNodes) {
-      if (_cameraNamesByPackage.containsKey(sensorNode.packageName)) {
+      if (_getNodeCameraNames(sensorNode.packageName).isNotEmpty) {
         enabledSensorNodes.add(sensorNode);
       }
     }
@@ -298,15 +299,27 @@ class _SensorNodesScreenState extends State<SensorNodesScreen> {
     // A Scaffold of its own, so the button floats in this area's bottom right corner
     return Scaffold(
       floatingActionButton: debugButton,
-      body: AddableTabsView(
-        tabTitles: tabTitles,
-        shownTabTitle: shownTabTitle,
-        addButtonText: WizardStrings.addSensorNodeButtonLabel,
-        addMenuEntries: _buildAddMenuEntries(sensorNodeList),
-        noTabsText: noTabsText,
-        buildTabContent: (int tabIndex, bool isShownTab) =>
-            _buildSensorNodeTab(enabledSensorNodes[tabIndex], isShownTab),
-      ),
+      body: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        for (final String appRequirementErrorText in sensorNodeList.appRequirementErrorTexts)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(24, 16, 24, 0),
+            child: Text(
+              WizardStrings.getAppSensorNodesErrorText(errorText: appRequirementErrorText),
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            ),
+          ),
+        Expanded(
+          child: AddableTabsView(
+            tabTitles: tabTitles,
+            shownTabTitle: shownTabTitle,
+            addButtonText: WizardStrings.addSensorNodeButtonLabel,
+            addMenuEntries: _buildAddMenuEntries(sensorNodeList),
+            noTabsText: noTabsText,
+            buildTabContent: (int tabIndex, bool isShownTab) =>
+                _buildSensorNodeTab(enabledSensorNodes[tabIndex], isShownTab),
+          ),
+        ),
+      ]),
     );
   }
 
@@ -343,7 +356,7 @@ class _SensorNodesScreenState extends State<SensorNodesScreen> {
   List<Widget> _buildAddMenuEntries(SensorNodeList sensorNodeList) {
     final List<Widget> addMenuEntries = [];
     for (final SensorNodeSummary sensorNode in sensorNodeList.sensorNodes) {
-      if (_cameraNamesByPackage.containsKey(sensorNode.packageName)) {
+      if (_getNodeCameraNames(sensorNode.packageName).isNotEmpty) {
         continue;
       }
       // A broken entry cannot be started, and a profile without a camera has nothing to run it on
@@ -359,22 +372,50 @@ class _SensorNodesScreenState extends State<SensorNodesScreen> {
     return addMenuEntries;
   }
 
-  /// The nodes on cameraName that need packageName there, e.g. page_locator for fiducials_detector.
+  /// The cameras the node runs on: the profile's selection and where apps of the profile need it, in the order of
+  /// the profile's cameras; empty when it does not run.
+  List<String> _getNodeCameraNames(String packageName) {
+    final List<String> selectedCameraNames = _cameraNamesByPackage[packageName] ?? <String>[];
+    final Map<String, List<String>> needingAppNamesByCamera = _getNeedingAppNamesByCamera(packageName);
+    final List<String> nodeCameraNames = [];
+    for (final String profileCameraName in _sensorNodeList?.cameraNames ?? <String>[]) {
+      final bool isSelected = selectedCameraNames.contains(profileCameraName);
+      final bool isNeededByApp = needingAppNamesByCamera.containsKey(profileCameraName);
+      if (isSelected || isNeededByApp) {
+        nodeCameraNames.add(profileCameraName);
+      }
+    }
+    return nodeCameraNames;
+  }
+
+  /// The cameras apps of the profile need the node on, each with those apps' names; empty when none needs it.
+  Map<String, List<String>> _getNeedingAppNamesByCamera(String packageName) {
+    for (final SensorNodeSummary sensorNode in _sensorNodeList?.sensorNodes ?? <SensorNodeSummary>[]) {
+      if (sensorNode.packageName == packageName) {
+        return sensorNode.needingAppNamesByCamera;
+      }
+    }
+    return <String, List<String>>{};
+  }
+
+  /// The nodes on cameraName that need packageName there, e.g. page_locator for fiducials_detector, and the apps that
+  /// need the node there.
   List<String> _getNodesNeedingOnCamera(String packageName, String cameraName) {
     final List<String> needingNodeNames = [];
     for (final SensorNodeSummary sensorNode in _sensorNodeList?.sensorNodes ?? <SensorNodeSummary>[]) {
-      final List<String> nodeCameraNames = _cameraNamesByPackage[sensorNode.packageName] ?? <String>[];
+      final List<String> nodeCameraNames = _getNodeCameraNames(sensorNode.packageName);
       if (nodeCameraNames.contains(cameraName) && sensorNode.requiredSensorNodes.contains(packageName)) {
         needingNodeNames.add(sensorNode.displayName);
       }
     }
+    needingNodeNames.addAll(_getNeedingAppNamesByCamera(packageName)[cameraName] ?? <String>[]);
     return needingNodeNames;
   }
 
   /// The camera whose settings and debug view the node's tab shows: the chosen one while the node runs on it, else
   /// the first camera it runs on.
   String _getShownCameraName(String packageName) {
-    final List<String> nodeCameraNames = _cameraNamesByPackage[packageName] ?? <String>[];
+    final List<String> nodeCameraNames = _getNodeCameraNames(packageName);
     final String? chosenCameraName = _shownCameraNameByPackage[packageName];
     if (chosenCameraName != null && nodeCameraNames.contains(chosenCameraName)) {
       return chosenCameraName;
@@ -385,7 +426,7 @@ class _SensorNodesScreenState extends State<SensorNodesScreen> {
   Widget _buildSensorNodeTab(SensorNodeSummary sensorNode, bool isShownTab) {
     final ColorScheme colorScheme = Theme.of(context).colorScheme;
     final TextStyle mutedTextStyle = TextStyle(color: colorScheme.onSurfaceVariant);
-    final List<String> nodeCameraNames = _cameraNamesByPackage[sensorNode.packageName] ?? <String>[];
+    final List<String> nodeCameraNames = _getNodeCameraNames(sensorNode.packageName);
     final Set<String> needingNodeNames = {};
     for (final String cameraName in nodeCameraNames) {
       needingNodeNames.addAll(_getNodesNeedingOnCamera(sensorNode.packageName, cameraName));
@@ -488,10 +529,12 @@ class _SensorNodesScreenState extends State<SensorNodesScreen> {
           cameraName: cameraName,
         );
       } else if (!_isSavingSelection) {
+        // Only the profile's own selection is sent: cameras apps need it on are not saved
+        final List<String> selectedCameraNames = _cameraNamesByPackage[sensorNode.packageName] ?? <String>[];
         onSelected = (bool isSelected) {
           final List<String> requestedCameraNames = [];
           for (final String profileCameraName in profileCameraNames) {
-            final bool isKept = profileCameraName != cameraName && nodeCameraNames.contains(profileCameraName);
+            final bool isKept = profileCameraName != cameraName && selectedCameraNames.contains(profileCameraName);
             final bool isAdded = profileCameraName == cameraName && isSelected;
             if (isKept || isAdded) {
               requestedCameraNames.add(profileCameraName);

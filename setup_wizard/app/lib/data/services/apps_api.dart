@@ -53,6 +53,7 @@ class InstalledApp {
     required this.usesProjector,
     required this.settingsNodeNames,
     required this.inputNames,
+    required this.requiredSensorNodeDisplayNames,
     required this.entryErrorText,
   });
 
@@ -64,6 +65,7 @@ class InstalledApp {
       usesProjector: appJson['uses_projector'] as bool,
       settingsNodeNames: (appJson['settings_node_names'] as List<dynamic>).cast<String>(),
       inputNames: (appJson['input_names'] as List<dynamic>).cast<String>(),
+      requiredSensorNodeDisplayNames: (appJson['required_sensor_node_display_names'] as List<dynamic>).cast<String>(),
       entryErrorText: appJson['entry_error_text'] as String?,
     );
   }
@@ -82,6 +84,10 @@ class InstalledApp {
 
   /// The inputs of the app's entry, each reading one of the profile's cameras; empty for an app that reads none.
   final List<String> inputNames;
+
+  /// The sensor nodes the framework starts for the app on the cameras it reads, by display name; they show under
+  /// Sensor nodes while the profile offers the app.
+  final List<String> requiredSensorNodeDisplayNames;
 
   /// Set when the app's entry is malformed, so the framework would refuse to start it.
   final String? entryErrorText;

@@ -9,10 +9,16 @@ here:
 - The selection is the profile's par_launch lists (par_launch.<package>: [<camera name>, ...]),
   which par.launch.py reads; a node's required nodes are selected along with it, on the same
   camera.
+- The profile's apps (par_launch.apps and the projector app) may require sensor nodes too (their
+  entries' required_launch_switches). par.launch.py starts them on the cameras each app reads, so
+  they are listed and run here by the same rule (launch_helpers.get_par_app_sensor_node_camera_names),
+  but never written into the selection: removing an app or binding it to another camera moves them
+  along.
 - A run is par.launch.py with the profile, started as the preview's camera process
   (camera_launch_session.start_camera_launch), so stop and watchdog work as for a preview. It
   starts every camera of the profile with its sensor nodes, each in /cameras/<camera>; the app
-  shows any camera's image by its topic. The projector app and RViz stay off, and every node gets
+  shows any camera's image by its topic. The apps and RViz stay off (the sensor nodes the apps
+  require run, start_projector_app:=false), and every node gets
   debug:=true, so each one that has a debug parameter opens its preview window on this machine.
 - Settings are read and saved per camera by node_settings_api.py, without a run; a run started
   again picks up what was saved.
@@ -21,6 +27,7 @@ here:
   The preview's ROS node keeps those subscriptions only while the run's launch runs.
 """
 
+from dataclasses import dataclass, field
 import time
 
 from backend_ros_node import join_node_name
@@ -28,11 +35,15 @@ from camera_launch_session import (check_camera_process_runs, get_camera_launch_
                                    PreviewCamera, read_camera_process_log_lines,
                                    start_camera_launch)
 from fastapi import APIRouter, HTTPException
-from par_framework_core.launch_helpers import (get_camera_namespace,
+from par_framework_core.launch_helpers import (get_app_input_camera_names,
+                                               get_camera_namespace,
+                                               get_par_app_sensor_node_camera_names,
                                                get_sensor_node_name,
                                                get_sensor_node_names_by_camera,
                                                get_sensor_node_package_names,
-                                               read_sensor_node_entry)
+                                               PAR_APP_ENTRY_INPUTS_KEY, PROJECTOR_APP_NONE,
+                                               read_offered_par_app_names, read_par_app_entry,
+                                               read_sensor_node_entry, RENDERING_MANAGER_APP_NAME)
 from profile_files import (PAR_LAUNCH_NODE_NAME, read_profile_cameras_or_raise,
                            read_profile_launch_section, write_node_settings_into_profile)
 from pydantic import BaseModel
@@ -42,10 +53,10 @@ from rosidl_runtime_py import message_to_yaml
 from rosidl_runtime_py.utilities import get_message
 
 SENSOR_NODES_LAUNCH_FILE_NAME = 'par.launch.py'
-# A run shows the cameras and the sensor nodes; the projector app and RViz would take the
-# projector or open another window. debug:=true is par.launch.py's switch for the debug parameter
-# of every node it starts (their preview windows).
-RUN_LAUNCH_ARGUMENTS = ['projector_app:=none', 'rviz:=false', 'debug:=true']
+# A run shows the cameras and the sensor nodes, also those the profile's apps require; the apps
+# themselves and RViz would take the projector or open another window. debug:=true is par.launch.py's
+# switch for the debug parameter of every node it starts (their preview windows).
+RUN_LAUNCH_ARGUMENTS = ['start_projector_app:=false', 'rviz:=false', 'debug:=true']
 IMAGE_MESSAGE_TYPE_NAME = 'sensor_msgs/msg/Image'
 # Topics every node has, which say nothing about its output
 ROS_INFRASTRUCTURE_TOPIC_NAMES = ('/rosout', '/parameter_events')
@@ -66,6 +77,9 @@ class SensorNodeSummary(BaseModel):
     # The cameras par_launch.<package> lists, in the order of par_launch.cameras; empty when the
     # profile does not start the node
     camera_names: list[str]
+    # {camera name: [app display name]}: the cameras it runs on because apps of the profile need it
+    # there (directly or through a node an app needs); not part of the profile's selection
+    needing_app_names_by_camera: dict[str, list[str]] = {}
     # Why the node's entry cannot be used; empty otherwise
     entry_error_text: str = ''
 
@@ -75,6 +89,8 @@ class SensorNodeListResponse(BaseModel):
     # par_launch.cameras in its order; the first is the main camera
     camera_names: list[str]
     sensor_nodes: list[SensorNodeSummary]
+    # Per app whose sensor nodes cannot be placed (e.g. an input not bound to a camera): why
+    app_requirement_error_texts: list[str] = []
 
 
 class SensorNodeSelectionRequest(BaseModel):
@@ -133,10 +149,13 @@ def get_sensor_node_list(profile_name: str) -> SensorNodeListResponse:
     """List the installed sensor nodes, and on which cameras the profile starts each."""
     launch_section = read_profile_launch_section(profile_name)
     profile_camera_names = _read_profile_camera_names(profile_name)
+    app_requirements = _get_app_requirements(launch_section, profile_camera_names)
     sensor_nodes = []
     for package_name in get_sensor_node_package_names():
         camera_names = _read_listed_camera_names(launch_section, package_name,
                                                  profile_camera_names)
+        needing_app_names_by_camera = (
+            app_requirements.needing_app_names_by_camera_by_package.get(package_name, {}))
         try:
             sensor_node_entry = read_sensor_node_entry(package_name)
         except RuntimeError as error:
@@ -144,6 +163,7 @@ def get_sensor_node_list(profile_name: str) -> SensorNodeListResponse:
             sensor_nodes.append(SensorNodeSummary(
                 package_name=package_name, display_name=package_name, description='',
                 required_sensor_nodes=[], camera_names=camera_names,
+                needing_app_names_by_camera=needing_app_names_by_camera,
                 entry_error_text=str(error)))
             continue
         sensor_nodes.append(SensorNodeSummary(
@@ -151,9 +171,11 @@ def get_sensor_node_list(profile_name: str) -> SensorNodeListResponse:
             display_name=sensor_node_entry['display_name'],
             description=sensor_node_entry['description'],
             required_sensor_nodes=sensor_node_entry['required_sensor_nodes'],
-            camera_names=camera_names))
-    return SensorNodeListResponse(profile_name=profile_name, camera_names=profile_camera_names,
-                                  sensor_nodes=sensor_nodes)
+            camera_names=camera_names,
+            needing_app_names_by_camera=needing_app_names_by_camera))
+    return SensorNodeListResponse(
+        profile_name=profile_name, camera_names=profile_camera_names, sensor_nodes=sensor_nodes,
+        app_requirement_error_texts=app_requirements.error_texts)
 
 
 @sensor_nodes_router.put('/api/sensor-nodes/selection')
@@ -215,10 +237,14 @@ def get_sensor_nodes_run_state(profile_name: str) -> SensorNodesRunState:
         full_node_name = join_node_name(node_namespace, node_name)
         running_full_node_names.add(full_node_name)
     profile_camera_names = _read_profile_camera_names(profile_name)
+    needing_app_names_by_camera_by_package = _get_app_requirements(
+        launch_section, profile_camera_names).needing_app_names_by_camera_by_package
     camera_names_by_package = {}
     for package_name in get_sensor_node_package_names():
-        camera_names_by_package[package_name] = _read_listed_camera_names(
-            launch_section, package_name, profile_camera_names)
+        listed_camera_names = _read_listed_camera_names(launch_section, package_name,
+                                                        profile_camera_names)
+        app_camera_names = list(needing_app_names_by_camera_by_package.get(package_name, {}))
+        camera_names_by_package[package_name] = listed_camera_names + app_camera_names
     running_sensor_nodes = []
     for package_name, camera_names in _add_required_sensor_node_cameras(
             camera_names_by_package, profile_camera_names).items():
@@ -307,6 +333,59 @@ def _add_required_sensor_node_cameras(camera_names_by_package, profile_camera_na
         for package_name in sensor_node_names_by_camera[camera_name]:
             camera_names_by_running_package.setdefault(package_name, []).append(camera_name)
     return camera_names_by_running_package
+
+
+@dataclass
+class _AppRequirements:
+    # {package: {camera name: [app display name]}}, with the nodes those need in turn
+    needing_app_names_by_camera_by_package: dict = field(default_factory=dict)
+    # Per app whose binding or entry is broken: why
+    error_texts: list = field(default_factory=list)
+
+
+def _get_app_requirements(launch_section, profile_camera_names):
+    """
+    Return where the profile's apps need sensor nodes, as a run without an app starts them.
+
+    The apps are those of par_launch.apps and the projector app, PAR apps only. A run starts
+    every camera of the profile, so the inputs are bound among all of them. A broken entry or
+    binding gives an error text for that app instead, so the other nodes still show.
+    """
+    requirements = _AppRequirements()
+    if not profile_camera_names:
+        return requirements
+    try:
+        app_names = read_offered_par_app_names(launch_section)
+    except RuntimeError as error:
+        requirements.error_texts.append(str(error))
+        app_names = []
+    projector_app_name = str(launch_section.get('projector_app', PROJECTOR_APP_NONE))
+    is_par_projector_app = projector_app_name not in (PROJECTOR_APP_NONE,
+                                                      RENDERING_MANAGER_APP_NAME)
+    if is_par_projector_app and projector_app_name not in app_names:
+        app_names.append(projector_app_name)
+    main_camera_name = profile_camera_names[0]
+    for app_name in app_names:
+        try:
+            par_app_entry = read_par_app_entry(app_name)
+            camera_name_by_input = get_app_input_camera_names(
+                launch_section, app_name, par_app_entry[PAR_APP_ENTRY_INPUTS_KEY],
+                profile_camera_names, profile_camera_names)
+        except RuntimeError as error:
+            requirements.error_texts.append(str(error))
+            continue
+        app_camera_names_by_package = _add_required_sensor_node_cameras(
+            get_par_app_sensor_node_camera_names(par_app_entry, camera_name_by_input,
+                                                 main_camera_name,
+                                                 get_sensor_node_package_names()),
+            profile_camera_names)
+        for package_name, camera_names in app_camera_names_by_package.items():
+            needing_app_names_by_camera = (
+                requirements.needing_app_names_by_camera_by_package.setdefault(package_name, {}))
+            for camera_name in camera_names:
+                needing_app_names = needing_app_names_by_camera.setdefault(camera_name, [])
+                needing_app_names.append(par_app_entry['display_name'])
+    return requirements
 
 
 def _start_run(profile_name):

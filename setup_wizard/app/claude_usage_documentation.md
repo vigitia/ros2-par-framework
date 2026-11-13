@@ -373,3 +373,37 @@ nothing distracts.
 - Deleted the screen instead of only hiding the tab: an unused file would go stale, and git keeps it for when the
   Store is built.
 - Store was the last area, so the other area indices stay unchanged.
+
+## 2026-11-13 — Setup wizard: sensor nodes the projector app needs
+
+**What changed:** The Sensor nodes area shows the nodes the profile's projector app needs (from the backend's
+`camera_names_needed_by_projector_app`) together with the profile's own selection: as tabs, on their cameras, marked
+"Needed by <app>" with Disable and the camera chip locked, as for a node another node needs. The selection the area
+saves holds only the user's own cameras; the camera chips build their request from it. A broken app binding (e.g. an
+unbound input with several cameras) shows as an error line above the tabs. The Apps area's tab says which sensor nodes
+the app starts on the camera it reads and that their settings are under Sensor nodes.
+
+**Why:** Object teaching needs Hand landmarks and Gesture detector, which the framework starts with it, but the wizard
+did not show them, so their settings could not be found or tuned. They are derived from the app, never saved, so
+removing the app or binding it to another camera moves them along (decided with Vitus, 2026-11-13).
+
+**Decisions and rejected alternatives:**
+- The app is one more "needing node" in `_getNodesNeedingOnCamera`, so the existing locks and texts apply; a separate
+  lock and text for apps would duplicate that logic.
+- The note in the app's tab instead of a message shown once when the app is chosen: the projector app is chosen in the
+  Run menu, apart from the app's tab, and a permanent line is still there when the user looks for the nodes later.
+- Not sending the app's cameras when saving, instead of filtering them in the backend: the backend cannot tell an app
+  camera from one the user also chose.
+
+## 2026-11-13 — Setup wizard: sensor nodes of every offered app
+
+**What changed:** The Sensor nodes area shows the nodes every app of the profile needs (offered under Apps, or on the
+projector), from the backend's `needing_app_names_by_camera`; "Needed by" names the apps per camera, and each app whose
+binding is broken gets its own error line. The note in the app's tab no longer says "On the projector".
+
+**Why:** Adding an app under Apps did not make its nodes appear, because only the projector app (chosen later in the
+Run menu) counted. Vitus chose to show the nodes of every offered app, so they can be tuned right after adding it.
+
+**Decisions and rejected alternatives:**
+- App names per camera instead of one list of cameras: two apps may need the same node on the same camera, and the
+  tooltip names both.

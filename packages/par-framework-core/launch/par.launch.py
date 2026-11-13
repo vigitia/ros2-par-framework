@@ -20,10 +20,10 @@ an argument left empty keeps the parameter file's value. camera:= starts one cam
 a name of par_launch.cameras, or <type>[:<serial>] for a unit the profile does not name. Every
 camera gets its own projection calibration (/cameras/<name>/projection_mapping and
 projection_corners). RViz and the rendering manager use the first camera (the main camera) and
-its projection calibration. With a camera that offers depth on its colour image's grid
-(depth_registered in its entry's streams) the detectors also use its depth. camera_only:=true
-starts just the cameras and their mount transforms, e.g. for a preview or a calibration. An event
-camera (event) delivers its events collected into images, and the raw events on
+its projection calibration; RViz also draws the frustum of every started camera. With a camera
+that offers depth on its colour image's grid (depth_registered in its entry's streams) the
+detectors also use its depth. camera_only:=true starts just the cameras and their mount
+transforms, e.g. for a preview or a calibration. An event camera (event) delivers its events collected into images, and the raw events on
 /cameras/<name>/events; it has no calibration. Camera intrinsics are
 config/calibration/intrinsics/<profile>/camera_info_<type>[_<serial>].yaml, per unit; without
 profile:= the shared config/calibration/intrinsics/ folder.
@@ -38,13 +38,16 @@ started too), or rendering_manager, the Wayland compositor whose ROS bridge show
 detected page. A PAR app reads the cameras its entry's inputs name: par_launch.app_inputs binds
 each input to a camera, e.g. app_inputs: {demo_app: {camera: overhead}}; an input left unbound
 reads the only camera of the run. The app's required sensor nodes run on its bound cameras;
-start_projector_app:=false starts only those, not the app (the setup wizard's sensor node run).
+start_projector_app:=false starts no app, only what the projector app and every app of
+par_launch.apps need (the setup wizard's sensor node run).
 
 A camera taking single high-resolution frames on request (e.g. a Blackfly S in software trigger
 mode, see par_setup.yaml) is an ordinary camera of par_launch.cameras with its own settings.
 """
 
+import copy
 import os
+import tempfile
 
 from ament_index_python.packages import get_package_share_directory
 from ament_index_python.resources import has_resource
@@ -71,9 +74,11 @@ from par_framework_core.launch_helpers import (create_camera_actions,
                                                PAR_APP_ENTRY_INPUTS_KEY,
                                                PAR_LAUNCH_CAMERAS_KEY, PROJECTOR_APP_NONE,
                                                read_camera_entry, read_launch_section,
-                                               read_par_app_entry, read_profile_cameras,
+                                               read_offered_par_app_names, read_par_app_entry,
+                                               read_profile_cameras,
                                                RENDERING_MANAGER_APP_NAME,
                                                SENSOR_NODE_RESOURCE_TYPE)
+import yaml
 
 PACKAGE_NAME = 'par_framework_core'
 # The node switches of par_launch, each also a launch argument that overrides it for one run: one
@@ -93,11 +98,14 @@ DETECTOR_PARAMETER_BY_CAMERA_STREAM = {
                                    ('object_detector', 'fiducials_detector', 'hand_landmarks')),
 }
 # One RViz configuration for every camera. The camera topics its displays name are remapped onto
-# the running camera: (name in the configuration, name relative to the camera's namespace)
+# the main camera: (name in the configuration, name relative to the camera's namespace)
 RVIZ_CONFIG_FILE_NAME = 'par_framework.rviz'
 RVIZ_CAMERA_TOPIC_NAMES = (('/camera/image_raw', 'image_raw'),
-                           ('/camera/camera_info', 'camera_info'),
                            ('/points2', 'points2'))
+# The configuration's frustum display is a template: each run gets one copy per started camera
+# with camera_info, as RViz draws one frustum per CameraInfo display
+RVIZ_FRUSTUM_DISPLAY_CLASS_NAME = 'rviz_default_plugins/CameraInfo'
+CAMERA_INFO_STREAM_NAME = 'camera_info'
 # The rendering manager is a Rust program in the repo of its ROS bridge, built by cargo
 # (scripts/local_build.sh)
 RENDERING_MANAGER_BRIDGE_PACKAGE_NAME = 'rendering_manager_bridge'
@@ -119,6 +127,44 @@ def get_rendering_manager_binary_path():
     bridge_package_path = os.path.dirname(os.path.realpath(installed_package_xml_path))
     repo_path = os.path.dirname(bridge_package_path)
     return os.path.join(repo_path, RENDERING_MANAGER_BINARY_RELATIVE_PATH)
+
+
+def write_rviz_config_with_camera_frustums(cameras_to_start):
+    """Write the RViz configuration with a frustum display per started camera; return its path."""
+    rviz_template_path = os.path.join(get_package_share_directory(PACKAGE_NAME), 'config', 'rviz',
+                                      RVIZ_CONFIG_FILE_NAME)
+    with open(rviz_template_path) as rviz_template_file:
+        rviz_config = yaml.safe_load(rviz_template_file)
+    rviz_displays = rviz_config['Visualization Manager']['Displays']
+    frustum_display_index = None
+    for display_index, rviz_display in enumerate(rviz_displays):
+        if rviz_display['Class'] == RVIZ_FRUSTUM_DISPLAY_CLASS_NAME:
+            frustum_display_index = display_index
+            break
+    if frustum_display_index is None:
+        raise RuntimeError(f'[par.launch]: {rviz_template_path} has no '
+                           f'{RVIZ_FRUSTUM_DISPLAY_CLASS_NAME} display to copy for each camera: '
+                           f'add it again')
+    frustum_display_template = rviz_displays.pop(frustum_display_index)
+    camera_frustum_displays = []
+    for camera_to_start in cameras_to_start:
+        camera_stream_names = read_camera_entry(camera_to_start.camera_type)['streams']
+        # A camera without camera_info (an event camera) has no frustum to draw
+        if CAMERA_INFO_STREAM_NAME not in camera_stream_names:
+            continue
+        camera_frustum_display = copy.deepcopy(frustum_display_template)
+        camera_frustum_display['Name'] = (f'{frustum_display_template["Name"]} '
+                                          f'{camera_to_start.camera_name}')
+        camera_namespace = get_camera_namespace(camera_to_start.camera_name)
+        camera_frustum_display['Topic']['Value'] = f'{camera_namespace}/{CAMERA_INFO_STREAM_NAME}'
+        camera_frustum_displays.append(camera_frustum_display)
+    rviz_displays[frustum_display_index:frustum_display_index] = camera_frustum_displays
+    # Simplification: one small file per run is left in the temporary folder, and Ctrl+S in RViz
+    # saves there, not to the installed template. Upgrade: write to a fixed per-user path
+    with tempfile.NamedTemporaryFile('w', prefix='par_framework_', suffix='.rviz',
+                                     delete=False) as rviz_config_file:
+        yaml.safe_dump(rviz_config, rviz_config_file, sort_keys=False)
+        return rviz_config_file.name
 
 
 # Co-authored by Claude Code: the display comes from par_launch.projector_display_id
@@ -328,7 +374,7 @@ def launch_setup(context):
     cameras_to_start = get_cameras_to_start(context)
     # Simplification: RViz and the rendering manager use the first camera. Upgrade: bind their
     # inputs to cameras as for a PAR app
-    camera = cameras_to_start[0].camera_name
+    main_camera_name = cameras_to_start[0].camera_name
     # read_profile_cameras, not launch_section: the merged section would mix par_setup.yaml's
     # default cameras into the profile's. Empty when camera:=<type> runs without a camera list
     profile_camera_names = []
@@ -350,8 +396,8 @@ def launch_setup(context):
     launch_switch_names = tuple(sensor_node_names) + NON_SENSOR_NODE_LAUNCH_SWITCH_NAMES
     # Read before the switches: the framework nodes a PAR app requires are switched on for it
     projector_app_name = get_projector_app_name(context, launch_section)
-    # false: everything the app needs runs (its sensor nodes on its cameras), but not the app
-    # itself, e.g. to tune those nodes in the setup wizard without the app taking the projector
+    # false: everything the apps need runs (their sensor nodes on their cameras), but no app, e.g.
+    # to tune those nodes in the setup wizard without an app taking the projector
     is_projector_app_started = (
         LaunchConfiguration('start_projector_app').perform(context) != 'false')
     # Only looked up when an app draws on it, so a run without one works with the projector off
@@ -371,15 +417,15 @@ def launch_setup(context):
                                f'{list(launch_switch_names)} (a sensor node is known once its '
                                f'package is installed)')
 
-    def is_enabled(switch):
+    def is_switch_enabled(switch_name):
         """Return whether a true/false switch (rviz) is on."""
         # Simplification: the app's requirement wins over switch:=false. Upgrade: refuse the
         # combination with a message, if starting an app without its nodes turns out to be useful
-        if switch in required_launch_switch_names:
+        if switch_name in required_launch_switch_names:
             return True
-        switch_value = read_true_false_argument(switch)
+        switch_value = read_true_false_argument(switch_name)
         if switch_value is None:
-            return launch_section.get(switch, False)
+            return launch_section.get(switch_name, False)
         return switch_value
 
     launch_actions = []
@@ -388,39 +434,41 @@ def launch_setup(context):
     if LaunchConfiguration('camera_only').perform(context) == 'true':
         return launch_actions
     if len(cameras_to_start) > 1:
-        launch_actions.append(LogInfo(msg=f'[par.launch]: RViz and the rendering manager use the '
-                                          f'main camera {camera} (the first of '
-                                          f'par_launch.cameras)'))
+        launch_actions.append(LogInfo(msg=f'[par.launch]: RViz (image and markers) and the '
+                                          f'rendering manager use the main camera '
+                                          f'{main_camera_name} (the first of '
+                                          "par_launch.cameras); RViz draws every camera's "
+                                          'frustum'))
 
     # Set for every framework node; nodes without a debug parameter ignore it
     debug_override = read_true_false_argument('debug')
 
-    def create_framework_node(package, parameter_overrides=None):
+    def create_framework_node(package_name, parameter_overrides=None):
         node_parameters = list(params_file_paths)
         if parameter_overrides:
             node_parameters.append(parameter_overrides)
         if debug_override is not None:
             node_parameters.append({'debug': debug_override})
         return Node(
-            package=package,
-            executable=package,
-            name=f'{package}_node',
+            package=package_name,
+            executable=package_name,
+            name=f'{package_name}_node',
             output='screen',
             emulate_tty=True,
             parameters=node_parameters,
-            remappings=create_camera_stream_remappings(camera),
+            remappings=create_camera_stream_remappings(main_camera_name),
         )
 
-    def create_sensor_node(package, camera_name, parameter_overrides):
+    def create_sensor_node(package_name, camera_name, parameter_overrides):
         """Create a sensor node in its camera's namespace; its sections are /cameras/*/<node>."""
         node_parameters = list(params_file_paths)
         node_parameters.append(parameter_overrides)
         if debug_override is not None:
             node_parameters.append({'debug': debug_override})
         return Node(
-            package=package,
-            executable=package,
-            name=get_sensor_node_name(package),
+            package=package_name,
+            executable=package_name,
+            name=get_sensor_node_name(package_name),
             namespace=get_camera_namespace(camera_name),
             output='screen',
             emulate_tty=True,
@@ -442,7 +490,26 @@ def launch_setup(context):
             started_camera_names)
         app_input_remappings = create_app_input_remappings(app_inputs, camera_name_by_input)
         app_camera_names_by_sensor_node = get_par_app_sensor_node_camera_names(
-            par_app_entry, camera_name_by_input, camera, sensor_node_names)
+            par_app_entry, camera_name_by_input, main_camera_name, sensor_node_names)
+    if not is_projector_app_started:
+        # A run without the app (the setup wizard's Debug run) starts what every offered app
+        # needs, so their sensor nodes can be tuned before one is chosen for the projector
+        for offered_app_name in read_offered_par_app_names(launch_section):
+            if offered_app_name == projector_app_name:
+                continue
+            offered_app_entry = read_par_app_entry(offered_app_name)
+            offered_camera_name_by_input = get_app_input_camera_names(
+                launch_section, offered_app_name, offered_app_entry[PAR_APP_ENTRY_INPUTS_KEY],
+                profile_camera_names, started_camera_names)
+            offered_camera_names_by_sensor_node = get_par_app_sensor_node_camera_names(
+                offered_app_entry, offered_camera_name_by_input, main_camera_name,
+                sensor_node_names)
+            for sensor_node_name, camera_names in offered_camera_names_by_sensor_node.items():
+                merged_camera_names = app_camera_names_by_sensor_node.setdefault(
+                    sensor_node_name, [])
+                for camera_name in camera_names:
+                    if camera_name not in merged_camera_names:
+                        merged_camera_names.append(camera_name)
     camera_names_by_sensor_node = get_camera_names_by_sensor_node(
         context, launch_section, sensor_node_names, profile_camera_names, started_camera_names,
         app_camera_names_by_sensor_node)
@@ -486,16 +553,15 @@ def launch_setup(context):
                                                  debug_override, app_input_remappings)
     elif projector_app_name == RENDERING_MANAGER_APP_NAME:
         launch_actions += create_rendering_manager_actions(params_file_paths, projector_display_id,
-                                                           camera)
+                                                           main_camera_name)
 
-    if is_enabled('rviz'):
+    if is_switch_enabled('rviz'):
         launch_actions.append(create_framework_node('rviz_bridge'))
-        rviz_config_path = os.path.join(get_package_share_directory(PACKAGE_NAME), 'config',
-                                        'rviz', RVIZ_CONFIG_FILE_NAME)
+        rviz_config_path = write_rviz_config_with_camera_frustums(cameras_to_start)
         rviz_remappings = []
         for configured_topic_name, camera_topic_name in RVIZ_CAMERA_TOPIC_NAMES:
             rviz_remappings.append((configured_topic_name,
-                                    f'{get_camera_namespace(camera)}/{camera_topic_name}'))
+                                    f'{get_camera_namespace(main_camera_name)}/{camera_topic_name}'))
         launch_actions.append(Node(
             package='rviz2',
             executable='rviz2',
@@ -547,8 +613,8 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'start_projector_app',
             default_value='true',
-            description='false: start the sensor nodes the projector app requires, on the cameras '
-                        'it reads, but not the app itself.'),
+            description='false: start the sensor nodes the projector app and every app of '
+                        'par_launch.apps require, on the cameras each reads, but no app.'),
         create_projector_display_id_launch_argument(),
         DeclareLaunchArgument(
             'debug',
