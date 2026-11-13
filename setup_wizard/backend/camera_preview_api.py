@@ -23,6 +23,7 @@ from camera_launch_session import (check_camera_process_runs, create_profile_pre
 import cv2
 from fastapi import APIRouter, HTTPException, Response
 from image_conversion import convert_image_message_to_frame
+from intrinsics_api import start_copying_factory_camera_info
 from node_parameters import (convert_parameter_value_to_plain_python, convert_setting_value,
                              NodeSetting, read_node_settings, wait_for_service_answer)
 from profile_files import read_par_setup_node_settings, write_node_settings_into_profile
@@ -95,7 +96,10 @@ class CameraPreviewStopRequest(BaseModel):
 
 @camera_preview_router.post('/api/camera-preview/start')
 def start_camera_preview(request: CameraPreviewStartRequest) -> CameraPreviewStartResponse:
-    """Start the camera for the preview, stopping the camera of an earlier preview first."""
+    """Start the camera for the preview, stopping the camera of an earlier preview first.
+
+    The same camera's preview launch, still running, is kept and gets a new preview id.
+    """
     if request.camera_name:
         if request.profile_name is None:
             raise HTTPException(status_code=422,
@@ -104,8 +108,14 @@ def start_camera_preview(request: CameraPreviewStartRequest) -> CameraPreviewSta
         preview_camera = create_profile_preview_camera(request.profile_name, request.camera_name)
     else:
         preview_camera = create_unit_preview_camera(request.camera_type, request.serial)
+    # The camera's sections (image, lens, pose) each show a preview: switching between them keeps
+    # the running camera instead of restarting it
     preview_id = start_camera_launch(preview_camera, request.profile_name,
-                                     CAMERA_PREVIEW_LAUNCH_FILE_NAME, ['camera_only:=true'])
+                                     CAMERA_PREVIEW_LAUNCH_FILE_NAME, ['camera_only:=true'],
+                                     may_keep_same_launch=True)
+    # A camera with a factory calibration publishes it only while it runs: keep a copy for the
+    # setup drawing
+    start_copying_factory_camera_info(request.profile_name, preview_camera)
     return CameraPreviewStartResponse(preview_id=preview_id)
 
 

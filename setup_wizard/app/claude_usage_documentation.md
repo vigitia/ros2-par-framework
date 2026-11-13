@@ -267,3 +267,62 @@ of view and the table, so the projected area was not visible.
 
 **Alternatives considered:** a stronger fill for the light (still hidden where several camera views overlap); the
 label above the area as before (it collides with the light and the camera views there).
+
+## 2026-11-13 — Overview drawing: area size, hover highlight; factory camera keeps running on its Intrinsics section
+
+**What changed:**
+- `setup_side_view.dart`: the projected area's label gives its size (`projected area 1.23 × 0.69 m`, width and height
+  each the mean of the image's two opposite edges on the table). Hovering a camera draws its field of view, hovering
+  the projector its light, with a stronger fill and outline (`hoveredFrustumFillAlpha`,
+  `hoveredFrustumOutlineWidthLogicalPx`).
+- `camera_section_view.dart`: the Intrinsics section of a camera with a factory calibration shows the camera's
+  preview below its note.
+
+**Why:** Vitus asked for the size and for telling overlapping fields of view apart. The preview keeps such a camera
+running while its tab is open, as the other sections do (the backend keeps a running preview of the same camera).
+
+**Alternatives considered:** the size from the bounding box of the corners (larger than the image when it is turned
+on the table); dimming everything else on hover (the drawing loses its context).
+
+## 2026-11-13 — Overview drawing: height follows the width; left, front and right views
+
+**What changed:** `setup_side_view.dart`:
+- The drawing's height is computed from its width (`_SideViewLayout.create`): the height at which the setup fills the
+  width at the same scale both ways, at least `setupSideViewMinimumHeightLogicalPx` and at most
+  `setupSideViewMaximumWindowHeightRatio` of the window's height.
+- Buttons Left / Front / Right above the drawing (`SetupDrawingViewSide`). The layout takes the table direction drawn
+  left to right (`screenRightDirection`): from the front `frontViewRightDirection`; from the projected image's left
+  edge the direction back towards the front; from its right edge the direction away from it.
+
+**Why:** with a fixed height the setup, about as tall as wide, filled the height and left most of the width empty.
+Vitus asked for a wider drawing and for side views, e.g. to see the cameras' tilt along the projection's depth.
+
+**Alternatives considered:** a larger fixed height (too tall in a narrow window, still narrow in a wide one); a
+free-turning 3D view (much more code, and the 2D views answer where each device is).
+
+## 2026-11-13 — Setup drawing: renamed, positions under the names, view buttons below
+
+**What changed:**
+- `setup_side_view.dart` is now `setup_drawing_view.dart`; `SetupSideView` → `SetupDrawingView`, `_SetupSideViewPainter`
+  → `_SetupDrawingPainter`, `_SideViewLayout` → `_SetupDrawingLayout`, `_SideViewColors` → `_SetupDrawingColors`, the
+  `sideView*` constants → `setupDrawing*` (call site: `profile_overview_screen.dart`).
+- Every label has a second line: cameras and the projector their position in world (`x 0.03 · y 0.40 · height 1.43 m`,
+  `_createPositionText`), the projected area its size. The projector's and the area's lines are centred; a camera
+  label that would run off the right edge goes to the left of its icon. The top and bottom margins grew for the second
+  line.
+- The Left / Front / Right buttons sit centred below the drawing.
+
+**Why:** Vitus asked for it; the drawing shows the front and the sides, so "side view" was misleading. The positions
+make it possible to check a calibration against the real setup with a tape measure.
+
+**Alternatives considered:** the distance between each camera and the projector instead of world coordinates (no
+common reference to measure from on the table); placing labels freely around the icon (more code; the left-of-icon
+case covers the label running off the edge).
+
+## 2026-11-13 — Setup drawing: only the height below a device's name
+
+**What changed:** the second label line of cameras and the projector shows only the height above the table
+(`_createHeightText`, was `_createPositionText` with x and y).
+
+**Why:** Vitus' choice; x and y relate to the projected image's corner, which is hard to read off the drawing, while
+the height is what the front and side views show.

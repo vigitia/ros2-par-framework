@@ -21,6 +21,7 @@ import os
 
 from backend_shared_helpers import read_yaml_file
 from fastapi import APIRouter
+from intrinsics_api import get_factory_camera_info_file_path
 from launch import LaunchContext
 import numpy as np
 from par_framework_core.launch_helpers import (CAMERA_POSE_KEYS,
@@ -69,7 +70,7 @@ class CameraGeometry(BaseModel):
     # Where the optical axis meets the table, [x, y]; None when it points away from the table
     optical_axis_table_hit_m: list[float] | None
     # The field of view's outline on the table, [[x, y], ...] around the image border; None
-    # without an intrinsics file (e.g. a camera with factory intrinsics)
+    # without intrinsics (a camera with factory intrinsics until it ran once in the wizard)
     table_footprint_m: list[list[float]] | None
     # The camera image's left-to-right direction on the table, a unit [x, y]; None when the camera
     # looks along the table, so its image has no direction on it
@@ -220,11 +221,16 @@ def _read_camera_info(profile_launch_context: LaunchContext, profile_camera: Pro
     Return the unit's intrinsics from its file in the profile, None without one.
 
     As (camera matrix, distortion coefficients, image width px, image height px), read from the
-    file the driver loads (camera_calibration's YAML format).
+    file the driver loads (camera_calibration's YAML format), else from the copy of its factory
+    calibration the wizard keeps once the camera ran in it.
     """
     intrinsics_path = get_unit_intrinsics_file_path(profile_launch_context,
                                                     profile_camera.camera_type,
                                                     profile_camera.serial)
+    if not os.path.exists(intrinsics_path):
+        intrinsics_path = get_factory_camera_info_file_path(profile_launch_context,
+                                                            profile_camera.camera_type,
+                                                            profile_camera.serial)
     if not os.path.exists(intrinsics_path):
         return None
     camera_info = read_yaml_file(intrinsics_path)

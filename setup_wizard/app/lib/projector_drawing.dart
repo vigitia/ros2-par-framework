@@ -2,7 +2,7 @@
 //
 // The wizard's projector, drawn from a few shapes so it scales and needs no image file: a grey body seen from above
 // with air vents and its lens barrel pointing down, and the pale colour of its light and lens glass. The setup
-// drawing (setup_side_view.dart) draws it at the projector's place.
+// drawing (setup_drawing_view.dart) draws it at the projector's place.
 
 import 'package:flutter/material.dart';
 

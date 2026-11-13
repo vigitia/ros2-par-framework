@@ -17,11 +17,16 @@ Generic, through ROS conventions only, so it works for any camera driver that fo
   the coverage of image position, size and tilt, and the result.
 - Saving sends the result to the driver through its set_camera_info; the driver writes its
   calibration file itself. A driver without that service cannot store a calibration.
+- A camera whose entry says its calibration comes from the factory publishes it only while it
+  runs. While it runs in the wizard, a copy goes into the profile's intrinsics folder
+  (factory_camera_info_<camera id>.yaml), so the setup drawing knows its field of view while
+  the camera is off.
 """
 
 import datetime
 import os
 import threading
+import time
 import urllib.parse
 
 from backend_ros_node import CAMERA_IMAGE_STREAM_NAME
@@ -32,13 +37,16 @@ import cv2
 from fastapi import APIRouter, HTTPException, Response
 from node_parameters import PARAMETER_SERVICE_TIMEOUT_S, wait_for_service_answer
 from par_framework_core.launch_helpers import (CAMERA_ENTRY_INTRINSICS_KEY,
-                                               CAMERA_INTRINSICS_SOURCE_FACTORY)
+                                               CAMERA_INTRINSICS_SOURCE_FACTORY,
+                                               get_unit_intrinsics_file_path)
 from profile_cameras import get_camera_intrinsics_file_path
+from profile_files import create_profile_launch_context
 from pydantic import BaseModel, Field
 from rcl_interfaces.msg import ParameterType
 from rclpy.qos import QoSHistoryPolicy, QoSProfile, QoSReliabilityPolicy
 from sensor_msgs.msg import CameraInfo
 from sensor_msgs.srv import SetCameraInfo
+import yaml
 
 # The camera's streams this API uses, below its namespace (/cameras/<camera name>/)
 CAMERA_INFO_STREAM_NAME = 'camera_info'
@@ -55,6 +63,14 @@ FILE_URL_SCHEME = 'file'
 CAMERA_INFO_WAIT_TIMEOUT_S = 3.0
 # How long the driver may take to write its calibration file
 SET_CAMERA_INFO_TIMEOUT_S = 10.0
+# The copy of a factory calibration: the unit's intrinsics file name with this prefix. Not the
+# name itself, which the launch hands to the driver as its calibration (camera_info_url)
+FACTORY_CAMERA_INFO_FILE_NAME_PREFIX = 'factory_'
+FACTORY_CAMERA_INFO_HEADER = ('# Factory calibration the camera published, copied by the setup '
+                              'wizard while it ran,\n# so the setup drawing knows its field of '
+                              'view. Not given to the driver.\n')
+# How long the copy waits for the camera's first camera_info (a depth camera starts slowly)
+FACTORY_CAMERA_INFO_WAIT_TIMEOUT_S = 30.0
 
 # Phases of a calibration (IntrinsicsCalibrationProgress.phase)
 CALIBRATION_PHASE_COLLECTING = 'collecting'
@@ -71,6 +87,10 @@ intrinsics_router = APIRouter()
 # The running calibration, None while there is none; replaced under _calibration_session_lock
 _calibration_session = None
 _calibration_session_lock = threading.Lock()
+# Factory calibration files being copied now, so a preview started again meanwhile (e.g. the
+# camera's next section) does not start a second copy
+_factory_camera_info_paths_being_copied = set()
+_factory_camera_info_copy_lock = threading.Lock()
 
 
 class CameraIntrinsicsState(BaseModel):
@@ -505,3 +525,90 @@ def _run_calibration(calibration_session):
         return
     with calibration_session.result_lock:
         calibration_session.phase = CALIBRATION_PHASE_CALIBRATED
+
+
+def get_factory_camera_info_file_path(profile_launch_context, camera_type, serial):
+    """Return where the copy of a unit's factory calibration lives in the profile."""
+    calibration_file_path = get_unit_intrinsics_file_path(profile_launch_context, camera_type,
+                                                          serial)
+    intrinsics_folder_path, calibration_file_name = os.path.split(calibration_file_path)
+    return os.path.join(intrinsics_folder_path,
+                        FACTORY_CAMERA_INFO_FILE_NAME_PREFIX + calibration_file_name)
+
+
+def start_copying_factory_camera_info(profile_name, preview_camera):
+    """
+    Copy the running camera's factory calibration into the profile, in the background.
+
+    Only for a profile's camera whose entry says factory, and only while no copy exists yet.
+    """
+    if profile_name is None or not preview_camera.is_profile_camera:
+        return
+    camera_entry = read_installed_camera_entry(preview_camera.camera_type)
+    if camera_entry[CAMERA_ENTRY_INTRINSICS_KEY] != CAMERA_INTRINSICS_SOURCE_FACTORY:
+        return
+    factory_camera_info_path = get_factory_camera_info_file_path(
+        create_profile_launch_context(profile_name), preview_camera.camera_type,
+        preview_camera.serial)
+    if os.path.exists(factory_camera_info_path):
+        return
+    with _factory_camera_info_copy_lock:
+        if factory_camera_info_path in _factory_camera_info_paths_being_copied:
+            return
+        _factory_camera_info_paths_being_copied.add(factory_camera_info_path)
+    preview_session = get_camera_launch_session()
+    with preview_session.session_lock:
+        camera_process = preview_session.camera_process
+    copy_thread = threading.Thread(target=_copy_factory_camera_info,
+                                   args=(preview_session, camera_process,
+                                         factory_camera_info_path),
+                                   daemon=True)
+    copy_thread.start()
+
+
+def _copy_factory_camera_info(preview_session, camera_process, factory_camera_info_path):
+    """Wait for the camera's camera_info while its process runs, then write it to the file."""
+    try:
+        deadline_monotonic_s = time.monotonic() + FACTORY_CAMERA_INFO_WAIT_TIMEOUT_S
+        while time.monotonic() < deadline_monotonic_s:
+            with preview_session.session_lock:
+                # Another camera or a calibration launch replaced it: its info is not this one's
+                if preview_session.camera_process is not camera_process:
+                    return
+                camera_info_topic_name = get_preview_topic_name(preview_session,
+                                                                CAMERA_INFO_STREAM_NAME)
+            camera_info_message = _receive_one_camera_info(preview_session.preview_ros_node,
+                                                           camera_info_topic_name)
+            if camera_info_message is None:
+                continue
+            # An all-zero camera matrix: the camera knows no calibration after all
+            if camera_info_message.k[0] == 0.0:
+                return
+            _write_camera_info_file(factory_camera_info_path, camera_info_message)
+            return
+    finally:
+        with _factory_camera_info_copy_lock:
+            _factory_camera_info_paths_being_copied.discard(factory_camera_info_path)
+
+
+def _write_camera_info_file(file_path, camera_info_message):
+    """Write the message in camera_calibration's YAML format, the one calibration files use."""
+    distortion_values = [float(value) for value in camera_info_message.d]
+    camera_info_document = {
+        'image_width': int(camera_info_message.width),
+        'image_height': int(camera_info_message.height),
+        'camera_name': camera_info_message.header.frame_id,
+        'camera_matrix': {'rows': 3, 'cols': 3,
+                          'data': [float(value) for value in camera_info_message.k]},
+        'distortion_model': camera_info_message.distortion_model,
+        'distortion_coefficients': {'rows': 1, 'cols': len(distortion_values),
+                                    'data': distortion_values},
+        'rectification_matrix': {'rows': 3, 'cols': 3,
+                                 'data': [float(value) for value in camera_info_message.r]},
+        'projection_matrix': {'rows': 3, 'cols': 4,
+                              'data': [float(value) for value in camera_info_message.p]},
+    }
+    os.makedirs(os.path.dirname(file_path), exist_ok=True)
+    with open(file_path, 'w') as camera_info_file:
+        camera_info_file.write(FACTORY_CAMERA_INFO_HEADER)
+        yaml.safe_dump(camera_info_document, camera_info_file, sort_keys=False)

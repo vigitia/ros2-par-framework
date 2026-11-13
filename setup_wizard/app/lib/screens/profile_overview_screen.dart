@@ -1,7 +1,7 @@
 // Written by Claude Code
 //
 // Hub area "Overview" of a profile: the projector's warnings (not connected, display id or mode changed since it was
-// chosen) with the way to the Projectors area, the setup seen from the front (SetupSideView), below it the cameras
+// chosen) with the way to the Projectors area, the setup seen from the front or a side (SetupDrawingView), below it the cameras
 // and the projector the drawing cannot show yet with what each still needs, and the other calibration steps the
 // profile misses. Each missing step that can run has a button that opens it in the Cameras area
 // (cameras_screen.dart, through the hub); a step that cannot run yet says what it needs. Clicking a camera in the
@@ -14,7 +14,7 @@ import '../camera_section_view.dart';
 import '../profile_run_view.dart';
 import '../projector_display_status_view.dart';
 import '../setup_geometry_api.dart';
-import '../setup_side_view.dart';
+import '../setup_drawing_view.dart';
 import '../profile_summary_loading.dart';
 import '../setup_wizard_backend_client.dart';
 
@@ -247,7 +247,7 @@ class _ProfileOverviewScreenState extends State<ProfileOverviewScreen>
     final TextTheme textTheme = Theme.of(context).textTheme;
     final List<Widget> setupRows = [];
     // Also with nothing measured yet: the bare table, which the steps below fill
-    setupRows.add(SetupSideView(
+    setupRows.add(SetupDrawingView(
       setupGeometry: setupGeometry,
       onCameraClicked: _openCameraInCamerasArea,
       onProjectorClicked: widget.onProjectorClicked,

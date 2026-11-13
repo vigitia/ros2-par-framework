@@ -84,6 +84,8 @@ class CameraLaunchSession:
         self.camera_process = None
         # The running camera; None while none runs
         self.preview_camera = None
+        # The running process's command line, so a start asking for the same launch can keep it
+        self.camera_launch_command = None
         # Every start gets a new id, returned to the app; a stop naming an older id is ignored
         self.started_preview_count = 0
         self.running_preview_id = None
@@ -214,13 +216,19 @@ def get_preview_topic_name(session, stream_name):
     return f'{get_camera_namespace(session.preview_camera.camera_name)}/{stream_name}'
 
 
-def start_camera_launch(preview_camera, profile_name, launch_file_name, launch_arguments):
+def start_camera_launch(preview_camera, profile_name, launch_file_name, launch_arguments,
+                        may_keep_same_launch=False):
     """
     Start a launch file of par_framework_core that starts the camera, as the preview's camera.
 
     Stops the camera of an earlier launch first. launch_arguments: ['name:=value', ...]; camera:=
     is added from preview_camera, profile:= for a saved profile. Returns the new preview id. 409
     while this backend runs a profile.
+
+    may_keep_same_launch: when exactly this launch still runs, keep it and only hand out a new
+    preview id. So a screen replacing another screen of the same camera (e.g. the camera's next
+    section) keeps the camera running, while the old screen's stop, naming the older id, is
+    ignored. Calibration launches pass False: each run starts afresh.
     """
     read_installed_camera_entry(preview_camera.camera_type)
     if profile_name is not None:
@@ -233,15 +241,44 @@ def start_camera_launch(preview_camera, profile_name, launch_file_name, launch_a
             raise HTTPException(status_code=409,
                                 detail='A profile is running: stop the running profile first')
         with session.camera_launch_lock:
+            camera_launch_command = _create_camera_launch_command(
+                preview_camera, profile_name, ros2_executable_path, launch_file_name,
+                launch_arguments)
+            if may_keep_same_launch:
+                with session.session_lock:
+                    if _is_launch_running(session, camera_launch_command):
+                        session.started_preview_count += 1
+                        session.running_preview_id = session.started_preview_count
+                        session.record_preview_request()
+                        return session.running_preview_id
             _stop_camera_process_holding_launch_lock(session)
             with session.session_lock:
                 return _start_camera_process(session, preview_camera, profile_name,
-                                             ros2_executable_path, launch_file_name,
-                                             launch_arguments)
+                                             camera_launch_command)
 
 
-def _start_camera_process(session, preview_camera, profile_name, ros2_executable_path,
-                          launch_file_name, launch_arguments):
+def _create_camera_launch_command(preview_camera, profile_name, ros2_executable_path,
+                                  launch_file_name, launch_arguments):
+    """Return the command line of the camera launch, as a list."""
+    camera_launch_command = [ros2_executable_path, 'launch', 'par_framework_core',
+                             launch_file_name, *launch_arguments]
+    if preview_camera.camera_argument:
+        camera_launch_command.append(f'camera:={preview_camera.camera_argument}')
+    if profile_name is not None:
+        camera_launch_command.append(f'profile:={profile_name}')
+    return camera_launch_command
+
+
+def _is_launch_running(session, camera_launch_command):
+    """Return whether this command's process runs and has not ended. Hold session_lock."""
+    if session.camera_process is None:
+        return False
+    if session.camera_process.poll() is not None:
+        return False
+    return session.camera_launch_command == camera_launch_command
+
+
+def _start_camera_process(session, preview_camera, profile_name, camera_launch_command):
     """Start the camera's launch unless another camera publishes; hold both session locks."""
     # Another camera driver (e.g. the running framework) would fight over the device and mix
     # its frames into the preview. Cameras stopped here may still show up for a while.
@@ -253,18 +290,13 @@ def _start_camera_process(session, preview_camera, profile_name, ros2_executable
                                    f'{CAMERAS_NAMESPACE}: stop the running framework first')
     # Forget stopped publishers that have left the graph
     session.stopped_camera_publisher_gids &= current_publisher_gids
-    camera_launch_command = [ros2_executable_path, 'launch', 'par_framework_core',
-                             launch_file_name, *launch_arguments]
-    if preview_camera.camera_argument:
-        camera_launch_command.append(f'camera:={preview_camera.camera_argument}')
-    if profile_name is not None:
-        camera_launch_command.append(f'profile:={profile_name}')
     with open(CAMERA_PROCESS_LOG_PATH, 'w') as camera_process_log_file:
         # Its own process group, so stopping reaches the launch and every node it started.
         session.camera_process = subprocess.Popen(
             camera_launch_command, stdout=camera_process_log_file,
             stderr=subprocess.STDOUT, start_new_session=True)
     session.preview_camera = preview_camera
+    session.camera_launch_command = camera_launch_command
     session.profile_name = profile_name
     session.started_preview_count += 1
     session.running_preview_id = session.started_preview_count
@@ -386,6 +418,7 @@ def _detach_camera_process(session: CameraLaunchSession):
         session.stopped_camera_publisher_gids |= set(
             session.preview_ros_node.get_camera_image_publishers())
     session.camera_process = None
+    session.camera_launch_command = None
     _keep_unsaved_settings_for_new_profile(session)
     session.preview_camera = None
     session.profile_name = None

@@ -8,6 +8,7 @@
 import 'package:flutter/material.dart';
 
 import 'camera_preview_api.dart';
+import 'camera_preview_view.dart';
 import 'camera_preview_with_settings_view.dart';
 import 'extrinsics_calibration_view.dart';
 import 'intrinsics_calibration_view.dart';
@@ -94,8 +95,8 @@ class CameraSectionView extends StatelessWidget {
   }
 }
 
-/// The lens calibration of a camera, or only a note for a camera that brings its own (its entry says factory): such
-/// a camera is not started, since there is nothing to see or do.
+/// The lens calibration of a camera, or for a camera that brings its own (its entry says factory) a note above its
+/// preview: the preview keeps the camera running while its tab is open, as the camera's other sections do.
 class _LensCalibrationSection extends StatefulWidget {
   const _LensCalibrationSection({
     super.key,
@@ -155,13 +156,21 @@ class _LensCalibrationSectionState extends State<_LensCalibrationSection> {
       return const LinearProgressIndicator();
     }
     if (intrinsicsState == IntrinsicsCalibrationState.factory) {
-      return Row(children: [
+      final Widget factoryCalibrationNote = Row(children: [
         Icon(Icons.check_circle_outline, color: Colors.green.shade400),
         const SizedBox(width: 8),
         const Expanded(
           child: Text('Nothing to do for this camera: it brings its own lens calibration (e.g. from the factory).'),
         ),
       ]);
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          factoryCalibrationNote,
+          const SizedBox(height: 12),
+          CameraPreviewView(backendClient: widget.backendClient, previewCamera: widget.previewCamera),
+        ],
+      );
     }
     return IntrinsicsCalibrationView(backendClient: widget.backendClient, previewCamera: widget.previewCamera);
   }

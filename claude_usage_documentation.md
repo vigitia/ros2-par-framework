@@ -4895,3 +4895,31 @@ profile's extrinsics folder.
 
 **Alternatives considered:** the setup wizard aligning the files after the run (the terminal launch would not
 align); a fixed path convention inside the calibrator (it does not know profiles).
+
+## 2026-11-13: setup wizard keeps a camera running across its sections; factory intrinsics for the drawing
+
+**What changed:**
+- `camera_launch_session.start_camera_launch` takes `may_keep_same_launch`. The preview start passes it: when the
+  same launch (same command line) still runs, the process is kept and only a new preview id handed out. The session
+  remembers the running command (`camera_launch_command`).
+- `intrinsics_api.start_copying_factory_camera_info`: while a profile camera whose entry says `intrinsics: factory`
+  runs as a preview, a background thread waits for one `camera_info` and writes it as
+  `factory_camera_info_<camera id>.yaml` into the profile's intrinsics folder (camera_calibration's YAML format),
+  once per unit. `setup_geometry_api` reads it when the unit has no calibration file, so the Overview drawing shows
+  the field of view of e.g. a Kinect while it is off.
+
+**Why:** every section of a camera (image, intrinsics, pose, projector) shows its own preview, which stopped the
+camera when it closed and started it again in the next section; a depth camera takes several seconds each time. A
+factory calibration exists only while the driver runs, so the drawing had no field of view for such cameras.
+
+**Alternatives considered:**
+- A widget per camera tab owning the camera, with the sections only watching it: more code in the app, and every
+  view would need to know whether an owner exists. The new preview id makes the old section's stop, which names its
+  own id, be ignored already, so the app's lifecycle code stays as it is. Risk accepted: a stop that overtakes the
+  next section's start on the network still restarts the camera, as before.
+- Keeping the camera through pose and projector calibration runs too: their launch files start the camera together
+  with the calibration nodes and the camera's mount transform, which must be published again with a new pose. Not
+  done; a run still restarts the camera.
+- Storing the factory calibration as `camera_info_<id>.yaml`: that file is handed to the driver as its calibration
+  (`camera_info_url`) and counts as the camera's own calibration. A nominal field of view in the camera entry: not
+  the unit's real one.
