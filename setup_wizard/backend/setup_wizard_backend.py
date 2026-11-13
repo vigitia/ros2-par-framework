@@ -11,6 +11,7 @@ the profiles through par_framework_core):
 API docs, to try every endpoint in the browser: http://127.0.0.1:8800/docs
 """
 
+import os
 import socket
 
 import apps_api
@@ -34,6 +35,14 @@ import uvicorn
 SETUP_WIZARD_BACKEND_HOST = '127.0.0.1'
 # Not 8000, which the worksheets app's backend uses.
 SETUP_WIZARD_BACKEND_PORT = 8800
+# The framework's large camera images need this Fast DDS transport (README), and processes with
+# different transports do not discover each other. Set for the backend itself, before its ROS
+# node starts (rclpy.init in camera_launch_session's lifespan), so the backend and every process it
+# starts (runs, previews, calibrations, settings reads) inherit the same; a value set before the
+# backend starts wins, e.g. for testing
+FASTDDS_TRANSPORTS_ENVIRONMENT_NAME = 'FASTDDS_BUILTIN_TRANSPORTS'
+FASTDDS_TRANSPORTS_VALUE = 'LARGE_DATA'
+os.environ.setdefault(FASTDDS_TRANSPORTS_ENVIRONMENT_NAME, FASTDDS_TRANSPORTS_VALUE)
 
 setup_wizard_backend_app = FastAPI(title='PAR setup wizard backend')
 # One module per area of the app, each with its own APIRouter (e.g. profiles_api.py), so the areas

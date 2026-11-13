@@ -21,7 +21,6 @@ class CameraType {
     required this.cameraType,
     required this.displayName,
     required this.description,
-    required this.requiredPackageNames,
     required this.isInstalled,
     required this.serialSource,
     required this.entryErrorText,
@@ -32,7 +31,6 @@ class CameraType {
       cameraType: cameraTypeJson['camera_type'] as String,
       displayName: cameraTypeJson['display_name'] as String,
       description: cameraTypeJson['description'] as String,
-      requiredPackageNames: (cameraTypeJson['required_package_names'] as List<dynamic>).cast<String>(),
       isInstalled: cameraTypeJson['is_installed'] as bool,
       serialSource: cameraTypeJson['serial_source'] as String,
       entryErrorText: cameraTypeJson['entry_error_text'] as String?,
@@ -44,10 +42,8 @@ class CameraType {
   final String displayName;
   final String description;
 
-  /// Packages the type's launch file starts besides its own, e.g. a released driver.
-  final List<String> requiredPackageNames;
-
-  /// True when every package of requiredPackageNames is installed, so the type can be started.
+  /// True when every package the type's launch file needs (e.g. a released driver) is installed, so the type can be
+  /// started.
   final bool isInstalled;
 
   /// none, typed or listed: whether units have serial numbers and whether the backend lists the connected ones.

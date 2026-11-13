@@ -10,26 +10,22 @@ lines when the run ends on its own.
 
 import atexit
 import os
-import re
-import shutil
 import subprocess
 import tempfile
-import threading
 
-import camera_preview_api
+from backend_shared_helpers import get_ros2_executable_path, read_log_lines
+from camera_launch_session import stop_camera_launch
 from fastapi import APIRouter, HTTPException
 from process_groups import LAUNCH_STOP_SIGNALS, stop_process_group
-import profiles_api
+from profile_files import check_profile_exists
+from profile_run_state import (get_profile_run_process, is_profile_running, profile_run_lock,
+                               set_profile_run_process)
 from pydantic import BaseModel
 
 RUN_LAUNCH_FILE_NAME = 'par.launch.py'
 RUN_LOG_PATH = os.path.join(tempfile.gettempdir(), 'par_setup_wizard_run.log')
 RUN_PROCESS_STOP_TIMEOUT_S = 15.0
 RUN_LOG_TAIL_LINE_COUNT = 12
-# The framework's large camera images need this transport, as in the repository's README
-FASTDDS_TRANSPORTS_ENVIRONMENT_NAME = 'FASTDDS_BUILTIN_TRANSPORTS'
-FASTDDS_TRANSPORTS_VALUE = 'LARGE_DATA'
-ANSI_ESCAPE_PATTERN = re.compile(r'\x1b\[[0-9;]*[A-Za-z]')
 
 # What the state reports: no run yet or stopped by the user, running, or ended on its own
 RUN_PHASE_IDLE = 'idle'
@@ -37,8 +33,8 @@ RUN_PHASE_RUNNING = 'running'
 RUN_PHASE_ENDED = 'ended'
 
 run_router = APIRouter()
-_run_lock = threading.Lock()
-_run_process = None
+# The run's process is in profile_run_state, which camera_launch_session checks too; these are
+# changed under its profile_run_lock as well
 _run_profile_name = None
 _was_run_stopped_by_user = False
 
@@ -58,27 +54,19 @@ class RunState(BaseModel):
 @run_router.post('/api/run/start')
 def start_run(request: RunStartRequest) -> RunState:
     """Start the profile as the framework; stops a camera preview first, which holds the camera."""
-    global _run_process, _run_profile_name, _was_run_stopped_by_user
-    profiles_api.check_profile_exists(request.profile_name)
-    ros2_executable_path = shutil.which('ros2')
-    if ros2_executable_path is None:
-        raise HTTPException(status_code=500,
-                            detail='ros2 not found: start the backend in a bash with ROS and the '
-                                   'workspace sourced')
-    with _run_lock:
-        if _run_process is not None and _run_process.poll() is None:
+    global _run_profile_name, _was_run_stopped_by_user
+    check_profile_exists(request.profile_name)
+    ros2_executable_path = get_ros2_executable_path()
+    with profile_run_lock:
+        if is_profile_running():
             raise HTTPException(status_code=409, detail='A profile is running already')
-        camera_preview_api.stop_camera_preview(
-            camera_preview_api.CameraPreviewStopRequest(preview_id=None))
-        launch_environment = dict(os.environ)
-        launch_environment.setdefault(FASTDDS_TRANSPORTS_ENVIRONMENT_NAME,
-                                      FASTDDS_TRANSPORTS_VALUE)
+        stop_camera_launch(only_preview_id=None)
         launch_command = [ros2_executable_path, 'launch', 'par_framework_core',
                           RUN_LAUNCH_FILE_NAME, f'profile:={request.profile_name}']
         with open(RUN_LOG_PATH, 'w') as run_log_file:
-            _run_process = subprocess.Popen(launch_command, stdout=run_log_file,
-                                            stderr=subprocess.STDOUT, start_new_session=True,
-                                            env=launch_environment)
+            set_profile_run_process(subprocess.Popen(
+                launch_command, stdout=run_log_file, stderr=subprocess.STDOUT,
+                start_new_session=True))
         _run_profile_name = request.profile_name
         _was_run_stopped_by_user = False
         return _read_run_state()
@@ -87,23 +75,23 @@ def start_run(request: RunStartRequest) -> RunState:
 @run_router.get('/api/run/state')
 def get_run_state() -> RunState:
     """Tell whether a profile runs, and after an end on its own why."""
-    with _run_lock:
+    with profile_run_lock:
         return _read_run_state()
 
 
 @run_router.post('/api/run/stop')
 def stop_run() -> RunState:
     """Stop the running profile: SIGINT like Ctrl+C, then SIGTERM, then SIGKILL."""
-    with _run_lock:
+    with profile_run_lock:
         _stop_run_process()
         return _read_run_state()
 
 
 def _read_run_state() -> RunState:
-    """Return the state; hold the lock."""
-    if _run_process is None:
+    """Return the state; hold profile_run_lock."""
+    if get_profile_run_process() is None:
         return RunState(phase=RUN_PHASE_IDLE)
-    if _run_process.poll() is None:
+    if is_profile_running():
         return RunState(phase=RUN_PHASE_RUNNING, profile_name=_run_profile_name)
     if _was_run_stopped_by_user:
         return RunState(phase=RUN_PHASE_IDLE, profile_name=_run_profile_name)
@@ -112,27 +100,21 @@ def _read_run_state() -> RunState:
 
 
 def _stop_run_process() -> None:
-    """End the launch and the nodes it started; hold the lock."""
+    """End the launch and the nodes it started; hold profile_run_lock."""
     global _was_run_stopped_by_user
-    if _run_process is None or _run_process.poll() is not None:
+    if not is_profile_running():
         return
     _was_run_stopped_by_user = True
-    stop_process_group(_run_process, LAUNCH_STOP_SIGNALS, RUN_PROCESS_STOP_TIMEOUT_S)
+    stop_process_group(get_profile_run_process(), LAUNCH_STOP_SIGNALS, RUN_PROCESS_STOP_TIMEOUT_S)
 
 
 def _read_run_log_tail() -> list[str]:
-    try:
-        with open(RUN_LOG_PATH) as run_log_file:
-            log_lines = run_log_file.read().splitlines()
-    except OSError:
-        return []
-    cleaned_lines = [ANSI_ESCAPE_PATTERN.sub('', log_line) for log_line in log_lines]
-    return cleaned_lines[-RUN_LOG_TAIL_LINE_COUNT:]
+    return read_log_lines(RUN_LOG_PATH)[-RUN_LOG_TAIL_LINE_COUNT:]
 
 
 def _stop_run_at_exit() -> None:
     """Do not leave the framework running when the backend ends."""
-    with _run_lock:
+    with profile_run_lock:
         _stop_run_process()
 
 

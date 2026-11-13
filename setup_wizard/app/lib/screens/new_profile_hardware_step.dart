@@ -1,6 +1,6 @@
 // Written by Claude Code
 //
-// New profile, step 1: the profile's name and its cameras. The user enters a friendly name (e.g. 'Labor Neu');
+// New profile, step 1: the profile's name and its cameras. The user enters a friendly name (e.g. 'Lab');
 // the internal name for files and profile:= (e.g. 'labor_neu') is generated from it and not shown, and a name whose
 // profile exists already is refused. Below, the cameras whose driver packages are installed, each with a count
 // like in a shopping cart, so a setup can have none, one or several cameras, also several of one type (e.g. two
@@ -127,8 +127,12 @@ class _NewProfileHardwareStepState extends State<NewProfileHardwareStep> {
       return 'Enter a profile name.';
     }
     // Compared by internal name, so 'Labor Neu' and 'labor-neu' count as the same profile.
-    if (_existingProfileNames.contains(createInternalProfileName(profileDisplayName))) {
-      return 'A profile with this name exists already. Choose another name.';
+    final String internalProfileName = createInternalProfileName(profileDisplayName);
+    if (_existingProfileNames.contains(internalProfileName)) {
+      // The wizard saves the profile before its calibration pages, so a setup left before Finish leaves one behind
+      return 'The profile "$internalProfileName" exists already, perhaps from a setup that was not finished. '
+          'To continue it, open it from the Profiles menu (top right) and calibrate in its Cameras area. To start '
+          'over, open it there and delete it. Or choose another name.';
     }
     return null;
   }
@@ -221,9 +225,10 @@ class _NewProfileHardwareStepState extends State<NewProfileHardwareStep> {
       autofocus: true,
       decoration: InputDecoration(
         labelText: 'Profile name',
-        hintText: 'e.g. Labor Neu',
+        hintText: 'Lab',
         border: const OutlineInputBorder(),
         errorText: profileDisplayNameErrorText,
+        errorMaxLines: 4,
       ),
       onChanged: _onProfileDisplayNameChanged,
     );

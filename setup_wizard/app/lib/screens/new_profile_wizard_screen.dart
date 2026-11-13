@@ -125,7 +125,7 @@ class NewProfileWizardScreen extends StatefulWidget {
 class _NewProfileWizardScreenState extends State<NewProfileWizardScreen> {
   static const int stepCount = 6;
   static const int hardwareStepIndex = 0;
-  static const int cameraImageStepIndex = 1;
+  static const int cameraSetupStepIndex = 1;
   static const int projectorStepIndex = 2;
   static const int intrinsicsStepIndex = 3;
   static const int cameraPoseStepIndex = 4;
@@ -133,6 +133,11 @@ class _NewProfileWizardScreenState extends State<NewProfileWizardScreen> {
 
   final NewProfileDraft _newProfileDraft = NewProfileDraft();
   int _currentPageIndex = 0;
+
+  /// One key per page, by topic and camera. The Stepper puts the content elsewhere in the tree when it switches
+  /// between horizontal and vertical (window resized); with a GlobalKey Flutter moves the page with its state
+  /// (entered values, running camera) instead of building it afresh.
+  final Map<String, GlobalKey> _pageContentKeyById = {};
 
   /// Per step whether Next is allowed. A step reports false while its input is incomplete, by calling its
   /// onCanContinueChanged (not during build: e.g. from initState through WidgetsBinding.addPostFrameCallback).
@@ -162,7 +167,7 @@ class _NewProfileWizardScreenState extends State<NewProfileWizardScreen> {
     final List<WizardPage> wizardPages = [
       const WizardPage(pageTopic: WizardPageTopic.hardware, stepIndex: hardwareStepIndex),
     ];
-    wizardPages.addAll(_createOnePagePerCamera(WizardPageTopic.cameraSetup, cameraImageStepIndex));
+    wizardPages.addAll(_createOnePagePerCamera(WizardPageTopic.cameraSetup, cameraSetupStepIndex));
     wizardPages.add(const WizardPage(pageTopic: WizardPageTopic.projector, stepIndex: projectorStepIndex));
     wizardPages.addAll(_createOnePagePerCamera(WizardPageTopic.intrinsics, intrinsicsStepIndex));
     wizardPages.addAll(_createOnePagePerCamera(WizardPageTopic.cameraPose, cameraPoseStepIndex));
@@ -314,7 +319,7 @@ class _NewProfileWizardScreenState extends State<NewProfileWizardScreen> {
       // would run and fight the shown one over the camera. Only the current page gets built; a page coming back
       // restores itself from NewProfileDraft.
       if (stepIndex == currentPage.stepIndex) {
-        stepContent = _buildPage(currentPage);
+        stepContent = KeyedSubtree(key: _getPageContentKey(currentPage), child: _buildPage(currentPage));
       }
       wizardSteps.add(Step(
         title: Text(stepTitleTexts[stepIndex]),
@@ -418,7 +423,7 @@ class _NewProfileWizardScreenState extends State<NewProfileWizardScreen> {
         if (cameraInstance == null) {
           return const Text('No camera was chosen in the Hardware step, so there is no camera image to set up.');
         }
-        return CameraImageStep(backendClient: widget.backendClient, cameraInstance: cameraInstance);
+        return CameraSetupStep(backendClient: widget.backendClient, cameraInstance: cameraInstance);
       case WizardPageTopic.intrinsics:
         if (cameraInstance == null) {
           return const Text('No camera was chosen in the Hardware step, so there is nothing to calibrate.');
@@ -444,6 +449,11 @@ class _NewProfileWizardScreenState extends State<NewProfileWizardScreen> {
           cameraSection: cameraSection,
         );
     }
+  }
+
+  GlobalKey _getPageContentKey(WizardPage wizardPage) {
+    final String pageId = '${wizardPage.pageTopic.name}_${wizardPage.cameraInstanceIndex}';
+    return _pageContentKeyById.putIfAbsent(pageId, () => GlobalKey());
   }
 
   StepperType _chooseStepperType(BuildContext context) {

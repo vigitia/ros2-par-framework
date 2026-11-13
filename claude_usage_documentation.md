@@ -4712,3 +4712,186 @@ say that sensor nodes run in the camera's namespace.
 
 **Alternatives considered:** a separate multi-camera document next to the README (two places to keep in sync, and
 the README would stay wrong); listing every launch argument (the README's TODO for that was left to Vitus).
+
+## 2026-11-11: Setup wizard backend review fixes (locks, shared helpers, dead fields)
+
+**What changed:**
+- The backend sets `FASTDDS_BUILTIN_TRANSPORTS=LARGE_DATA` once for itself (`setdefault` in
+  `setup_wizard_backend.py`, before its ROS node starts); every process it starts inherits it. `run_api` no longer
+  sets it only for its own launch.
+- A camera launch (preview, calibration, sensor node run) is refused with 409 while the backend runs a profile. The
+  run's process and lock live in the new `profile_run_state.py`, which both `run_api` and `camera_preview_api` import
+  (lock order: run lock, camera launch lock, session lock).
+- Stopping a camera detaches its process under the short `session_lock` and waits for its end under a separate
+  `camera_launch_lock`, which every start also holds, so frame, feed and focus requests no longer wait for a slow
+  stop, and no new camera starts before the old one has ended. The watchdog stops only the preview it found
+  unwatched.
+- The sensor nodes' output subscriptions belong to the preview's ROS node and end whenever the camera launch stops
+  (stop, watchdog, another launch); an output request without a running launch gets 409.
+- One helper `profiles_api.read_profile_cameras_or_raise` answers a broken profile with 409 instead of 500
+  everywhere (add/remove camera, app inputs, setup geometry, sensor nodes, node settings, previews);
+  `read_profile_launch_section` also catches YAML errors.
+- Removing a camera moves its node sections (`/cameras/<name>/...`) out of the profile into `node_sections.yaml` in
+  the camera's `.deleted` folder (written before the profile), keeping the next section's comment in the profile.
+- The projector blackout window is opened again after it ended by itself (e.g. projector plugged in again), at most
+  every `BLACKOUT_WINDOW_RETRY_INTERVAL_S`.
+- New `GET /api/profiles/{profile_name}`; `ProjectionMappingSummary.mapping_file_error_text`. Removed unused
+  response fields: `CameraType.stream_names`, `driver_node_name` (camera settings and feeds),
+  `ProfileSummary.sensor_node_names`, `CameraIntrinsicsState.calibration_file_path`,
+  `ProjectorGeometry.mapping_camera_name`.
+- One implementation each: in `launch_helpers` the published camera pose (`read_published_camera_pose`), a unit's
+  intrinsics file (`get_unit_intrinsics_file_path`), the profile file (`get_profile_file_path`), the installed
+  `par_setup.yaml` (`get_installed_par_setup_path`), the sensor node name (`get_sensor_node_name`, also in
+  `par.launch.py`), the optical frame rotation (`OPTICAL_FRAME_ROTATION_QUATERNION_XYZW`) and the intrinsics source
+  constants; in the new `backend_shared_helpers.py` YAML reading, the `ros2` lookup and log tails (one ANSI regex);
+  `CameraPreviewSession.record_preview_request` for the watchdog.
+- `validate_topic_name` failures are caught as `InvalidTopicNameException`, a node leaving the graph as
+  `NodeNameNonExistentError`. Renames: `wait_for_service_answer`, `create_unit_preview_camera`,
+  `_read_newest_camera_image_message`. Plain pytest tests in `setup_wizard/backend/test/`.
+
+**Why:** a code review found processes that could not discover each other, a preview that could start next to the
+running framework, a stop that blocked every frame request for seconds, subscriptions that outlived their run, 500s
+for hand-edited profiles, settings a re-added camera inherited, and duplicated framework knowledge that had already
+drifted apart (two ANSI patterns, two pose readers with different error handling).
+
+**Alternatives considered:** setting the transport per `Popen` call (every new call site would have to remember it);
+a check function registered by `run_api` in `camera_preview_api` (hidden coupling, and the same lock ordering problem
+had to be solved anyway); checking the run state before taking the camera launch lock (leaves a window in which both
+start); a reentrant lock instead of the separate stop variant (hides which caller holds what); keeping the output
+subscriptions in `sensor_nodes_api` with a stop callback (a second registry for what the preview node already
+manages for image feeds); deleting the removed camera's sections without a copy (loses hand-tuned values). The
+optical frame rotation stays nominal for depth cameras whose drivers publish it from their factory calibration
+(marked as a simplification): their exact rotation is only known from TF while the driver runs.
+
+## 2026-11-11: Setup wizard backend split into helper and endpoint modules
+
+**What changed:** the two largest backend modules were split along their jobs, without changing behaviour or the
+HTTP API (the OpenAPI document is identical):
+- `profiles_api.py` keeps only the profile endpoints (list, get, last selection, create, projector display, delete).
+  New helper modules: `profile_files.py` (profile names and paths, reading par_launch, cameras and node sections,
+  the ruamel round-trip writer `write_node_settings_into_profile` with its comment-keeping helpers, par_setup.yaml
+  defaults with wildcard section matching, the app values par_launch.apps/rviz/app_inputs), `profile_summary.py`
+  (`ProfileSummary` with camera calibration and projector display state), `profile_cameras.py` (checking, adding and
+  removing a profile's cameras, placeholder poses, the camera's intrinsics file). The app endpoints of a profile
+  (`projector-app`, `apps`, `app-inputs`) moved to `apps_api.py`, the camera add/remove endpoints to `cameras_api.py`;
+  the installed camera types moved into `camera_types.py`.
+- `camera_preview_api.py` keeps only the preview endpoints and the preview's JPEG scaling. New:
+  `camera_launch_session.py` (`CameraLaunchSession`, formerly the preview session: process lifecycle, watchdog,
+  locks with their documented order, the ROS lifespan, unsaved settings for a new profile), `backend_ros_node.py`
+  (the backend's ROS node and output receivers), `node_parameters.py` (`NodeSetting`, value conversion, parameter
+  clients and service waits), `image_conversion.py` (sensor_msgs/Image to an OpenCV frame).
+- Dependencies point one way: endpoint modules import helper modules, helpers never import an endpoint module, no
+  module imports another inside a function to dodge a cycle, and no module calls another's endpoint function
+  (`run_api` stops a camera launch through `stop_camera_launch`, `node_settings_api` checks the run through
+  `profile_run_state`, displays are read through `backend_shared_helpers.read_connected_displays_or_raise`).
+- `create_profile`, `remove_camera` and `write_node_settings_into_profile` were split into named steps until the
+  complexity check (`flake8 --max-complexity 12`) passes.
+- Renames: `get_profile_preview_camera` -> `create_profile_preview_camera`, `get_camera_preview_session` ->
+  `get_camera_launch_session`, the calibration modules' `_keep_preview_watched` -> `_record_preview_request`,
+  `_find_v4l_by_id_serials` / `_find_usb_serials` -> `_read_v4l_by_id_serials` / `_read_usb_serials`.
+- The launch files take the installed par_setup.yaml from `launch_helpers.get_installed_par_setup_path` and the
+  placeholder pose section from `CAMERA_TF_PUBLISHER_NAME_SUFFIX`; `CameraType` defaults use the launch_helpers
+  constants for "none".
+
+**Why:** the two modules had grown to over 1000 lines each and mixed endpoints, file formats, ROS plumbing and
+process management, so a change in one area meant reading all of them. The function-level imports hid a real import
+cycle between the profile and preview modules, and calling another module's endpoint function couples to its
+request and response models. Literal copies of framework names in the launch files could drift from the one
+definition in `launch_helpers`.
+
+**Alternatives considered:** a separate module for the ruamel writer next to the profile readers (both work on the
+same files and share the section-name matching; one module keeps that knowledge together); a new endpoint module
+for a profile's cameras (the paths are under /api/profiles, but the cameras area already owns camera endpoints and
+a new router would only add a file); keeping the camera add/remove helpers in `cameras_api` (the profile endpoints
+need them for a new profile, which would make one endpoint module depend on another); moving the projector blackout
+session out of `projector_blackout_api` so `extrinsics_api` imports only helpers (not needed for a cycle-free graph,
+left for later). Routes registered by a different router change only the order of paths in the OpenAPI document,
+not their matching, since no two routes overlap.
+
+## 2026-11-12: Setup wizard lists connected Azure Kinects
+
+**What changed:** camera entries take an optional `usb_product_id` next to `usb_vendor_id` (checked in
+`launch_helpers._check_camera_entry_serial_keys`, applied in `cameras_api._read_usb_serials`, listed in
+`templates/par_camera/README.md`). The Kinect's entry is `serial: listed` with `usb_vendor_id: '045e'` and
+`usb_product_id: '097c'` (its depth camera), so the wizard offers the connected Kinects instead of asking for a typed
+serial.
+
+**Why:** a Kinect reports the serial its driver takes (`sensor_sn`) on every one of its USB devices (hubs, colour and
+depth camera, microphone array). The vendor alone would list each Kinect several times and also any other Microsoft
+USB device with a serial; the depth camera's product id is one device per Kinect.
+
+**Alternatives considered:** asking the Azure Kinect SDK (`k4arecorder --list` or the library) for its devices (needs
+the hand-installed SDK in the backend and opens the devices, which fails while a run uses them; the USB descriptors
+are readable at any time); removing duplicates of the vendor's serials (still lists other Microsoft devices); a
+Kinect-only lookup in the backend (a special case; the product id also fits other vendors, e.g. Intel for RealSense).
+
+## 2026-11-12: Setup wizard takes a camera's own lens calibration from its entry
+
+**What changed:** `intrinsics_api._read_camera_intrinsics_state` reports `camera` (the camera's own calibration)
+only for a camera whose entry says `intrinsics: factory`. Any other camera counts as calibrated only with a
+calibration file and a filled-in camera matrix, else as uncalibrated.
+
+**Why:** the state was guessed from the live `camera_info`: a filled-in camera matrix without a calibration file
+counted as the camera's own calibration. Some drivers publish a default matrix while uncalibrated (seen with a
+Blackfly), so the wizard called that camera protected and offered no calibration. The entry declares the source
+explicitly, and the profile summary already reads it from there; both now agree.
+
+**Alternatives considered:** keeping the guess and adding the entry as an extra condition (two sources for one fact;
+the guess adds nothing once the entry is read); checking the matrix for a driver's typical default values (differs
+per driver, no ROS convention).
+
+## 2026-11-12: A stored intrinsics file counts as calibrated, whatever the driver publishes
+
+**What changed:** `intrinsics_api._read_camera_intrinsics_state` reports `calibration_file` for a calibratable camera
+whenever the framework's calibration file for it exists, no longer only when the live `camera_info` also carries a
+camera matrix.
+
+**Why:** right after the wizard saved a lens calibration, the page still said "needs a calibration": some drivers
+store the calibration through `set_camera_info` but keep publishing the old, empty one until they are restarted, so
+the live message contradicted the file just written.
+
+**Alternatives considered:** restarting the camera after every save so the driver loads the file (slow for a camera
+that takes long to start, and the restart only confirms what the driver's own answer to `set_camera_info` already
+said); polling until the live message changes (never ends for such a driver).
+
+## 2026-11-12: Setup geometry finds the projector centre of a depth camera that is not the main camera
+
+**What changed:** `setup_geometry_api` takes the projector centre from the main camera's projection mapping and, when
+that has none, from the first other camera's mapping that has one (`_read_other_camera_projector_center`). The
+Overview then no longer lists the projector position as missing.
+
+**Why:** only a depth camera measures the projector centre, and it is stored in that camera's own mapping. With a
+camera without depth as main camera (e.g. an infrared camera listed first), the Overview reported the centre as
+missing right after the wizard had saved it. The framework itself was not affected: the projection mask runs on the
+depth camera and reads its own mapping.
+
+**Alternatives considered:** writing the centre into every camera's mapping (copies of one measurement that drift
+apart when one mapping is recalibrated); checking all mappings in the app (the drawing needs the centre too, so the
+backend's geometry is the one place). Simplification (in the code): the centre is used as stored, in world; it lines
+up with the main camera's projection area only when both cameras' poses were measured on the same table plane.
+
+## 2026-11-12: Overview drawing faces a long side of the projection
+
+**What changed:** `setup_geometry_api._choose_front_view_right_direction` takes left to right along the longer pair of
+the projected image's edges: the horizontal edges for a landscape image (as before), the vertical edges for a
+portrait one (a projector turned on its side), seen from the image's left edge.
+
+**Why:** the drawing should always show the projection's width (Vitus' rule: the wider side is the front). Following
+the image's horizontal edge only does that while the projector stands upright.
+
+**Alternatives considered:** the table's long side (the framework does not know the table's outline); the main
+camera's image (a camera may be turned on its side too, and the projection is what people work on).
+
+## 2026-11-13: projection calibration aligns the camera to the projected image
+
+**What changed:** `projection_calibration.launch.py` passes the camera's pose file (`camera_pose_file`) to
+`projection_calibrator`, which then stores the mapping from the projected image's world and moves the pose into it
+(details and alternatives in `framework-calibration`'s documentation). The setup wizard backend's comment on the
+projector centre taken from another camera's mapping now says when it lines up (`setup_geometry_api.py`).
+
+**Why:** cameras got x and y (and their rotation about the vertical) only from a placeholder, so each had its own
+world; the wizard's Overview drawing mixed them. The path comes from the launch file, the one place that knows the
+profile's extrinsics folder.
+
+**Alternatives considered:** the setup wizard aligning the files after the run (the terminal launch would not
+align); a fixed path convention inside the calibrator (it does not know profiles).

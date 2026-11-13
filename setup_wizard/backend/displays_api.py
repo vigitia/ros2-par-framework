@@ -8,8 +8,8 @@ a profile's projector, so the wizard and a launch always count displays alike.
 
 from dataclasses import asdict
 
-from fastapi import APIRouter, HTTPException
-from par_framework_core.connected_displays import read_connected_displays
+from backend_shared_helpers import read_connected_displays_or_raise
+from fastapi import APIRouter
 from pydantic import BaseModel
 
 displays_router = APIRouter()
@@ -48,11 +48,7 @@ class DisplayListResponse(BaseModel):
 @displays_router.get('/api/displays')
 def get_display_list() -> DisplayListResponse:
     """List the connected displays in the framework's display_id order."""
-    try:
-        connected_displays = read_connected_displays()
-    except RuntimeError as error:
-        raise HTTPException(status_code=500, detail=str(error)) from error
     displays = []
-    for connected_display in connected_displays:
+    for connected_display in read_connected_displays_or_raise():
         displays.append(ConnectedDisplay(**asdict(connected_display)))
     return DisplayListResponse(displays=displays)

@@ -10,28 +10,33 @@ here:
   which par.launch.py reads; a node's required nodes are selected along with it, on the same
   camera.
 - A run is par.launch.py with the profile, started as the preview's camera process
-  (camera_preview_api.start_camera_launch), so stop and watchdog work as for a preview. It starts
-  every camera of the profile with its sensor nodes, each in /cameras/<camera>; the app shows any
-  camera's image by its topic. The projector app and RViz stay off, and every node gets
+  (camera_launch_session.start_camera_launch), so stop and watchdog work as for a preview. It
+  starts every camera of the profile with its sensor nodes, each in /cameras/<camera>; the app
+  shows any camera's image by its topic. The projector app and RViz stay off, and every node gets
   debug:=true, so each one that has a debug parameter opens its preview window on this machine.
 - Settings are read and saved per camera by node_settings_api.py, without a run; a run started
   again picks up what was saved.
 - What a node publishes is listed from the ROS graph: its sensor_msgs/Image topics are shown as
   frames (camera_preview_api's frame endpoint), every other topic as its latest message in text.
+  The preview's ROS node keeps those subscriptions only while the run's launch runs.
 """
 
-import threading
 import time
 
-import camera_preview_api
+from backend_ros_node import join_node_name
+from camera_launch_session import (check_camera_process_runs, get_camera_launch_session,
+                                   PreviewCamera, read_camera_process_log_lines,
+                                   start_camera_launch)
 from fastapi import APIRouter, HTTPException
 from par_framework_core.launch_helpers import (get_camera_namespace,
+                                               get_sensor_node_name,
                                                get_sensor_node_names_by_camera,
                                                get_sensor_node_package_names,
-                                               read_profile_cameras, read_sensor_node_entry)
-import profiles_api
+                                               read_sensor_node_entry)
+from profile_files import (PAR_LAUNCH_NODE_NAME, read_profile_cameras_or_raise,
+                           read_profile_launch_section, write_node_settings_into_profile)
 from pydantic import BaseModel
-from rclpy.qos import QoSHistoryPolicy, QoSProfile, QoSReliabilityPolicy
+from rclpy.exceptions import InvalidTopicNameException
 from rclpy.validate_topic_name import validate_topic_name
 from rosidl_runtime_py import message_to_yaml
 from rosidl_runtime_py.utilities import get_message
@@ -41,24 +46,16 @@ SENSOR_NODES_LAUNCH_FILE_NAME = 'par.launch.py'
 # projector or open another window. debug:=true is par.launch.py's switch for the debug parameter
 # of every node it starts (their preview windows).
 RUN_LAUNCH_ARGUMENTS = ['projector_app:=none', 'rviz:=false', 'debug:=true']
-# par.launch.py names each sensor node <package>_node, in its camera's namespace
-SENSOR_NODE_NAME_SUFFIX = '_node'
 IMAGE_MESSAGE_TYPE_NAME = 'sensor_msgs/msg/Image'
 # Topics every node has, which say nothing about its output
 ROS_INFRASTRUCTURE_TOPIC_NAMES = ('/rosout', '/parameter_events')
 # Long arrays (e.g. landmarks of several hands) are cut, so the text stays readable
 OUTPUT_MESSAGE_ARRAY_TRUNCATE_LENGTH = 8
 OUTPUT_MESSAGE_MAXIMUM_LENGTH_CHARS = 4000
-# Outputs are usually published reliably, frames best effort; a best-effort subscriber gets both
-OUTPUT_MESSAGE_QOS = QoSProfile(reliability=QoSReliabilityPolicy.BEST_EFFORT,
-                                history=QoSHistoryPolicy.KEEP_LAST, depth=1)
+# The launch's last output lines shown once it has ended
+LAUNCH_LOG_TAIL_LINE_COUNT = 8
 
 sensor_nodes_router = APIRouter()
-
-# Subscriptions to the nodes' non-image outputs, made when the app first asks for a topic:
-# {topic name: _OutputMessageReceiver}; changed under _output_receivers_lock
-_output_receiver_by_topic = {}
-_output_receivers_lock = threading.Lock()
 
 
 class SensorNodeSummary(BaseModel):
@@ -131,26 +128,10 @@ class SensorNodeOutputMessage(BaseModel):
     received_age_s: float | None
 
 
-class _OutputMessageReceiver:
-    """Keeps the latest message of one output topic."""
-
-    def __init__(self, type_name):
-        self.type_name = type_name
-        self.subscription = None
-        self.latest_message_lock = threading.Lock()
-        self.latest_message = None
-        self.latest_message_monotonic_s = None
-
-    def keep_latest_message(self, output_message):
-        with self.latest_message_lock:
-            self.latest_message = output_message
-            self.latest_message_monotonic_s = time.monotonic()
-
-
 @sensor_nodes_router.get('/api/sensor-nodes')
 def get_sensor_node_list(profile_name: str) -> SensorNodeListResponse:
     """List the installed sensor nodes, and on which cameras the profile starts each."""
-    launch_section = profiles_api.read_profile_launch_section(profile_name)
+    launch_section = read_profile_launch_section(profile_name)
     profile_camera_names = _read_profile_camera_names(profile_name)
     sensor_nodes = []
     for package_name in get_sensor_node_package_names():
@@ -198,8 +179,8 @@ def set_sensor_node_selection(request: SensorNodeSelectionRequest) -> SensorNode
     camera_list_by_package = {}
     for package_name in installed_package_names:
         camera_list_by_package[package_name] = stored_camera_names_by_package.get(package_name, [])
-    profiles_api.write_node_settings_into_profile(request.profile_name, '/par_launch',
-                                                  camera_list_by_package)
+    write_node_settings_into_profile(request.profile_name, PAR_LAUNCH_NODE_NAME,
+                                     camera_list_by_package)
     return SensorNodeSelectionResponse(camera_names_by_package=stored_camera_names_by_package)
 
 
@@ -207,7 +188,7 @@ def set_sensor_node_selection(request: SensorNodeSelectionRequest) -> SensorNode
 def start_sensor_nodes_run(request: SensorNodesRunStartRequest) -> SensorNodesRunStartResponse:
     """Start the profile's camera with its selected sensor nodes, ending the running preview."""
     # Only checked here: 404 for no such profile, 409 for one a launch cannot read
-    profiles_api.read_profile_launch_section(request.profile_name)
+    read_profile_launch_section(request.profile_name)
     preview_id = _start_run(request.profile_name)
     return SensorNodesRunStartResponse(preview_id=preview_id)
 
@@ -215,22 +196,23 @@ def start_sensor_nodes_run(request: SensorNodesRunStartRequest) -> SensorNodesRu
 @sensor_nodes_router.get('/api/sensor-nodes/run/state')
 def get_sensor_nodes_run_state(profile_name: str) -> SensorNodesRunState:
     """Return which selected nodes run and what each publishes."""
-    launch_section = profiles_api.read_profile_launch_section(profile_name)
-    preview_session = camera_preview_api.get_camera_preview_session()
+    launch_section = read_profile_launch_section(profile_name)
+    preview_session = get_camera_launch_session()
     with preview_session.session_lock:
         launch_process = preview_session.camera_process
         is_launch_running = launch_process is not None and launch_process.poll() is None
         if is_launch_running:
             # Asking for the state counts as watching, also while no frames are fetched
-            preview_session.last_preview_request_monotonic_s = time.monotonic()
+            preview_session.record_preview_request()
     launch_log_lines = []
     if not is_launch_running:
-        launch_log_lines = camera_preview_api.read_camera_process_log_lines()[-8:]
+        launch_log_lines = read_camera_process_log_lines()[
+            -LAUNCH_LOG_TAIL_LINE_COUNT:]
 
     preview_ros_node = preview_session.preview_ros_node
     running_full_node_names = set()
     for node_name, node_namespace in preview_ros_node.get_node_names_and_namespaces():
-        full_node_name = camera_preview_api.join_node_name(node_namespace, node_name)
+        full_node_name = join_node_name(node_namespace, node_name)
         running_full_node_names.add(full_node_name)
     profile_camera_names = _read_profile_camera_names(profile_name)
     camera_names_by_package = {}
@@ -242,8 +224,8 @@ def get_sensor_nodes_run_state(profile_name: str) -> SensorNodesRunState:
             camera_names_by_package, profile_camera_names).items():
         for camera_name in camera_names:
             camera_namespace = get_camera_namespace(camera_name)
-            node_name = package_name + SENSOR_NODE_NAME_SUFFIX
-            full_node_name = camera_preview_api.join_node_name(camera_namespace, node_name)
+            node_name = get_sensor_node_name(package_name)
+            full_node_name = join_node_name(camera_namespace, node_name)
             is_running = full_node_name in running_full_node_names
             output_topics = []
             if is_running:
@@ -260,19 +242,25 @@ def get_sensor_nodes_run_state(profile_name: str) -> SensorNodesRunState:
 
 @sensor_nodes_router.get('/api/sensor-nodes/output-message')
 def get_sensor_node_output_message(topic_name: str) -> SensorNodeOutputMessage:
-    """Return the latest message on a node's output topic as text, subscribing on first ask."""
+    """
+    Return the latest message on a node's output topic as text, subscribing on first ask.
+
+    409 while no run's launch runs: the subscription ends with the launch.
+    """
     # Comes from the network and ends up in a subscription: must be a valid ROS topic name
     try:
         validate_topic_name(topic_name)
-    except Exception as error:
+    except InvalidTopicNameException as error:
         raise HTTPException(status_code=400, detail=f'Not a topic name: {error}') from error
-    preview_session = camera_preview_api.get_camera_preview_session()
+    preview_session = get_camera_launch_session()
     preview_ros_node = preview_session.preview_ros_node
-    with _output_receivers_lock:
-        output_receiver = _output_receiver_by_topic.get(topic_name)
+    # Under the session lock, so the subscription is made only while the launch runs and is
+    # dropped when it stops
+    with preview_session.session_lock:
+        check_camera_process_runs(preview_session)
+        output_receiver = preview_ros_node.get_output_receiver(topic_name)
         if output_receiver is None:
             output_receiver = _subscribe_to_output_topic(preview_ros_node, topic_name)
-            _output_receiver_by_topic[topic_name] = output_receiver
     with output_receiver.latest_message_lock:
         latest_message = output_receiver.latest_message
         latest_message_monotonic_s = output_receiver.latest_message_monotonic_s
@@ -322,34 +310,19 @@ def _add_required_sensor_node_cameras(camera_names_by_package, profile_camera_na
 
 
 def _start_run(profile_name):
-    main_camera = _read_profile_cameras_or_raise(profile_name)[0]
+    main_camera = read_profile_cameras_or_raise(profile_name)[0]
     # No camera:=, so every camera of the profile starts. The preview session is named after the
     # main camera; the app shows each camera's image by its topic
-    preview_camera = camera_preview_api.PreviewCamera(
+    preview_camera = PreviewCamera(
         camera_name=main_camera.camera_name, camera_type=main_camera.camera_type,
         serial=main_camera.serial, camera_argument='', is_profile_camera=True)
-    # A new run may publish other types on the same topics; subscriptions are made again
-    _forget_output_receivers()
-    return camera_preview_api.start_camera_launch(preview_camera, profile_name,
-                                                  SENSOR_NODES_LAUNCH_FILE_NAME,
-                                                  RUN_LAUNCH_ARGUMENTS)
-
-
-# Written by Claude Code
-def _read_profile_cameras_or_raise(profile_name):
-    """Return the profile's cameras (ProfileCamera), the main one first; 409 if unreadable."""
-    profile_launch_context = profiles_api.create_profile_launch_context(profile_name)
-    try:
-        return read_profile_cameras(profile_launch_context)
-    except RuntimeError as error:
-        raise HTTPException(status_code=409,
-                            detail=f'Cannot read the cameras of {profile_name}: {error}'
-                            ) from error
+    return start_camera_launch(preview_camera, profile_name, SENSOR_NODES_LAUNCH_FILE_NAME,
+                               RUN_LAUNCH_ARGUMENTS)
 
 
 def _read_profile_camera_names(profile_name):
     profile_camera_names = []
-    for profile_camera in _read_profile_cameras_or_raise(profile_name):
+    for profile_camera in read_profile_cameras_or_raise(profile_name):
         profile_camera_names.append(profile_camera.camera_name)
     return profile_camera_names
 
@@ -371,7 +344,7 @@ def _list_output_topics(preview_ros_node, node_name, node_namespace):
 
 
 def _subscribe_to_output_topic(preview_ros_node, topic_name):
-    """Subscribe to a topic with the type its publishers have. Hold _output_receivers_lock."""
+    """Subscribe to a topic with the type its publishers have. Hold the session lock."""
     publisher_infos = preview_ros_node.get_publishers_info_by_topic(topic_name)
     if not publisher_infos:
         raise HTTPException(status_code=404, detail=f'Nothing publishes {topic_name} (yet)')
@@ -382,15 +355,4 @@ def _subscribe_to_output_topic(preview_ros_node, topic_name):
         raise HTTPException(status_code=409,
                             detail=f'The type {type_name} of {topic_name} is not installed '
                                    f'here: {error}') from error
-    output_receiver = _OutputMessageReceiver(type_name)
-    output_receiver.subscription = preview_ros_node.create_subscription(
-        message_class, topic_name, output_receiver.keep_latest_message, OUTPUT_MESSAGE_QOS)
-    return output_receiver
-
-
-def _forget_output_receivers():
-    preview_session = camera_preview_api.get_camera_preview_session()
-    with _output_receivers_lock:
-        for output_receiver in _output_receiver_by_topic.values():
-            preview_session.preview_ros_node.destroy_subscription(output_receiver.subscription)
-        _output_receiver_by_topic.clear()
+    return preview_ros_node.subscribe_to_output_topic(topic_name, type_name, message_class)

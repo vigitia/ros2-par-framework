@@ -78,7 +78,7 @@ String describeBackendErrorForUser(Object error, {bool isBackendDetailShown = fa
       return 'The PAR machine could not find it. Go back, reload and try again.';
     }
     if (statusCode == 409) {
-      return 'That is not possible right now. Something else may be using the camera: stop it and try again.';
+      return 'That is not possible right now. Wait until what is running has finished, then try again.';
     }
     if (statusCode == 503 || statusCode == 504) {
       return 'The camera or service is not ready yet. Wait a moment and try again.';
@@ -128,23 +128,28 @@ class SetupWizardBackendClient {
   /// Fetches what one profile runs. Throws ProfileUnavailableException when it no longer exists or its files cannot
   /// be read, and the usual errors when the backend is unreachable.
   Future<ProfileSummary> fetchProfileSummary(String profileName) async {
-    final ProfileList profileList = await fetchProfileList();
-    for (final ProfileSummary profileSummary in profileList.profileSummaries) {
-      if (profileSummary.profileName != profileName) {
-        continue;
+    final String profileApiPath = '/api/profiles/${Uri.encodeComponent(profileName)}';
+    final Map<String, dynamic> profileSummaryJson;
+    try {
+      profileSummaryJson = await getJson(profileApiPath) as Map<String, dynamic>;
+    } on BackendRequestException catch (error) {
+      if (error.statusCode != 404) {
+        rethrow;
       }
-      final String? profileErrorText = profileSummary.profileErrorText;
-      if (profileErrorText != null) {
-        debugPrint('[SetupWizardBackendClient]: cannot read profile $profileName: $profileErrorText');
-        throw const ProfileUnavailableException(
-          'This profile\'s file cannot be read. It may contain a mistake from editing it by hand.',
-        );
-      }
-      return profileSummary;
+      debugPrint('[SetupWizardBackendClient]: $error');
+      throw const ProfileUnavailableException(
+        'This profile does not exist any more. Choose another one in the Overview.',
+      );
     }
-    throw const ProfileUnavailableException(
-      'This profile does not exist any more. Choose another one in the Overview.',
-    );
+    final ProfileSummary profileSummary = ProfileSummary.fromJson(profileSummaryJson);
+    final String? profileErrorText = profileSummary.profileErrorText;
+    if (profileErrorText != null) {
+      debugPrint('[SetupWizardBackendClient]: cannot read profile $profileName: $profileErrorText');
+      throw const ProfileUnavailableException(
+        'This profile\'s file cannot be read. It may contain a mistake from editing it by hand.',
+      );
+    }
+    return profileSummary;
   }
 
   /// Fetches the hardware setups (profiles) with what each runs, and the one selected last time.
@@ -211,7 +216,6 @@ class ProfileSummary {
   const ProfileSummary({
     required this.profileName,
     required this.cameras,
-    required this.sensorNodeNames,
     required this.appNames,
     required this.enabledAppNames,
     required this.cameraNameByInputByApp,
@@ -230,7 +234,6 @@ class ProfileSummary {
     return ProfileSummary(
       profileName: profileSummaryJson['profile_name'] as String,
       cameras: _readCameraCalibrationSummaries(profileSummaryJson['cameras'] as List<dynamic>),
-      sensorNodeNames: (profileSummaryJson['sensor_node_names'] as List<dynamic>).cast<String>(),
       appNames: (profileSummaryJson['app_names'] as List<dynamic>).cast<String>(),
       enabledAppNames: (profileSummaryJson['enabled_app_names'] as List<dynamic>).cast<String>(),
       cameraNameByInputByApp: _readCameraNameByInputByApp(
@@ -250,7 +253,6 @@ class ProfileSummary {
 
   final String profileName;
   final List<CameraCalibrationSummary> cameras;
-  final List<String> sensorNodeNames;
   final List<String> appNames;
 
   /// The apps the profile offers (par_launch.apps), in its order; the projector app is one of them.

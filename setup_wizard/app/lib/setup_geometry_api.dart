@@ -100,13 +100,12 @@ class CameraGeometry {
 }
 
 class ProjectorGeometry {
-  const ProjectorGeometry({required this.projectionAreaM, required this.centerM, required this.mappingCameraName});
+  const ProjectorGeometry({required this.projectionAreaM, required this.centerM});
 
   factory ProjectorGeometry.fromJson(Map<String, dynamic> projectorJson) {
     return ProjectorGeometry(
       projectionAreaM: _readOptionalPoints(projectorJson['projection_area_m']) ?? [],
       centerM: _readOptionalPoint(projectorJson['center_m']),
-      mappingCameraName: projectorJson['mapping_camera_name'] as String,
     );
   }
 
@@ -115,9 +114,6 @@ class ProjectorGeometry {
 
   /// The projector's optical centre; null until measured.
   final WorldPointM? centerM;
-
-  /// The camera whose projection mapping this is.
-  final String mappingCameraName;
 }
 
 class SetupGeometry {

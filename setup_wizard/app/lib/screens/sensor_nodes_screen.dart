@@ -11,8 +11,6 @@
 // machine; the tab in front then shows the chosen camera's image and its node's outputs there (image outputs as
 // frames, the others as their latest message), and saving settings meanwhile starts the run again with them.
 
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 
 import '../addable_tabs_view.dart';
@@ -25,7 +23,7 @@ import '../sensor_nodes_api.dart';
 import '../top_aligned_page_content.dart';
 import '../setup_wizard_backend_client.dart';
 
-/// Pause between two run state requests while a run goes.
+/// Pause between the answer to one run state request and the next request while a run goes.
 const Duration sensorNodesRunStatePollInterval = Duration(seconds: 1);
 
 /// Pause between two requests for a node's latest output message.
@@ -70,12 +68,15 @@ class _SensorNodesScreenState extends State<SensorNodesScreen> {
   /// The running try's preview id; null while none runs.
   int? _runPreviewId;
 
-  /// Increased with every start, so the image views of an earlier run are built anew.
+  /// Increased with every start, so the image views of an earlier run are built anew and the run state requests of
+  /// an earlier run stop and their answers are dropped.
   int _runStartCount = 0;
   SensorNodesRunState? _runState;
   String? _runErrorText;
+
+  /// Why the running try's state cannot be read (e.g. the backend stopped answering); null after the next answer.
+  String? _runStateErrorText;
   bool _isStartingRun = false;
-  Timer? _runStatePollTimer;
 
   @override
   void initState() {
@@ -85,7 +86,6 @@ class _SensorNodesScreenState extends State<SensorNodesScreen> {
 
   @override
   void dispose() {
-    _runStatePollTimer?.cancel();
     _stopRunQuietly();
     super.dispose();
   }
@@ -188,28 +188,45 @@ class _SensorNodesScreenState extends State<SensorNodesScreen> {
       _runPreviewId = runPreviewId;
       _runStartCount += 1;
       _runState = null;
+      _runStateErrorText = null;
       _isStartingRun = false;
     });
-    _runStatePollTimer?.cancel();
-    _runStatePollTimer = Timer.periodic(sensorNodesRunStatePollInterval, (Timer pollTimer) => _loadRunState());
-    _loadRunState();
+    _pollRunState(_runStartCount);
   }
 
-  Future<void> _loadRunState() async {
-    try {
-      final SensorNodesRunState runState = await widget.backendClient.fetchSensorNodesRunState(widget.profileName);
-      if (!mounted || _runPreviewId == null) {
+  /// Whether the run started as start number runStartCount is still the one shown.
+  bool _isCurrentRun(int runStartCount) {
+    return mounted && _runPreviewId != null && runStartCount == _runStartCount;
+  }
+
+  /// Asks for the run's state, one request at a time, until the run ends, is stopped or replaced by a new start, or
+  /// the screen is gone. A failed request is shown and the next one tries again.
+  Future<void> _pollRunState(int runStartCount) async {
+    while (_isCurrentRun(runStartCount)) {
+      bool isLaunchRunning = true;
+      try {
+        final SensorNodesRunState runState = await widget.backendClient.fetchSensorNodesRunState(widget.profileName);
+        if (!_isCurrentRun(runStartCount)) {
+          return;
+        }
+        isLaunchRunning = runState.isLaunchRunning;
+        setState(() {
+          _runState = runState;
+          _runStateErrorText = null;
+        });
+      } catch (error) {
+        if (!_isCurrentRun(runStartCount)) {
+          return;
+        }
+        setState(() {
+          _runStateErrorText = describeBackendErrorForUser(error);
+        });
+      }
+      if (!isLaunchRunning) {
+        // Ended by itself (e.g. a node failed): keep showing why, stop asking
         return;
       }
-      setState(() {
-        _runState = runState;
-      });
-      if (!runState.isLaunchRunning) {
-        // Ended by itself (e.g. a node failed) or stopped: keep showing why, stop asking
-        _runStatePollTimer?.cancel();
-      }
-    } catch (error) {
-      // One slow answer must not end the view; the next request tries again
+      await Future<void>.delayed(sensorNodesRunStatePollInterval);
     }
   }
 
@@ -225,10 +242,10 @@ class _SensorNodesScreenState extends State<SensorNodesScreen> {
   }
 
   void _stopRun() {
-    _runStatePollTimer?.cancel();
     _stopRunQuietly();
     setState(() {
       _runState = null;
+      _runStateErrorText = null;
     });
   }
 
@@ -533,6 +550,11 @@ class _SensorNodesScreenState extends State<SensorNodesScreen> {
         ),
       ),
     ]);
+    final String? runStateErrorText = _runStateErrorText;
+    if (runStateErrorText != null) {
+      final String runStateErrorLineText = 'Cannot read the state of the nodes: $runStateErrorText';
+      debugRows.add(Text(runStateErrorLineText, style: TextStyle(color: colorScheme.error)));
+    }
     final SensorNodesRunState? runState = _runState;
     if (runState == null) {
       debugRows.add(const Text('Starting the nodes …'));

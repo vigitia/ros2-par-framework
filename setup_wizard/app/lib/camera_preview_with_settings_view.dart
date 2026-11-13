@@ -1,9 +1,8 @@
 // Written by Claude Code
 //
-// One camera's live feeds with, if wanted, its settings next to them (below them in narrow windows), and, if wanted,
-// the focus help below the feeds, which frames its measured area on the camera image. The settings can be limited to
-// some of them (e.g. only the focus settings on the wizard's Focus page). The settings take the height they need and
-// scroll with the page, which has the only scroll bar on the screen. Shared by the wizard's per-camera steps and a
+// One camera's live feeds with its settings next to them (below them in narrow windows), and the focus help below the
+// feeds, which frames its measured area on the camera image. The settings take the height they need and scroll with
+// the page, which has the only scroll bar on the screen. Shared by the wizard's per-camera steps and a
 // profile's Cameras area.
 
 import 'package:flutter/material.dart';
@@ -23,11 +22,7 @@ class CameraPreviewWithSettingsView extends StatefulWidget {
     super.key,
     required this.backendClient,
     required this.previewCamera,
-    required this.isSettingsListShown,
-    this.isFocusAssistShown = true,
     this.settingsTitleText,
-    this.isSettingShown,
-    this.noShownSettingsText,
   });
 
   final SetupWizardBackendClient backendClient;
@@ -35,13 +30,8 @@ class CameraPreviewWithSettingsView extends StatefulWidget {
   /// The camera to show and set up.
   final PreviewCameraChoice previewCamera;
 
-  final bool isSettingsListShown;
-  final bool isFocusAssistShown;
-
-  /// Passed on to CameraSettingsView; null for its defaults (every setting, titled with the camera name).
+  /// Passed on to CameraSettingsView; null for its default title (the camera name).
   final String? settingsTitleText;
-  final bool Function(String settingName)? isSettingShown;
-  final String? noShownSettingsText;
 
   @override
   State<CameraPreviewWithSettingsView> createState() => _CameraPreviewWithSettingsViewState();
@@ -59,15 +49,6 @@ class _CameraPreviewWithSettingsViewState extends State<CameraPreviewWithSetting
   final ValueNotifier<FocusMeasuredArea?> _focusMeasuredAreaNotifier = ValueNotifier<FocusMeasuredArea?>(null);
 
   @override
-  void didUpdateWidget(CameraPreviewWithSettingsView oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    // Without the focus help, the preview must not keep framing its last measured area
-    if (!widget.isFocusAssistShown) {
-      _focusMeasuredAreaNotifier.value = null;
-    }
-  }
-
-  @override
   void dispose() {
     _focusMeasuredAreaNotifier.dispose();
     super.dispose();
@@ -82,19 +63,16 @@ class _CameraPreviewWithSettingsViewState extends State<CameraPreviewWithSetting
       previewCamera: widget.previewCamera,
       focusMeasuredArea: _focusMeasuredAreaNotifier,
     );
-    final List<Widget> previewRows = [cameraPreviewView];
-    if (widget.isFocusAssistShown) {
-      previewRows.add(const SizedBox(height: 16));
-      previewRows.add(FocusAssistView(
-        key: _focusAssistViewKey,
-        backendClient: widget.backendClient,
-        measuredAreaNotifier: _focusMeasuredAreaNotifier,
-      ));
-    }
-    final Widget previewView = Column(crossAxisAlignment: CrossAxisAlignment.start, children: previewRows);
-    if (!widget.isSettingsListShown) {
-      return previewView;
-    }
+    final Widget focusAssistView = FocusAssistView(
+      key: _focusAssistViewKey,
+      backendClient: widget.backendClient,
+      previewCamera: widget.previewCamera,
+      measuredAreaNotifier: _focusMeasuredAreaNotifier,
+    );
+    final Widget previewView = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [cameraPreviewView, const SizedBox(height: 16), focusAssistView],
+    );
 
     return LayoutBuilder(builder: (BuildContext context, BoxConstraints constraints) {
       if (constraints.maxWidth < sideBySideSettingsMinimumWidthLogicalPx) {
@@ -119,10 +97,8 @@ class _CameraPreviewWithSettingsViewState extends State<CameraPreviewWithSetting
     return CameraSettingsView(
       key: _cameraSettingsViewKey,
       backendClient: widget.backendClient,
-      cameraDisplayName: widget.previewCamera.runningCameraName,
+      previewCamera: widget.previewCamera,
       titleText: widget.settingsTitleText,
-      isSettingShown: widget.isSettingShown,
-      noShownSettingsText: widget.noShownSettingsText,
     );
   }
 }

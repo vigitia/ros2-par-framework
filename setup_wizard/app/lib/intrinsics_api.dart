@@ -102,7 +102,6 @@ class CameraIntrinsicsState {
   const CameraIntrinsicsState({
     required this.intrinsicsSource,
     required this.canStoreCalibration,
-    required this.calibrationFilePath,
     required this.calibrationFileModifiedIso,
   });
 
@@ -110,7 +109,6 @@ class CameraIntrinsicsState {
     return CameraIntrinsicsState(
       intrinsicsSource: _parseIntrinsicsSource(stateJson['intrinsics_source'] as String),
       canStoreCalibration: stateJson['can_store_calibration'] as bool,
-      calibrationFilePath: stateJson['calibration_file_path'] as String,
       calibrationFileModifiedIso: stateJson['calibration_file_modified_iso'] as String,
     );
   }
@@ -119,9 +117,6 @@ class CameraIntrinsicsState {
 
   /// Whether the driver can store a new calibration (it offers set_camera_info).
   final bool canStoreCalibration;
-
-  /// The driver's calibration file; empty when it names none.
-  final String calibrationFilePath;
 
   /// When the file was last written; empty when it does not exist.
   final String calibrationFileModifiedIso;

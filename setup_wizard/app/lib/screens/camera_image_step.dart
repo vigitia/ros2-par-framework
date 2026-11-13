@@ -11,8 +11,8 @@ import '../camera_preview_with_settings_view.dart';
 import '../setup_wizard_backend_client.dart';
 import 'new_profile_wizard_screen.dart';
 
-class CameraImageStep extends StatelessWidget {
-  const CameraImageStep({super.key, required this.backendClient, required this.cameraInstance});
+class CameraSetupStep extends StatelessWidget {
+  const CameraSetupStep({super.key, required this.backendClient, required this.cameraInstance});
 
   final SetupWizardBackendClient backendClient;
 
@@ -34,7 +34,6 @@ class CameraImageStep extends StatelessWidget {
         CameraPreviewWithSettingsView(
           backendClient: backendClient,
           previewCamera: cameraInstance.createUnitPreviewCamera(),
-          isSettingsListShown: true,
           settingsTitleText: 'Camera settings: ${cameraInstance.cameraName}',
         ),
       ],

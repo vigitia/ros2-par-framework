@@ -174,6 +174,7 @@ class CameraPoseSummary {
 class ProjectionMappingSummary {
   const ProjectionMappingSummary({
     required this.isCalibrated,
+    required this.mappingFileErrorText,
     required this.measuredText,
     required this.reprojectionErrorPx,
     required this.projectorWidthPx,
@@ -185,6 +186,7 @@ class ProjectionMappingSummary {
   factory ProjectionMappingSummary.fromJson(Map<String, dynamic> mappingJson) {
     return ProjectionMappingSummary(
       isCalibrated: mappingJson['is_calibrated'] as bool,
+      mappingFileErrorText: mappingJson['mapping_file_error_text'] as String,
       measuredText: mappingJson['measured_text'] as String,
       reprojectionErrorPx: (mappingJson['reprojection_error_px'] as num?)?.toDouble(),
       projectorWidthPx: mappingJson['projector_width_px'] as int?,
@@ -195,6 +197,9 @@ class ProjectionMappingSummary {
   }
 
   final bool isCalibrated;
+
+  /// Why the stored mapping file cannot be used; empty otherwise.
+  final String mappingFileErrorText;
   final String measuredText;
 
   /// How far the projected markers lie from where the fitted homography puts them.

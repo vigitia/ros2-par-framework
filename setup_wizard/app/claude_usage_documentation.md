@@ -133,3 +133,137 @@ on the projector until it is bound. With one camera, the section only says which
 **Alternatives considered:** a dropdown with one camera too (nothing to choose; launch binds the only camera itself);
 binding all inputs of an app at once to the main camera when it is added (with several cameras the main camera is
 often the wrong one, e.g. for a capture input).
+
+## 2026-11-11: Review fixes: polling, camera settings saved at once, dead code, profile endpoint
+
+**What changed:**
+- Every repeated request now runs as an async loop that sends the next request only after the previous answer and
+  ends once its view is gone: the profile's Run button, the projector blackout and the Sensor nodes' run state (which
+  used `Timer.periodic`) follow the loop pattern the camera preview and calibration views already used.
+- Sensor nodes: the run state loop belongs to one start (`_runStartCount`); it ends on a new start or Stop, and an
+  answer arriving after either is dropped. A failed request shows a lasting error in the debug view until the next
+  answer.
+- Camera settings of a saved profile are written into the profile right after the driver accepted a change (the
+  existing save-to-profile call, one save at a time; a change during a save triggers one more). The "Save to profile"
+  button is gone; a failed save shows the reason, and settings still unsaved are named with a "Save now" button.
+  Without a saved profile (new-profile wizard) nothing changes.
+- `fetchProfileSummary` asks `GET /api/profiles/{name}` for the one profile instead of loading the whole list; 404
+  and an unreadable profile keep their texts.
+- The extrinsics state shows why a stored projection mapping file cannot be used (`mappingFileErrorText`), like the
+  camera pose.
+- Removed what nothing used: `isFocusAssistShown`, `isSettingsListShown`, `isSettingShown`, `noShownSettingsText`
+  and the fields `ProfileSummary.sensorNodeNames`, `CameraIntrinsicsState.calibrationFilePath`,
+  `ProjectorGeometry.mappingCameraName`, `CameraType.requiredPackageNames`.
+- The generic 409 text no longer blames the camera. Renames: `CameraSetupStep`, `cameraSetupStepIndex`,
+  `_getTextOrUnknown`.
+
+**Why:** a periodic timer starts a new request while the previous one may still wait for its answer, so answers
+overlap and an old one can overwrite a newer state; silent errors left a frozen view. Camera settings were the only
+settings that needed a manual save, which is easy to forget. Loading every profile to show one is wasted work.
+
+**Alternatives considered:** a shared polling helper (the loops differ in what ends them: a start count, a run id, a
+running calibration; a helper would only move a three-line `while` loop); cancelling the periodic timer while a request
+is on its way (still two mechanisms side by side); saving camera settings only when leaving the page (a crash or a
+closed window would lose them). SensorNodesScreen keeps loading its own list without the `ProfileSummaryLoading`
+mixin: it does not use the profile summary, its sensor node list already carries the profile's cameras.
+
+## 2026-11-12: Lens calibration page without a camera start for factory-calibrated cameras
+
+**What changed:** the lens calibration section of `CameraSectionView` (Cameras area and new-profile Intrinsics page)
+first reads the profile summary. For a camera whose intrinsics state is `factory` it shows only a note that nothing
+needs to be done and does not start the camera; otherwise, or when the profile cannot be read, it shows
+`IntrinsicsCalibrationView` as before. The section is keyed by camera name: it reads the state once, and the
+wizard's next Intrinsics page (another camera) would otherwise reuse it with the previous camera's state.
+
+**Why:** a camera that brings its own calibration offers nothing to do on this page, so starting it and showing its
+preview only costs time and suggests there is something to do.
+
+**Alternatives considered:** passing the intrinsics state in from both callers (the new-profile wizard holds no
+profile summary, so it would need the same request in a second place); deciding inside `IntrinsicsCalibrationView`
+(it is built around a running camera; the choice whether to start one belongs above it). Simplification: the
+projector is still blacked out on this page for such a camera, because the blackout is shared with the camera pose
+section so it does not flicker between the two.
+
+## 2026-11-12: Clearer refusal of an existing profile name; hint "Lab"
+
+**What changed:** the new-profile name field names the existing profile when it refuses a name, says it may come
+from a setup that was not finished, and points to the Profiles menu to continue it (Cameras area) or delete it; the
+error text may wrap. The field's hint is "Lab".
+
+**Why:** the wizard saves the profile before its calibration pages, which need it, so a setup left before Finish
+leaves a real profile behind. The old text ("exists already") gave no hint of that, so the name looked blocked by
+something that did not exist.
+
+**Alternatives considered (decided by Vitus):** marking a profile unfinished until Finish and letting a new setup of
+the same name replace it (a marker in the profile file and more code for a rare case); moving the half-made profile
+to `.deleted/` when the wizard is left without Finish (a crash or closed window would still leave it behind).
+
+## 2026-11-12: Camera settings never show another camera's settings
+
+**What changed:** `CameraSettingsView` takes the `PreviewCameraChoice` instead of a display name, and
+`CameraSettingsReport` carries the backend's `camera_name`. An answer whose camera name or profile differs from the
+view's camera is dropped and asked again after `cameraSettingsRetryInterval`, like an answer from a camera that is
+still starting.
+
+**Why:** the camera page starts its camera and loads the settings independently. The backend answers a settings
+request for the camera running at that moment, and handles requests in parallel, so right after switching pages the
+settings request could be answered before the new camera's start had stopped the old one. The page then listed the
+previous camera's settings under the new camera's name (seen: a Kinect's `tf_prefix` on a Blackfly page), and a
+change would have gone to whichever camera ran.
+
+**Alternatives considered:** loading the settings only after the preview's start returned (needs the start's
+completion passed from `CameraPreviewView` to its siblings; the identity check also catches a late answer from
+any other cause); refusing such requests in the backend while a start is pending (the backend cannot know a start
+is coming when the settings request arrives first). The profile is compared as well, because a unit preview and a
+profile camera may share a name (`kinect`) but not their settings.
+
+## 2026-11-12: Resizing the wizard keeps entered values and the running camera
+
+**What changed:** the new-profile wizard gives each page a `GlobalKey` (`_pageContentKeyById`, one per topic and
+camera). `ExtrinsicsCalibrationView` keeps its camera preview under a `GlobalKey` too, replaced only after a run and
+for another camera (it replaces the `_previewStartCount` key).
+
+**Why:** the Stepper switches between horizontal and vertical with the window width and then places the page content
+elsewhere in the widget tree; without a GlobalKey Flutter builds the page afresh, so entered values (e.g. the
+checkerboard) were lost and the camera restarted. The pose and projector calibration pages also move the preview
+between a stacked and a side-by-side layout, which restarted the camera there. A scratch widget test confirmed both
+ways: without the key the page was built three times over two switches, with it once and the typed value stayed.
+
+**Alternatives considered:** keeping the entered values in `NewProfileDraft` (the wizard's own state) instead of in the
+views (only covers the wizard, not the camera restart, and every field would need its own copy); one fixed Stepper
+type (avoids the switch, but a narrow window would get a cramped horizontal bar).
+
+## 2026-11-12: Calibration pages: remembered board, automatic intrinsics save, focus crop, error reasons
+
+**What changed:**
+- `RememberedCheckerboard` (in `intrinsics_calibration_view.dart`) holds the last typed inner corners and square size;
+  the lens and camera pose views fill their fields from it and update it on every change, so the next camera's page
+  starts with the same board.
+- The lens calibration is saved as soon as it is computed (once per run, `_isCalibrationResultSaveStarted`); the
+  result stays shown for checking until "Close". Save and Discard are gone.
+- `FocusAssistView` takes the previewed camera and clears its measurement and centre crop when the camera changes;
+  a missing crop (none measured for the running camera yet) clears the shown one instead of keeping it.
+- Camera previews and the focus help show the backend's reason for a refused request (e.g. that the camera stopped,
+  with its last output) instead of the generic sentence.
+
+**Why:** typing the same board on every page was needed several times per setup; the lens calibration was the only
+calibration that needed a manual save, which the camera pose does not; the previous camera's enlarged centre stayed
+on screen until the next camera's first frame; and "That is not possible right now" hid why a camera image was
+missing.
+
+**Alternatives considered:** storing the board in the profile (survives restarts, but the profile does not exist yet
+on the first pages and the board is a property of the printout, not of the setup); keeping Discard after an automatic
+save (it could not undo the stored file; calibrating again replaces it); making the generic 409 text more specific
+(it cannot know the reason; the backend's text does).
+
+## 2026-11-13 — Overview drawing: projected area always shown
+
+**What changed:** `setup_side_view.dart` draws the projected area as a coloured stretch on the table top
+(`_paintProjectionArea`, after the table), labelled below the table top, whether or not the projector centre is
+known. The light from the projector still starts at the lens when the centre is known.
+
+**Why:** with a known centre only the faint light was drawn, painted first and then covered by the cameras' fields
+of view and the table, so the projected area was not visible.
+
+**Alternatives considered:** a stronger fill for the light (still hidden where several camera views overlap); the
+label above the area as before (it collides with the light and the camera views there).

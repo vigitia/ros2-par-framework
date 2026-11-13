@@ -151,7 +151,7 @@ class _CameraPreviewViewState extends State<CameraPreviewView> {
       return;
     }
     setState(() {
-      _previewErrorText = describeBackendErrorForUser(error);
+      _previewErrorText = describeBackendErrorForUser(error, isBackendDetailShown: true);
     });
   }
 
@@ -276,7 +276,7 @@ class _CameraFeedImageState extends State<CameraFeedImage> {
           return;
         }
         setState(() {
-          _feedErrorText = describeBackendErrorForUser(error);
+          _feedErrorText = describeBackendErrorForUser(error, isBackendDetailShown: true);
         });
         await Future<void>.delayed(cameraPreviewFrameRetryInterval);
         continue;

@@ -22,28 +22,31 @@ parameter clients and launch arguments.
 from dataclasses import dataclass
 import json
 import os
-import shutil
 import subprocess
 import tempfile
 import threading
 import time
 
 from ament_index_python.packages import get_package_share_directory
-import camera_preview_api
+from backend_ros_node import join_node_name
+from backend_shared_helpers import get_ros2_executable_path, read_log_tail_text
+from camera_launch_session import get_camera_launch_session
 from fastapi import APIRouter, HTTPException
-from par_framework_core.launch_helpers import (get_camera_namespace, get_par_app_package_names,
-                                               get_sensor_node_package_names, read_par_app_entry,
-                                               read_profile_cameras)
+from node_parameters import (convert_setting_value, get_node_parameter_client, NodeSetting,
+                             read_node_settings, TYPE_NAME_BY_PARAMETER_TYPE)
+from par_framework_core.launch_helpers import (get_camera_namespace,
+                                               get_installed_par_setup_path,
+                                               get_par_app_package_names, get_sensor_node_name,
+                                               get_sensor_node_package_names, read_par_app_entry)
 from process_groups import LAUNCH_STOP_SIGNALS, stop_process_group
-import profiles_api
+from profile_files import (check_profile_exists, read_profile_cameras_or_raise,
+                           read_profile_node_settings, write_node_settings_into_profile)
+from profile_run_state import is_profile_running, profile_run_lock
 from pydantic import BaseModel
 from rclpy.parameter import Parameter
-import run_api
 
 NODE_KIND_SENSOR_NODE = 'sensor_node'
 NODE_KIND_APP = 'app'
-# par.launch.py names each sensor node <package>_node, in its camera's namespace
-SENSOR_NODE_NAME_SUFFIX = '_node'
 # A sensor node is read in this camera's namespace, so the sections every camera gets
 # (/cameras/*/<node>) apply. Simplification: a profile camera of this name running at the same
 # time would clash; reads only start while this backend runs no launch
@@ -57,7 +60,7 @@ SETTINGS_CACHE_FOLDER_PATH = os.path.join(os.path.expanduser('~'), '.cache', 'pa
                                           'node_settings')
 PARAMETER_TYPE_BY_TYPE_NAME = {
     type_name: Parameter.Type(parameter_type)
-    for parameter_type, type_name in camera_preview_api.TYPE_NAME_BY_PARAMETER_TYPE.items()}
+    for parameter_type, type_name in TYPE_NAME_BY_PARAMETER_TYPE.items()}
 
 node_settings_router = APIRouter()
 
@@ -76,7 +79,7 @@ class _SettingsRead:
 class NodeSettingsResponse(BaseModel):
     full_node_name: str
     # With the profile's values
-    settings: list[camera_preview_api.NodeSetting]
+    settings: list[NodeSetting]
 
 
 class NodeSettingsSaveRequest(BaseModel):
@@ -109,7 +112,7 @@ def get_node_settings(profile_name: str, node_kind: str, package_name: str,
     503 while they are read for the first time (the node is started for it in the background),
     409 when reading failed, with the reason; Refresh tries again.
     """
-    profiles_api.check_profile_exists(profile_name)
+    check_profile_exists(profile_name)
     read_node_name = _get_read_node_name(profile_name, node_kind, package_name, full_node_name)
     cached_settings_by_node_name = _read_cached_settings(node_kind, package_name)
     if cached_settings_by_node_name is None:
@@ -119,7 +122,7 @@ def get_node_settings(profile_name: str, node_kind: str, package_name: str,
             if settings_read.error_text is not None:
                 raise HTTPException(status_code=409, detail=settings_read.error_text)
         raise HTTPException(status_code=503, detail=f'Reading the settings of {package_name}')
-    profile_value_by_name = profiles_api.read_profile_node_settings(profile_name, full_node_name)
+    profile_value_by_name = read_profile_node_settings(profile_name, full_node_name)
     settings = []
     for cached_setting in cached_settings_by_node_name[read_node_name]:
         shown_setting = cached_setting.model_copy()
@@ -156,9 +159,9 @@ def save_node_settings(request: NodeSettingsSaveRequest) -> NodeSettingsSaveResp
             # Removed from the profile: the node uses par_setup.yaml's or its own default again
             converted_value_by_name[setting_name] = None
             continue
-        converted_value_by_name[setting_name] = camera_preview_api.convert_setting_value(
+        converted_value_by_name[setting_name] = convert_setting_value(
             setting_value, PARAMETER_TYPE_BY_TYPE_NAME[type_name])
-    write_result = profiles_api.write_node_settings_into_profile(
+    write_result = write_node_settings_into_profile(
         request.profile_name, request.full_node_name, converted_value_by_name)
     return NodeSettingsSaveResponse(
         node_section_name=write_result.node_section_name,
@@ -202,8 +205,8 @@ def _read_par_app_entry_or_raise(package_name):
 
 
 def _get_sensor_node_full_name(camera_name, package_name):
-    """Return the sensor node's full name on a camera: /cameras/<camera>/<package>_node."""
-    return f'{get_camera_namespace(camera_name)}/{package_name}{SENSOR_NODE_NAME_SUFFIX}'
+    """Return the sensor node's full name on a camera, as par.launch.py starts it there."""
+    return f'{get_camera_namespace(camera_name)}/{get_sensor_node_name(package_name)}'
 
 
 def _get_read_node_name(profile_name, node_kind, package_name, full_node_name):
@@ -219,14 +222,7 @@ def _get_read_node_name(profile_name, node_kind, package_name, full_node_name):
                                 detail=f'{full_node_name} is no settings node of {package_name}')
         return full_node_name
     read_node_names = _get_settings_node_names(node_kind, package_name)
-    profile_launch_context = profiles_api.create_profile_launch_context(profile_name)
-    try:
-        profile_cameras = read_profile_cameras(profile_launch_context)
-    except RuntimeError as error:
-        raise HTTPException(status_code=409,
-                            detail=f'Cannot read the cameras of {profile_name}: {error}'
-                            ) from error
-    for profile_camera in profile_cameras:
+    for profile_camera in read_profile_cameras_or_raise(profile_name):
         if full_node_name == _get_sensor_node_full_name(profile_camera.camera_name, package_name):
             return read_node_names[0]
     raise HTTPException(status_code=404,
@@ -264,7 +260,7 @@ def _read_cached_settings(node_kind, package_name):
     cached_settings_by_node_name = {}
     for full_node_name, settings_json in cache_document['settings_by_node_name'].items():
         cached_settings_by_node_name[full_node_name] = [
-            camera_preview_api.NodeSetting(**setting_json) for setting_json in settings_json]
+            NodeSetting(**setting_json) for setting_json in settings_json]
     return cached_settings_by_node_name
 
 
@@ -299,7 +295,7 @@ def _read_settings_into_cache(node_kind, package_name):
 
 def _start_nodes_and_write_cache(node_kind, package_name):
     settings_node_names = _get_settings_node_names(node_kind, package_name)
-    preview_session = camera_preview_api.get_camera_preview_session()
+    preview_session = get_camera_launch_session()
     preview_ros_node = preview_session.preview_ros_node
     # A node of the same name would answer with a profile's values, and the second one would
     # publish next to it. What this backend runs is known for sure; a launch from a terminal only
@@ -344,18 +340,14 @@ def _start_nodes_and_write_cache(node_kind, package_name):
 
 def _create_start_command(node_kind, package_name):
     """Return the command starting the package's nodes alone, with par_setup.yaml's values."""
-    ros2_executable_path = shutil.which('ros2')
-    if ros2_executable_path is None:
-        raise RuntimeError('ros2 not found: start the backend in a bash with ROS and the '
-                           'workspace sourced')
-    par_setup_path = os.path.join(get_package_share_directory('par_framework_core'), 'config',
-                                  'par_setup.yaml')
+    ros2_executable_path = get_ros2_executable_path()
+    par_setup_path = get_installed_par_setup_path()
     if node_kind == NODE_KIND_SENSOR_NODE:
         # As par.launch.py starts it: executable and package share the name, in a camera's
         # namespace
         read_camera_namespace = get_camera_namespace(SENSOR_NODE_SETTINGS_READ_CAMERA_NAME)
         return [ros2_executable_path, 'run', package_name, package_name, '--ros-args',
-                '-r', f'__node:={package_name}{SENSOR_NODE_NAME_SUFFIX}',
+                '-r', f'__node:={get_sensor_node_name(package_name)}',
                 '-r', f'__ns:={read_camera_namespace}',
                 '--params-file', par_setup_path]
     par_app_entry = _read_par_app_entry_or_raise(package_name)
@@ -379,9 +371,8 @@ def _read_settings_once_answering(preview_session, full_node_name, node_process,
     """
     while True:
         try:
-            parameter_client = camera_preview_api.get_node_parameter_client(preview_session,
-                                                                            full_node_name)
-            return camera_preview_api.read_node_settings(parameter_client)
+            parameter_client = get_node_parameter_client(preview_session, full_node_name)
+            return read_node_settings(parameter_client)
         except HTTPException:
             if node_process.poll() is not None:
                 raise RuntimeError(f'it ended while starting:\n{_read_log_tail(log_file_path)}')
@@ -408,8 +399,9 @@ def _wait_for_nodes(preview_ros_node, full_node_names, node_process, log_file_pa
 
 def _is_backend_launch_running(preview_session):
     """Tell whether this backend runs a profile (Run) or a camera launch (preview, calibration)."""
-    if run_api.get_run_state().phase == run_api.RUN_PHASE_RUNNING:
-        return True
+    with profile_run_lock:
+        if is_profile_running():
+            return True
     with preview_session.session_lock:
         camera_process = preview_session.camera_process
         return camera_process is not None and camera_process.poll() is None
@@ -418,14 +410,9 @@ def _is_backend_launch_running(preview_session):
 def _get_graph_full_node_names(preview_ros_node):
     graph_full_node_names = set()
     for node_name, node_namespace in preview_ros_node.get_node_names_and_namespaces():
-        graph_full_node_names.add(camera_preview_api.join_node_name(node_namespace, node_name))
+        graph_full_node_names.add(join_node_name(node_namespace, node_name))
     return graph_full_node_names
 
 
 def _read_log_tail(log_file_path):
-    try:
-        with open(log_file_path) as log_file:
-            log_lines = log_file.read().splitlines()
-    except OSError:
-        return '(no output)'
-    return '\n'.join(log_lines[-SETTINGS_READ_LOG_TAIL_LINE_COUNT:])
+    return read_log_tail_text(log_file_path, SETTINGS_READ_LOG_TAIL_LINE_COUNT)

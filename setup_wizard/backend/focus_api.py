@@ -8,18 +8,20 @@ Laplacian in a square crop at the image centre, averaged over the last few frame
 noise at high gain makes single frames jump. The score only compares focus settings of one scene:
 it changes with the light and the content, so it has no absolute "sharp" value.
 
-Generic: it reads the image_raw of the camera the preview runs (camera_preview_api), so it works
+Generic: it reads the image_raw of the camera the preview runs (camera_launch_session), so it works
 for every camera. The app also gets the crop itself at full
 resolution and losslessly, so single-pixel edges can be judged by eye.
 """
 
 from collections import deque
 import threading
-import time
 
-import camera_preview_api
+from backend_ros_node import CAMERA_IMAGE_STREAM_NAME
+from camera_launch_session import (check_camera_process_runs, get_camera_launch_session,
+                                   get_preview_topic_name)
 import cv2
 from fastapi import APIRouter, HTTPException, Response
+from image_conversion import convert_image_message_to_frame
 from pydantic import BaseModel
 
 # Side of the square centre crop in camera pixels, as in scripts/focus_preview.py: small enough
@@ -70,7 +72,7 @@ class FocusState(BaseModel):
 @focus_router.get('/api/focus/state')
 def get_focus_state() -> FocusState:
     """Measure the newest frame of the preview and return the averaged sharpness and its peak."""
-    image_message, preview_id = _get_newest_camera_image_message()
+    image_message, preview_id = _read_newest_camera_image_message()
     state = _focus_measurement_state
     with state.lock:
         if state.preview_id != preview_id:
@@ -134,15 +136,14 @@ def compute_sharpness(gray_image):
     return float(laplacian.var())
 
 
-def _get_newest_camera_image_message():
+def _read_newest_camera_image_message():
     """Return the newest image_raw message of the preview (None before one) and its id."""
-    session = camera_preview_api.get_camera_preview_session()
+    session = get_camera_launch_session()
     with session.session_lock:
-        camera_preview_api.check_camera_process_runs(session)
+        check_camera_process_runs(session)
         # Measuring counts as watching, so the watchdog keeps the camera running
-        session.last_preview_request_monotonic_s = time.monotonic()
-        image_topic_name = camera_preview_api.get_preview_topic_name(
-            session, camera_preview_api.CAMERA_IMAGE_STREAM_NAME)
+        session.record_preview_request()
+        image_topic_name = get_preview_topic_name(session, CAMERA_IMAGE_STREAM_NAME)
         session.preview_ros_node.subscribe_to_feed(image_topic_name)
         preview_id = session.running_preview_id
     image_message = session.preview_ros_node.get_latest_image_message(image_topic_name)
@@ -151,7 +152,7 @@ def _get_newest_camera_image_message():
 
 def _measure_frame(state, image_message):
     """Add the frame's centre crop sharpness to the average and raise the peak if needed."""
-    frame = camera_preview_api.convert_image_message_to_frame(image_message)
+    frame = convert_image_message_to_frame(image_message)
     if frame is None:
         raise HTTPException(status_code=409,
                             detail=f'The camera image has the encoding '

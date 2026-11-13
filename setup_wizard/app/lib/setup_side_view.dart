@@ -492,6 +492,7 @@ class _SetupSideViewPainter extends CustomPainter {
       _paintCameraView(canvas, cameraPlacement);
     }
     _paintTable(canvas);
+    _paintProjectionArea(canvas);
     for (final _CameraPlacement cameraPlacement in sideViewLayout.cameraPlacements) {
       _paintCamera(canvas, cameraPlacement);
     }
@@ -511,23 +512,8 @@ class _SetupSideViewPainter extends CustomPainter {
     final Offset areaLeftPx = sideViewLayout.toCanvas(areaHorizontalsM.reduce(math.min), 0);
     final Offset areaRightPx = sideViewLayout.toCanvas(areaHorizontalsM.reduce(math.max), 0);
     final _ProjectorPlacement? projectorPlacement = sideViewLayout.projectorPlacement;
+    // Position unknown: _paintProjectionArea shows the lit stretch of the table alone
     if (projectorPlacement == null) {
-      // Position unknown: only the lit stretch of the table
-      final Paint areaPaint = Paint()
-        ..color = projectorColor
-        ..strokeWidth = 6
-        ..strokeCap = StrokeCap.butt;
-      canvas.drawLine(areaLeftPx, areaRightPx, areaPaint);
-      final TextPainter areaLabelPainter = TextPainter(
-        text: TextSpan(
-          text: 'projected area',
-          style: TextStyle(color: projectorColor, fontSize: 12),
-        ),
-        textDirection: TextDirection.ltr,
-      );
-      areaLabelPainter.layout();
-      final double areaCenterXPx = (areaLeftPx.dx + areaRightPx.dx) / 2;
-      areaLabelPainter.paint(canvas, Offset(areaCenterXPx - areaLabelPainter.width / 2, areaLeftPx.dy - 20));
       return;
     }
     // From both edges of the lens glass, as paintDownwardProjector draws the lens
@@ -547,6 +533,38 @@ class _SetupSideViewPainter extends CustomPainter {
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1.5,
     );
+  }
+
+  /// The lit stretch of the table, on top of the table and the light, so the camera views never hide it.
+  void _paintProjectionArea(Canvas canvas) {
+    final ProjectorGeometry? projector = sideViewLayout.setupGeometry.projector;
+    if (projector == null || projector.projectionAreaM.isEmpty) {
+      return;
+    }
+    final Color projectorColor = sideViewColors.projectorColor;
+    final List<double> areaHorizontalsM = [];
+    for (final WorldPointM cornerM in projector.projectionAreaM) {
+      areaHorizontalsM.add(sideViewLayout.getHorizontalM(cornerM));
+    }
+    final Offset areaLeftPx = sideViewLayout.toCanvas(areaHorizontalsM.reduce(math.min), 0);
+    final Offset areaRightPx = sideViewLayout.toCanvas(areaHorizontalsM.reduce(math.max), 0);
+    final Paint areaPaint = Paint()
+      ..color = projectorColor
+      ..strokeWidth = 6
+      ..strokeCap = StrokeCap.butt;
+    canvas.drawLine(areaLeftPx, areaRightPx, areaPaint);
+    final TextPainter areaLabelPainter = TextPainter(
+      text: TextSpan(
+        text: 'projected area',
+        style: TextStyle(color: projectorColor, fontSize: 12),
+      ),
+      textDirection: TextDirection.ltr,
+    );
+    areaLabelPainter.layout();
+    final double areaCenterXPx = (areaLeftPx.dx + areaRightPx.dx) / 2;
+    // Below the table top, where neither the light nor the camera views are drawn
+    final double labelTopYPx = areaLeftPx.dy + sideViewTableThicknessLogicalPx + 4;
+    areaLabelPainter.paint(canvas, Offset(areaCenterXPx - areaLabelPainter.width / 2, labelTopYPx));
   }
 
   void _paintCameraView(Canvas canvas, _CameraPlacement cameraPlacement) {

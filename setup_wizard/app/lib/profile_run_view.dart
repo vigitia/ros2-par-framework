@@ -8,8 +8,6 @@
 // one profile runs at a time. What would not fit on the button (a run that ended on its own, a failed start or stop)
 // is shown as a snack bar.
 
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 
 import 'apps_api.dart';
@@ -55,7 +53,6 @@ class _ProfileRunViewState extends State<ProfileRunView> {
 
   /// Why the run state cannot be read; shown once as a snack bar when it first appears, and in the tooltip.
   String? _pollErrorText;
-  Timer? _pollTimer;
 
   final MenuController _appMenuController = MenuController();
 
@@ -68,14 +65,15 @@ class _ProfileRunViewState extends State<ProfileRunView> {
   @override
   void initState() {
     super.initState();
-    _pollRunState();
-    _pollTimer = Timer.periodic(runStatePollInterval, (Timer timer) => _pollRunState());
+    _pollRunStateWhileShown();
   }
 
-  @override
-  void dispose() {
-    _pollTimer?.cancel();
-    super.dispose();
+  /// Asks for the run state until the view is gone; one request at a time, so a slow answer is never overtaken.
+  Future<void> _pollRunStateWhileShown() async {
+    while (mounted) {
+      await _loadRunState();
+      await Future<void>.delayed(runStatePollInterval);
+    }
   }
 
   void _showMessage(String messageText, {bool isError = false}) {
@@ -87,7 +85,7 @@ class _ProfileRunViewState extends State<ProfileRunView> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(messageText), backgroundColor: backgroundColor));
   }
 
-  Future<void> _pollRunState() async {
+  Future<void> _loadRunState() async {
     if (_isChangingRun) {
       return;
     }

@@ -4,8 +4,10 @@
 // description), each with a control chosen from its descriptor (SettingRowView), so it works for any driver;
 // read-only ones have none. Changeable settings come first. A change is sent to the running driver, which may
 // refuse it with a reason; the list is read again afterwards, since one setting can change others (e.g. automatic
-// exposure). The camera must be running, so the list waits and retries while the camera is still starting. The list
-// can be limited to some settings (isSettingShown).
+// exposure). The camera must be running, so the list waits and retries while the camera is still starting. For a
+// camera of a saved profile, every change the driver accepted is saved into the profile right away, like the node
+// settings (NodeSettingsEditorView); without a saved profile (new-profile wizard) the backend keeps the changes until
+// the profile is created.
 
 import 'dart:async';
 
@@ -22,26 +24,18 @@ class CameraSettingsView extends StatefulWidget {
   const CameraSettingsView({
     super.key,
     required this.backendClient,
-    required this.cameraDisplayName,
+    required this.previewCamera,
     this.titleText,
-    this.isSettingShown,
-    this.noShownSettingsText,
   });
 
   final SetupWizardBackendClient backendClient;
 
-  /// The camera whose preview runs, as shown to the user; its settings are read from the running driver. A change
-  /// means another camera, whose settings are loaded afresh.
-  final String cameraDisplayName;
+  /// The camera whose preview runs; its settings are read from the running driver. A change means another camera,
+  /// whose settings are loaded afresh.
+  final PreviewCameraChoice previewCamera;
 
-  /// Shown above the list; null for `Settings: cameraDisplayName`.
+  /// Shown above the list; null for `Settings: <running camera name>`.
   final String? titleText;
-
-  /// Which settings the list shows; null for all of them.
-  final bool Function(String settingName)? isSettingShown;
-
-  /// Shown when isSettingShown leaves none; null for a general text.
-  final String? noShownSettingsText;
 
   @override
   State<CameraSettingsView> createState() => _CameraSettingsViewState();
@@ -50,10 +44,13 @@ class CameraSettingsView extends StatefulWidget {
 class _CameraSettingsViewState extends State<CameraSettingsView> {
   List<NodeSetting>? _cameraSettings;
 
-  /// Where changes can be saved: the saved profile the camera runs with; null without one.
+  /// Where changes are saved: the saved profile the camera runs with; null without one.
   String? _profileName;
   List<String> _unsavedSettingNames = [];
   bool _isSavingToProfile = false;
+
+  /// Set when a change arrives while a save is on its way, so one more save follows and writes it too.
+  bool _isSaveRepeatNeeded = false;
 
   /// The result of the last save, or why it failed.
   String? _saveStatusText;
@@ -76,12 +73,15 @@ class _CameraSettingsViewState extends State<CameraSettingsView> {
   @override
   void didUpdateWidget(CameraSettingsView oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.cameraDisplayName != widget.cameraDisplayName) {
+    final bool isOtherCamera = oldWidget.previewCamera.runningCameraName != widget.previewCamera.runningCameraName ||
+        oldWidget.previewCamera.profileName != widget.previewCamera.profileName;
+    if (isOtherCamera) {
       setState(() {
         _cameraSettings = null;
         _lastErrorText = null;
         _profileName = null;
         _unsavedSettingNames = [];
+        _isSaveRepeatNeeded = false;
         _saveStatusText = null;
         _saveErrorText = null;
         _changeErrorTextByName.clear();
@@ -105,6 +105,15 @@ class _CameraSettingsViewState extends State<CameraSettingsView> {
       if (!mounted || loadGeneration != _loadGeneration) {
         return;
       }
+      // The backend answers for the camera running now: the previous one while this camera's start is still on
+      // its way. Its settings must never be shown (or changed) as this camera's, so ask again.
+      final bool isReportOfThisCamera =
+          cameraSettingsReport.cameraName == widget.previewCamera.runningCameraName &&
+          cameraSettingsReport.profileName == widget.previewCamera.profileName;
+      if (!isReportOfThisCamera) {
+        _retryTimer = Timer(cameraSettingsRetryInterval, _loadCameraSettings);
+        return;
+      }
       setState(() {
         _cameraSettings = cameraSettingsReport.cameraSettings;
         _profileName = cameraSettingsReport.profileName;
@@ -123,6 +132,7 @@ class _CameraSettingsViewState extends State<CameraSettingsView> {
     }
   }
 
+  /// Sends the change to the driver; once it accepted it, a saved profile gets it right away.
   Future<void> _changeSetting(String settingName, Object settingValue) async {
     String? changeErrorText;
     try {
@@ -141,10 +151,20 @@ class _CameraSettingsViewState extends State<CameraSettingsView> {
         _changeErrorTextByName[settingName] = changeErrorText;
       }
     });
-    await _loadCameraSettings();
+    final bool isSavedToProfile = changeErrorText == null && _profileName != null;
+    if (isSavedToProfile) {
+      await _saveSettingsToProfile();
+    } else {
+      await _loadCameraSettings();
+    }
   }
 
+  /// Writes every change not saved yet into the profile; one save at a time, a change meanwhile adds one more.
   Future<void> _saveSettingsToProfile() async {
+    if (_isSavingToProfile) {
+      _isSaveRepeatNeeded = true;
+      return;
+    }
     setState(() {
       _isSavingToProfile = true;
       _saveStatusText = null;
@@ -166,6 +186,11 @@ class _CameraSettingsViewState extends State<CameraSettingsView> {
       _saveStatusText = saveStatusText;
       _saveErrorText = saveErrorText;
     });
+    if (_isSaveRepeatNeeded) {
+      _isSaveRepeatNeeded = false;
+      await _saveSettingsToProfile();
+      return;
+    }
     await _loadCameraSettings();
   }
 
@@ -183,7 +208,8 @@ class _CameraSettingsViewState extends State<CameraSettingsView> {
     return sentences.join(' ');
   }
 
-  /// Whether changes are kept, and the button that writes them into the profile.
+  /// Whether changes are kept and the result of the last save. Changes still unsaved (the save failed, or an
+  /// earlier visit left them) are named with the reason and a button to save them.
   Widget _buildSaveRow(Color mutedTextColor) {
     final String? profileName = _profileName;
     if (profileName == null) {
@@ -193,31 +219,25 @@ class _CameraSettingsViewState extends State<CameraSettingsView> {
       );
     }
 
-    final int unsavedSettingCount = _unsavedSettingNames.length;
-    String saveStateText = 'Changes apply to the running camera at once; save them to keep them in $profileName.';
-    if (unsavedSettingCount == 1) {
-      saveStateText = '1 change not saved in $profileName yet.';
-    } else if (unsavedSettingCount > 1) {
-      saveStateText = '$unsavedSettingCount changes not saved in $profileName yet.';
+    String saveStateText = 'Changes apply to the running camera at once and are saved in $profileName right away.';
+    if (_isSavingToProfile) {
+      saveStateText = 'Saving in $profileName …';
     }
-    final bool canSave = unsavedSettingCount > 0 && !_isSavingToProfile;
-    final List<Widget> lines = [
-      Row(children: [
-        Expanded(child: Text(saveStateText, style: TextStyle(color: mutedTextColor))),
-        const SizedBox(width: 12),
-        FilledButton.tonal(
-          onPressed: canSave ? _saveSettingsToProfile : null,
-          child: Text(_isSavingToProfile ? 'Saving …' : 'Save to profile'),
-        ),
-      ]),
-    ];
+    final List<Widget> lines = [Text(saveStateText, style: TextStyle(color: mutedTextColor))];
     final String? saveStatusText = _saveStatusText;
     if (saveStatusText != null) {
       lines.add(Text(saveStatusText, style: TextStyle(color: mutedTextColor)));
     }
+    final Color errorColor = Theme.of(context).colorScheme.error;
     final String? saveErrorText = _saveErrorText;
     if (saveErrorText != null) {
-      lines.add(Text(saveErrorText, style: TextStyle(color: Theme.of(context).colorScheme.error)));
+      lines.add(Text('Could not save in $profileName: $saveErrorText', style: TextStyle(color: errorColor)));
+    }
+    final bool hasUnsavedSettings = _unsavedSettingNames.isNotEmpty;
+    if (hasUnsavedSettings && !_isSavingToProfile) {
+      final String unsavedSettingNamesText = _unsavedSettingNames.join(', ');
+      lines.add(Text('Not saved in $profileName yet: $unsavedSettingNamesText.', style: TextStyle(color: errorColor)));
+      lines.add(TextButton(onPressed: _saveSettingsToProfile, child: const Text('Save now')));
     }
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: lines);
   }
@@ -226,8 +246,8 @@ class _CameraSettingsViewState extends State<CameraSettingsView> {
   Widget build(BuildContext context) {
     final TextTheme textTheme = Theme.of(context).textTheme;
     final Color mutedTextColor = Theme.of(context).colorScheme.onSurfaceVariant;
-    final List<NodeSetting>? cameraSettings = _getShownCameraSettings();
-    final String titleText = widget.titleText ?? 'Settings: ${widget.cameraDisplayName}';
+    final List<NodeSetting>? cameraSettings = _cameraSettings;
+    final String titleText = widget.titleText ?? 'Settings: ${widget.previewCamera.runningCameraName}';
 
     final List<Widget> rows = [Text(titleText, style: textTheme.titleMedium)];
     if (cameraSettings == null) {
@@ -240,8 +260,7 @@ class _CameraSettingsViewState extends State<CameraSettingsView> {
         child: Text(waitingText, style: TextStyle(color: mutedTextColor)),
       ));
     } else if (cameraSettings.isEmpty) {
-      final String noSettingsText = widget.noShownSettingsText ?? 'The driver reports no settings to show.';
-      rows.add(Text(noSettingsText, style: TextStyle(color: mutedTextColor)));
+      rows.add(Text('The driver reports no settings to show.', style: TextStyle(color: mutedTextColor)));
     } else {
       rows.add(Padding(padding: const EdgeInsets.only(top: 4), child: _buildSaveRow(mutedTextColor)));
       // The ones that can be changed first: they are what the user came for.
@@ -266,22 +285,6 @@ class _CameraSettingsViewState extends State<CameraSettingsView> {
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: rows);
   }
 
-  /// The loaded settings that isSettingShown keeps; null while none are loaded.
-  List<NodeSetting>? _getShownCameraSettings() {
-    final List<NodeSetting>? cameraSettings = _cameraSettings;
-    final bool Function(String settingName)? isSettingShown = widget.isSettingShown;
-    if (cameraSettings == null || isSettingShown == null) {
-      return cameraSettings;
-    }
-    final List<NodeSetting> shownCameraSettings = [];
-    for (final NodeSetting nodeSetting in cameraSettings) {
-      if (isSettingShown(nodeSetting.settingName)) {
-        shownCameraSettings.add(nodeSetting);
-      }
-    }
-    return shownCameraSettings;
-  }
-
   Widget _buildSettingRow(NodeSetting nodeSetting) {
     return SettingRowView(
       key: ValueKey<String>(nodeSetting.settingName),
@@ -295,7 +298,7 @@ class _CameraSettingsViewState extends State<CameraSettingsView> {
     );
   }
 
-  /// Sets par_setup.yaml's value on the driver; "Save to profile" then removes the profile's own value.
+  /// Sets par_setup.yaml's value on the driver; saving it then removes the profile's own value.
   VoidCallback? _createResetToDefault(NodeSetting nodeSetting) {
     final Object? defaultValue = nodeSetting.defaultValue;
     if (!nodeSetting.hasDefaultValue || defaultValue == null) {

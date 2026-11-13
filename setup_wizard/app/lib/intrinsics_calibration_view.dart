@@ -35,6 +35,35 @@ const double intrinsicsSideBySideMinimumWidthLogicalPx = 900;
 const int defaultBoardInnerCornerColumns = 8;
 const int defaultBoardInnerCornerRows = 6;
 
+/// The checkerboard last typed on a calibration page (lens or camera pose), so the next page, e.g. the next camera,
+/// starts with it instead of the defaults. Simplification: kept only while the app runs. Upgrade: store it in the
+/// profile if the same board should come back after a restart.
+class RememberedCheckerboard {
+  static String innerCornerColumnsText = '$defaultBoardInnerCornerColumns';
+  static String innerCornerRowsText = '$defaultBoardInnerCornerRows';
+  static String squareSizeMmText = '';
+
+  /// Fills the three fields with the remembered board and remembers every later change of them.
+  static void connectFields(
+    TextEditingController columnsController,
+    TextEditingController rowsController,
+    TextEditingController squareSizeMmController,
+  ) {
+    columnsController.text = innerCornerColumnsText;
+    rowsController.text = innerCornerRowsText;
+    squareSizeMmController.text = squareSizeMmText;
+    columnsController.addListener(() {
+      innerCornerColumnsText = columnsController.text;
+    });
+    rowsController.addListener(() {
+      innerCornerRowsText = rowsController.text;
+    });
+    squareSizeMmController.addListener(() {
+      squareSizeMmText = squareSizeMmController.text;
+    });
+  }
+}
+
 /// How cameracalibrator names the variety of board poses, and how the app explains it.
 const Map<String, String> poseParameterLabelByName = {
   'X': 'Left – right',
@@ -70,13 +99,12 @@ class _IntrinsicsCalibrationViewState extends State<IntrinsicsCalibrationView> {
   CameraIntrinsicsState? _cameraIntrinsicsState;
   String? _intrinsicsStateErrorText;
 
-  final TextEditingController _boardColumnsController =
-      TextEditingController(text: '$defaultBoardInnerCornerColumns');
-  final TextEditingController _boardRowsController = TextEditingController(text: '$defaultBoardInnerCornerRows');
+  final TextEditingController _boardColumnsController = TextEditingController();
+  final TextEditingController _boardRowsController = TextEditingController();
   final TextEditingController _squareSizeMmController = TextEditingController();
   String? _boardInputErrorText;
 
-  /// True from starting a calibration until it is saved, discarded or the camera changes.
+  /// True from starting a calibration until it is closed or the camera changes.
   bool _isCalibrationRunning = false;
   IntrinsicsCalibrationProgress? _calibrationProgress;
   Uint8List? _calibrationFrameJpegBytes;
@@ -84,9 +112,13 @@ class _IntrinsicsCalibrationViewState extends State<IntrinsicsCalibrationView> {
   String? _savedStatusText;
   bool _isRequestPending = false;
 
+  /// True once the running calibration's result was sent for saving, so it is saved once.
+  bool _isCalibrationResultSaveStarted = false;
+
   @override
   void initState() {
     super.initState();
+    RememberedCheckerboard.connectFields(_boardColumnsController, _boardRowsController, _squareSizeMmController);
     _loadCameraIntrinsicsState(_viewGeneration);
   }
 
@@ -201,6 +233,7 @@ class _IntrinsicsCalibrationViewState extends State<IntrinsicsCalibrationView> {
     }
     setState(() {
       _isCalibrationRunning = true;
+      _isCalibrationResultSaveStarted = false;
       _calibrationProgress = null;
       _calibrationFrameJpegBytes = null;
       _isRequestPending = false;
@@ -230,6 +263,12 @@ class _IntrinsicsCalibrationViewState extends State<IntrinsicsCalibrationView> {
             _calibrationProgress = calibrationProgress;
           }
         });
+        // Saved as soon as it is computed, like the camera pose; the result stays shown for checking
+        final bool isResultToSave = calibrationProgress?.phase == IntrinsicsCalibrationPhase.calibrated;
+        if (isResultToSave && !_isCalibrationResultSaveStarted) {
+          _isCalibrationResultSaveStarted = true;
+          _saveCalibration();
+        }
       } catch (error) {
         if (_isStillCurrent(viewGeneration)) {
           setState(() {
@@ -270,7 +309,6 @@ class _IntrinsicsCalibrationViewState extends State<IntrinsicsCalibrationView> {
       if (!mounted) {
         return;
       }
-      _endCalibrationQuietly();
       setState(() {
         _savedStatusText = saveStatusText.isEmpty ? 'Saved.' : 'Saved: $saveStatusText';
         _cameraIntrinsicsState = null;
@@ -280,7 +318,7 @@ class _IntrinsicsCalibrationViewState extends State<IntrinsicsCalibrationView> {
     });
   }
 
-  void _discardCalibration() {
+  void _closeCalibration() {
     _endCalibrationQuietly();
     setState(() {
       _calibrationProgress = null;
@@ -469,7 +507,7 @@ class _IntrinsicsCalibrationViewState extends State<IntrinsicsCalibrationView> {
         return [
           Text(calibrationProgress.errorText, style: TextStyle(color: Theme.of(context).colorScheme.error)),
           const SizedBox(height: 8),
-          OutlinedButton(onPressed: _discardCalibration, child: const Text('Back')),
+          OutlinedButton(onPressed: _closeCalibration, child: const Text('Back')),
         ];
     }
   }
@@ -499,7 +537,7 @@ class _IntrinsicsCalibrationViewState extends State<IntrinsicsCalibrationView> {
           child: const Text('Calibrate'),
         ),
         const SizedBox(width: 12),
-        TextButton(onPressed: _discardCalibration, child: const Text('Cancel')),
+        TextButton(onPressed: _closeCalibration, child: const Text('Cancel')),
       ],
     ));
     return collectingRows;
@@ -544,14 +582,11 @@ class _IntrinsicsCalibrationViewState extends State<IntrinsicsCalibrationView> {
       ));
     }
     calibratedRows.add(Text(linearErrorText));
+    if (_isRequestPending) {
+      calibratedRows.add(const Text('Saving the calibration …'));
+    }
     calibratedRows.add(const SizedBox(height: 12));
-    calibratedRows.add(Row(
-      children: [
-        FilledButton(onPressed: _isRequestPending ? null : _saveCalibration, child: const Text('Save')),
-        const SizedBox(width: 12),
-        TextButton(onPressed: _discardCalibration, child: const Text('Discard')),
-      ],
-    ));
+    calibratedRows.add(FilledButton(onPressed: _closeCalibration, child: const Text('Close')));
     return calibratedRows;
   }
 }

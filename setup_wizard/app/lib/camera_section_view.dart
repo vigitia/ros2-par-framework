@@ -66,11 +66,14 @@ class CameraSectionView extends StatelessWidget {
         return CameraPreviewWithSettingsView(
           backendClient: backendClient,
           previewCamera: _createPreviewCamera(),
-          isSettingsListShown: true,
         );
       case CameraSection.lensCalibration:
-        return IntrinsicsCalibrationView(
+        return _LensCalibrationSection(
+          // It reads the camera's state once, so another camera (the next wizard page) needs a new one
+          key: ValueKey<String>(cameraName),
           backendClient: backendClient,
+          profileName: profileName,
+          cameraName: cameraName,
           previewCamera: _createPreviewCamera(),
         );
       case CameraSection.cameraPose:
@@ -88,5 +91,78 @@ class CameraSectionView extends StatelessWidget {
           calibrationTopic: ExtrinsicsCalibrationTopic.projectorMapping,
         );
     }
+  }
+}
+
+/// The lens calibration of a camera, or only a note for a camera that brings its own (its entry says factory): such
+/// a camera is not started, since there is nothing to see or do.
+class _LensCalibrationSection extends StatefulWidget {
+  const _LensCalibrationSection({
+    super.key,
+    required this.backendClient,
+    required this.profileName,
+    required this.cameraName,
+    required this.previewCamera,
+  });
+
+  final SetupWizardBackendClient backendClient;
+  final String profileName;
+  final String cameraName;
+  final PreviewCameraChoice previewCamera;
+
+  @override
+  State<_LensCalibrationSection> createState() => _LensCalibrationSectionState();
+}
+
+class _LensCalibrationSectionState extends State<_LensCalibrationSection> {
+  /// Null until the profile has been read.
+  IntrinsicsCalibrationState? _intrinsicsState;
+
+  /// Set when the profile could not be read; the calibration view is shown then, which checks the camera itself.
+  bool _hasReadFailed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _readIntrinsicsState();
+  }
+
+  Future<void> _readIntrinsicsState() async {
+    IntrinsicsCalibrationState? intrinsicsState;
+    try {
+      final ProfileSummary profileSummary = await widget.backendClient.fetchProfileSummary(widget.profileName);
+      for (final CameraCalibrationSummary camera in profileSummary.cameras) {
+        if (camera.cameraName == widget.cameraName) {
+          intrinsicsState = camera.intrinsicsState;
+        }
+      }
+    } catch (error) {
+      intrinsicsState = null;
+    }
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _intrinsicsState = intrinsicsState;
+      _hasReadFailed = intrinsicsState == null;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final IntrinsicsCalibrationState? intrinsicsState = _intrinsicsState;
+    if (intrinsicsState == null && !_hasReadFailed) {
+      return const LinearProgressIndicator();
+    }
+    if (intrinsicsState == IntrinsicsCalibrationState.factory) {
+      return Row(children: [
+        Icon(Icons.check_circle_outline, color: Colors.green.shade400),
+        const SizedBox(width: 8),
+        const Expanded(
+          child: Text('Nothing to do for this camera: it brings its own lens calibration (e.g. from the factory).'),
+        ),
+      ]);
+    }
+    return IntrinsicsCalibrationView(backendClient: widget.backendClient, previewCamera: widget.previewCamera);
   }
 }

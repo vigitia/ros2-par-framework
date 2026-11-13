@@ -136,6 +136,7 @@ extension CameraPreviewApi on SetupWizardBackendClient {
     }
     return CameraSettingsReport(
       cameraSettings: cameraSettings,
+      cameraName: settingsJson['camera_name'] as String,
       profileName: settingsJson['profile_name'] as String?,
       unsavedSettingNames: (settingsJson['unsaved_setting_names'] as List<dynamic>).cast<String>(),
     );
@@ -192,11 +193,15 @@ extension CameraPreviewApi on SetupWizardBackendClient {
 class CameraSettingsReport {
   const CameraSettingsReport({
     required this.cameraSettings,
+    required this.cameraName,
     required this.profileName,
     required this.unsavedSettingNames,
   });
 
   final List<NodeSetting> cameraSettings;
+
+  /// The running camera the settings belong to, under its running name (PreviewCameraChoice.runningCameraName).
+  final String cameraName;
 
   /// The saved profile the camera was started with; null when it runs without one (e.g. a new profile).
   final String? profileName;

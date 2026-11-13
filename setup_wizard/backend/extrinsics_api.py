@@ -3,7 +3,7 @@
 Extrinsics API of the setup wizard backend: camera pose and projector calibration of a profile.
 
 Runs the framework's calibration launch files unchanged, as the preview's camera process
-(camera_preview_api.start_camera_launch): each starts the camera itself, so the app shows its
+(camera_launch_session.start_camera_launch): each starts the camera itself, so the app shows its
 live image through the preview endpoints, stops a run with the preview's stop, and the preview's
 watchdog ends a run nobody watches any more.
 
@@ -19,18 +19,20 @@ the homography from the table to the projector, optionally the projector centre.
 import datetime
 import math
 import os
-import re
 import threading
 import time
 
 from ament_index_python.resources import has_resource
-import camera_preview_api
+from backend_shared_helpers import read_yaml_file
+from camera_launch_session import (create_profile_preview_camera, get_camera_launch_session,
+                                   read_camera_process_log_lines, start_camera_launch)
 from fastapi import APIRouter, HTTPException
 from par_framework_core.launch_helpers import (CAMERA_ENTRY_STREAMS_KEY,
                                                get_extrinsics_relative_path,
                                                get_invalid_pose_keys, get_path_in_config_folder,
-                                               POSE_ROTATION_KEYS, read_camera_entry)
-import profiles_api
+                                               POSE_ROTATION_KEYS, read_camera_entry,
+                                               read_published_camera_pose)
+from profile_files import create_profile_launch_context
 import projector_blackout_api
 from pydantic import BaseModel, Field
 import yaml
@@ -77,8 +79,6 @@ RUN_PHASE_STOPPED = 'stopped'
 POSE_FILE_MEASURED_KEY = 'measured'
 POSE_FILE_HEIGHT_KEY = 'translation.z'
 MAPPING_FILE_PROJECTOR_CENTER_KEY = 'projector_center'
-# The calibration nodes log with emulate_tty, i.e. with colour codes
-ANSI_ESCAPE_PATTERN = re.compile(r'\x1b\[[0-9;]*m')
 LOG_ERROR_MARKERS = ('[ERROR]', 'Traceback', 'Error:')
 LOG_ERROR_LINE_COUNT = 8
 
@@ -112,6 +112,9 @@ class ProjectionMappingSummary(BaseModel):
     has_projector_center: bool = False
     # Measured before the current camera pose: the homography was fitted on the old table plane
     is_older_than_camera_pose: bool = False
+    # Why the stored file cannot be used, e.g. it is no valid YAML or lacks the homography; empty
+    # otherwise
+    mapping_file_error_text: str = ''
 
 
 class ExtrinsicsState(BaseModel):
@@ -168,9 +171,9 @@ class _ExtrinsicsRun:
 @extrinsics_router.get('/api/extrinsics/state')
 def get_extrinsics_state(profile_name: str, camera_name: str) -> ExtrinsicsState:
     """Return the profile's camera pose and projector calibration for the camera."""
-    preview_camera = camera_preview_api.get_profile_preview_camera(profile_name, camera_name)
+    preview_camera = create_profile_preview_camera(profile_name, camera_name)
     camera_pose_summary = _read_camera_pose_summary(
-        _get_extrinsics_file_path(profile_name, 'camera_pose', camera_name))
+        create_profile_launch_context(profile_name), camera_name)
     projection_mapping_summary = _read_projection_mapping_summary(
         _get_extrinsics_file_path(profile_name, 'projection_mapping', camera_name),
         camera_pose_summary)
@@ -200,8 +203,7 @@ def get_extrinsics_state(profile_name: str, camera_name: str) -> ExtrinsicsState
 def start_extrinsics_calibration(
         request: ExtrinsicsCalibrationStartRequest) -> ExtrinsicsCalibrationStartResponse:
     """Start a calibration launch on the profile's camera, ending the preview that runs now."""
-    preview_camera = camera_preview_api.get_profile_preview_camera(request.profile_name,
-                                                                   request.camera_name)
+    preview_camera = create_profile_preview_camera(request.profile_name, request.camera_name)
     if request.calibration_kind not in CALIBRATION_KINDS:
         raise HTTPException(status_code=400,
                             detail=f'Unknown calibration_kind {request.calibration_kind!r}: use '
@@ -219,9 +221,9 @@ def start_extrinsics_calibration(
         # The calibration shows its markers on the projector; a black window would cover them
         projector_blackout_api.stop_projector_blackout_for_projection()
     start_time_s = time.time()
-    preview_id = camera_preview_api.start_camera_launch(
-        preview_camera, request.profile_name, launch_file_name, launch_arguments)
-    preview_session = camera_preview_api.get_camera_preview_session()
+    preview_id = start_camera_launch(preview_camera, request.profile_name, launch_file_name,
+                                     launch_arguments)
+    preview_session = get_camera_launch_session()
     with preview_session.session_lock:
         if preview_session.running_preview_id != preview_id:
             raise HTTPException(status_code=409,
@@ -245,7 +247,7 @@ def get_extrinsics_calibration_progress() -> ExtrinsicsCalibrationProgress:
         raise HTTPException(status_code=409, detail='No extrinsic calibration has run')
     if extrinsics_run.launch_process.poll() is None:
         # Asking for the progress counts as watching, also while no frames are fetched
-        _keep_preview_watched(extrinsics_run.preview_id)
+        _record_preview_request(extrinsics_run.preview_id)
         return ExtrinsicsCalibrationProgress(phase=RUN_PHASE_RUNNING,
                                              calibration_kind=extrinsics_run.calibration_kind)
     with _extrinsics_run_lock:
@@ -264,7 +266,7 @@ def _read_final_progress(extrinsics_run):
                            *_read_launch_error_lines()])
         return ExtrinsicsCalibrationProgress(phase=RUN_PHASE_STORED,
                                              calibration_kind=extrinsics_run.calibration_kind)
-    preview_session = camera_preview_api.get_camera_preview_session()
+    preview_session = get_camera_launch_session()
     with preview_session.session_lock:
         # A stop clears the running preview id before it ends the launch; a launch that ended
         # by itself keeps it
@@ -281,7 +283,7 @@ def _get_calibration_launch(request, preview_camera):
     """
     Return the launch file, its arguments and the result file's prefix (e.g. camera_pose).
 
-    The camera:= argument is added by camera_preview_api.start_camera_launch.
+    The camera:= argument is added by camera_launch_session.start_camera_launch.
     """
     if request.calibration_kind == CALIBRATION_KIND_POSE_BOARD:
         board_values = (request.board_inner_corner_columns, request.board_inner_corner_rows,
@@ -310,17 +312,19 @@ def _has_run_stored_its_result(extrinsics_run):
     """Return False when a projector centre run wrote its file without the centre."""
     if extrinsics_run.calibration_kind != CALIBRATION_KIND_PROJECTOR_CENTER:
         return True
-    mapping = _read_yaml_file(extrinsics_run.result_file_path)
+    mapping = read_yaml_file(extrinsics_run.result_file_path)
     return isinstance(mapping, dict) and MAPPING_FILE_PROJECTOR_CENTER_KEY in mapping
 
 
-def _read_camera_pose_summary(pose_file_path):
-    if not os.path.exists(pose_file_path):
-        return CameraPoseSummary(is_measured=False)
+def _read_camera_pose_summary(profile_launch_context, camera_name):
+    """Return the measured pose of the camera the launch publishes, with its quality figures."""
     try:
-        camera_pose = _read_yaml_file(pose_file_path)
+        camera_pose, pose_file_path, is_pose_measured = read_published_camera_pose(
+            profile_launch_context, camera_name)
     except (OSError, yaml.YAMLError) as error:
         return CameraPoseSummary(is_measured=False, pose_file_error_text=str(error))
+    if not is_pose_measured:
+        return CameraPoseSummary(is_measured=False)
     if not isinstance(camera_pose, dict):
         return CameraPoseSummary(is_measured=False,
                                  pose_file_error_text=f'{pose_file_path} holds no keys')
@@ -369,11 +373,13 @@ def _read_projection_mapping_summary(mapping_file_path, camera_pose_summary):
     if not os.path.exists(mapping_file_path):
         return ProjectionMappingSummary(is_calibrated=False)
     try:
-        mapping = _read_yaml_file(mapping_file_path)
-    except (OSError, yaml.YAMLError):
-        return ProjectionMappingSummary(is_calibrated=False)
+        mapping = read_yaml_file(mapping_file_path)
+    except (OSError, yaml.YAMLError) as error:
+        return ProjectionMappingSummary(is_calibrated=False, mapping_file_error_text=str(error))
     if not isinstance(mapping, dict) or 'homography' not in mapping:
-        return ProjectionMappingSummary(is_calibrated=False)
+        return ProjectionMappingSummary(is_calibrated=False,
+                                        mapping_file_error_text=f'{mapping_file_path} holds no '
+                                                                f'homography')
     measured_text = str(mapping.get('measured', ''))
     return ProjectionMappingSummary(
         is_calibrated=True,
@@ -410,14 +416,9 @@ def _get_optional_int(mapping, key_name):
     return None
 
 
-def _read_yaml_file(file_path):
-    with open(file_path) as yaml_file:
-        return yaml.safe_load(yaml_file)
-
-
 def _get_extrinsics_file_path(profile_name, file_prefix, camera_name):
     """Return the path of the named camera's calibration file in the profile."""
-    profile_launch_context = profiles_api.create_profile_launch_context(profile_name)
+    profile_launch_context = create_profile_launch_context(profile_name)
     return get_path_in_config_folder(
         get_extrinsics_relative_path(profile_launch_context, file_prefix, camera_name))
 
@@ -447,18 +448,16 @@ def _is_file_newer_than(file_path, start_time_s):
         return False
 
 
-def _keep_preview_watched(preview_id):
-    preview_session = camera_preview_api.get_camera_preview_session()
+def _record_preview_request(preview_id):
+    """Count a request as watching the run's preview, so the watchdog keeps its launch running."""
+    preview_session = get_camera_launch_session()
     with preview_session.session_lock:
-        if preview_session.running_preview_id == preview_id:
-            preview_session.last_preview_request_monotonic_s = time.monotonic()
+        preview_session.record_preview_request(preview_id)
 
 
 def _read_launch_error_lines():
     """Return the error lines of the run's output, else its last lines, without colour codes."""
-    log_lines = []
-    for log_line in camera_preview_api.read_camera_process_log_lines():
-        log_lines.append(ANSI_ESCAPE_PATTERN.sub('', log_line))
+    log_lines = read_camera_process_log_lines()
     error_lines = []
     for log_line in log_lines:
         for log_error_marker in LOG_ERROR_MARKERS:

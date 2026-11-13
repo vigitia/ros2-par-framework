@@ -9,6 +9,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 
+import 'camera_preview_api.dart';
 import 'focus_api.dart';
 import 'setup_wizard_backend_client.dart';
 
@@ -26,9 +27,17 @@ const double focusBarFullScaleToPeakRatio = 1.25;
 const double focusCenterCropSideLogicalPx = 360;
 
 class FocusAssistView extends StatefulWidget {
-  const FocusAssistView({super.key, required this.backendClient, this.measuredAreaNotifier});
+  const FocusAssistView({
+    super.key,
+    required this.backendClient,
+    required this.previewCamera,
+    this.measuredAreaNotifier,
+  });
 
   final SetupWizardBackendClient backendClient;
+
+  /// The camera being measured; another camera clears the shown measurement and crop.
+  final PreviewCameraChoice previewCamera;
 
   /// Receives where the sharpness is measured, so the preview can frame that area in the camera image.
   final ValueNotifier<FocusMeasuredArea?>? measuredAreaNotifier;
@@ -50,6 +59,20 @@ class _FocusAssistViewState extends State<FocusAssistView> {
     _pollMeasurements();
   }
 
+  @override
+  void didUpdateWidget(FocusAssistView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final bool isOtherCamera = oldWidget.previewCamera.runningCameraName != widget.previewCamera.runningCameraName ||
+        oldWidget.previewCamera.profileName != widget.previewCamera.profileName;
+    if (isOtherCamera) {
+      widget.measuredAreaNotifier?.value = null;
+      setState(() {
+        _focusMeasurement = null;
+        _centerCropPngBytes = null;
+      });
+    }
+  }
+
   /// Simplification: polls the backend like the preview frames. Upgrade: push measurements over a WebSocket.
   Future<void> _pollMeasurements() async {
     while (mounted) {
@@ -63,7 +86,7 @@ class _FocusAssistViewState extends State<FocusAssistView> {
           return;
         }
         setState(() {
-          _measurementErrorText = describeBackendErrorForUser(error);
+          _measurementErrorText = describeBackendErrorForUser(error, isBackendDetailShown: true);
         });
         await Future<void>.delayed(focusMeasurementRetryInterval);
         continue;
@@ -75,9 +98,9 @@ class _FocusAssistViewState extends State<FocusAssistView> {
       setState(() {
         _focusMeasurement = focusMeasurement;
         _measurementErrorText = null;
-        if (centerCropPngBytes != null) {
-          _centerCropPngBytes = centerCropPngBytes;
-        }
+        // Null: no crop measured for the running camera yet (e.g. a new camera before its first frame), so the
+        // last one, possibly of another camera, must not stay
+        _centerCropPngBytes = centerCropPngBytes;
       });
       await Future<void>.delayed(focusMeasurementPollInterval);
     }
@@ -91,7 +114,7 @@ class _FocusAssistViewState extends State<FocusAssistView> {
         return;
       }
       setState(() {
-        _measurementErrorText = describeBackendErrorForUser(error);
+        _measurementErrorText = describeBackendErrorForUser(error, isBackendDetailShown: true);
       });
     }
   }

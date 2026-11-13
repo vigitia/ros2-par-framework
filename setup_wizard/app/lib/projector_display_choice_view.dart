@@ -131,8 +131,8 @@ class _ProjectorDisplayChoiceViewState extends State<ProjectorDisplayChoiceView>
       _buildDesktopScalingRow(connectedDisplay, colorScheme),
       _buildDetailRow('Refresh rate', refreshRateText),
       _buildDetailRow('Position', '${connectedDisplay.positionXPx}, ${connectedDisplay.positionYPx} px'),
-      _buildDetailRow('Connector', _textOrUnknown(connectedDisplay.connectorName)),
-      _buildDetailRow('Serial', _textOrUnknown(connectedDisplay.serialText)),
+      _buildDetailRow('Connector', _getTextOrUnknown(connectedDisplay.connectorName)),
+      _buildDetailRow('Serial', _getTextOrUnknown(connectedDisplay.serialText)),
     ];
 
     final String titleText = connectedDisplay.getTitleText();
@@ -203,7 +203,7 @@ class _ProjectorDisplayChoiceViewState extends State<ProjectorDisplayChoiceView>
     );
   }
 
-  String _textOrUnknown(String detailText) {
+  String _getTextOrUnknown(String detailText) {
     if (detailText.isEmpty) {
       return unknownDetailText;
     }

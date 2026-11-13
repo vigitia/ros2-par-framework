@@ -11,7 +11,9 @@ reported, not an error.
 The app keeps the blackout by asking again every few seconds; a watchdog ends the window once
 nobody asked for a while, however the app left the step (screen closed, app quit or crashed).
 Every request names its holder (one per screen), so a stop arriving after another screen took
-over the blackout does not end it.
+over the blackout does not end it. A window that ended by itself (e.g. the projector was unplugged)
+is opened again while the app keeps asking and the display is connected, at most every
+BLACKOUT_WINDOW_RETRY_INTERVAL_S.
 """
 
 from contextlib import asynccontextmanager
@@ -23,7 +25,7 @@ import tempfile
 import threading
 import time
 
-import displays_api
+from backend_shared_helpers import read_connected_displays_or_raise, read_log_tail_text
 from fastapi import APIRouter
 from process_groups import stop_process_group
 from pydantic import BaseModel, Field
@@ -39,6 +41,9 @@ BLACKOUT_UNHELD_TIMEOUT_S = 6.0
 WATCHDOG_CHECK_INTERVAL_S = 1.0
 BLACKOUT_WINDOW_STOP_TIMEOUT_S = 5.0
 WATCHDOG_THREAD_JOIN_TIMEOUT_S = 5.0
+# How long after its start a window that ended by itself is opened again; long enough that a
+# window that cannot open at all does not flash up again and again
+BLACKOUT_WINDOW_RETRY_INTERVAL_S = 5.0
 
 
 class ProjectorBlackoutKeepRequest(BaseModel):
@@ -69,6 +74,8 @@ class _ProjectorBlackoutSession:
         self.holder_id = None
         # time.monotonic() of the latest keep request, read by the watchdog
         self.last_keep_monotonic_s = 0.0
+        # time.monotonic() of the latest window start, for the retry of a window that ended
+        self.window_start_monotonic_s = 0.0
 
 
 _blackout_session = _ProjectorBlackoutSession()
@@ -103,10 +110,13 @@ def keep_projector_blackout(request: ProjectorBlackoutKeepRequest) -> ProjectorB
         if window_process is not None and _blackout_session.display_id == request.display_id:
             if window_process.poll() is None:
                 return ProjectorBlackoutState(is_shown=True)
-            # Ended by itself: report why, and do not open it again and again
-            return ProjectorBlackoutState(is_shown=False,
-                                          reason_text=f'The black window ended: '
-                                                      f'{_read_window_log_tail()}')
+            # Ended by itself: report why until the retry interval has passed, then open it again
+            # below, e.g. once the projector is plugged in again
+            since_window_start_s = time.monotonic() - _blackout_session.window_start_monotonic_s
+            if since_window_start_s < BLACKOUT_WINDOW_RETRY_INTERVAL_S:
+                return ProjectorBlackoutState(is_shown=False,
+                                              reason_text=f'The black window ended: '
+                                                          f'{_read_window_log_tail()}')
         _stop_blackout_window()
         if not _is_display_connected(request.display_id):
             return ProjectorBlackoutState(is_shown=False,
@@ -117,6 +127,7 @@ def keep_projector_blackout(request: ProjectorBlackoutKeepRequest) -> ProjectorB
                 [sys.executable, BLACKOUT_WINDOW_SCRIPT_PATH, str(request.display_id)],
                 stdout=window_log_file, stderr=subprocess.STDOUT, start_new_session=True)
         _blackout_session.display_id = request.display_id
+        _blackout_session.window_start_monotonic_s = time.monotonic()
         return ProjectorBlackoutState(is_shown=True)
 
 
@@ -158,18 +169,12 @@ def _stop_blackout_window():
 
 
 def _is_display_connected(display_id):
-    for connected_display in displays_api.get_display_list().displays:
+    for connected_display in read_connected_displays_or_raise():
         if connected_display.display_id == display_id:
             return True
     return False
 
 
 def _read_window_log_tail():
-    try:
-        with open(BLACKOUT_WINDOW_LOG_PATH) as window_log_file:
-            log_lines = window_log_file.read().splitlines()
-    except OSError:
-        return '(no output)'
-    if not log_lines:
-        return '(no output)'
-    return ' '.join(log_lines[-BLACKOUT_WINDOW_LOG_TAIL_LINE_COUNT:])
+    return read_log_tail_text(BLACKOUT_WINDOW_LOG_PATH, BLACKOUT_WINDOW_LOG_TAIL_LINE_COUNT,
+                              line_separator=' ')

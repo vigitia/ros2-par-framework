@@ -4,14 +4,13 @@
 // projector, so its light does not disturb the camera image (e.g. glare on a checkerboard). Leaving the screen ends
 // the blackout; the backend also ends it on its own once the requests stop.
 
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 
 import 'projector_blackout_api.dart';
 import 'setup_wizard_backend_client.dart';
 
-/// How often the blackout is asked for again; the backend ends it after a few seconds without a request.
+/// Pause between the answer to one blackout request and the next request; the backend ends the blackout after a few
+/// seconds without a request, so this pause plus the longest request (backendRequestTimeout) must stay below that.
 const Duration projectorBlackoutKeepInterval = Duration(seconds: 2);
 
 class ProjectorBlackoutHolder extends StatefulWidget {
@@ -29,24 +28,29 @@ class ProjectorBlackoutHolder extends StatefulWidget {
 class _ProjectorBlackoutHolderState extends State<ProjectorBlackoutHolder> {
   /// Names this screen in the backend, so its late stop does not end a blackout the next screen holds.
   final String _holderId = 'blackout_${DateTime.now().microsecondsSinceEpoch}';
-  Timer? _keepTimer;
   ProjectorBlackoutState? _blackoutState;
   String? _blackoutErrorText;
 
   @override
   void initState() {
     super.initState();
-    _keepBlackout();
-    _keepTimer = Timer.periodic(projectorBlackoutKeepInterval, (Timer keepTimer) => _keepBlackout());
+    _keepBlackoutWhileShown();
   }
 
   @override
   void dispose() {
-    _keepTimer?.cancel();
     widget.backendClient.stopProjectorBlackout(holderId: _holderId).catchError((Object error) {
       // The backend may already be gone; its watchdog ends the window then.
     });
     super.dispose();
+  }
+
+  /// Asks for the blackout again and again until the screen is gone; one request at a time.
+  Future<void> _keepBlackoutWhileShown() async {
+    while (mounted) {
+      await _keepBlackout();
+      await Future<void>.delayed(projectorBlackoutKeepInterval);
+    }
   }
 
   Future<void> _keepBlackout() async {

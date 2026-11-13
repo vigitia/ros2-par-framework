@@ -67,15 +67,16 @@ class _ExtrinsicsCalibrationViewState extends State<ExtrinsicsCalibrationView> {
   /// Increased whenever the shown camera changes or the view goes away, so loops for an old camera stop.
   int _viewGeneration = 0;
 
-  /// Increased after a run, so the preview starts the camera again (the run's launch stopped it).
-  int _previewStartCount = 0;
+  /// Keeps the camera running when the layout switches between side by side and stacked (window resized): with a
+  /// GlobalKey Flutter moves the preview instead of starting a new one. Replaced after a run, so the preview starts
+  /// the camera again (the run's launch stopped it), and for another camera.
+  GlobalKey _cameraPreviewViewKey = GlobalKey();
 
   ExtrinsicsState? _extrinsicsState;
   String? _extrinsicsStateErrorText;
 
-  final TextEditingController _boardColumnsController =
-      TextEditingController(text: '$defaultBoardInnerCornerColumns');
-  final TextEditingController _boardRowsController = TextEditingController(text: '$defaultBoardInnerCornerRows');
+  final TextEditingController _boardColumnsController = TextEditingController();
+  final TextEditingController _boardRowsController = TextEditingController();
   final TextEditingController _squareSizeMmController = TextEditingController();
   String? _boardInputErrorText;
 
@@ -91,6 +92,7 @@ class _ExtrinsicsCalibrationViewState extends State<ExtrinsicsCalibrationView> {
   @override
   void initState() {
     super.initState();
+    RememberedCheckerboard.connectFields(_boardColumnsController, _boardRowsController, _squareSizeMmController);
     _pollExtrinsicsState(_viewGeneration);
   }
 
@@ -103,6 +105,9 @@ class _ExtrinsicsCalibrationViewState extends State<ExtrinsicsCalibrationView> {
       _stopRunQuietly();
       _viewGeneration += 1;
       setState(() {
+        if (isOtherCamera) {
+          _cameraPreviewViewKey = GlobalKey();
+        }
         _extrinsicsState = null;
         _extrinsicsStateErrorText = null;
         _finishedRunProgress = null;
@@ -262,7 +267,7 @@ class _ExtrinsicsCalibrationViewState extends State<ExtrinsicsCalibrationView> {
       setState(() {
         _runningRunPreviewId = null;
         _finishedRunProgress = runProgress;
-        _previewStartCount += 1;
+        _cameraPreviewViewKey = GlobalKey();
       });
       await _loadExtrinsicsState(viewGeneration);
       return;
@@ -297,7 +302,7 @@ class _ExtrinsicsCalibrationViewState extends State<ExtrinsicsCalibrationView> {
   @override
   Widget build(BuildContext context) {
     final Widget imageArea = CameraPreviewView(
-      key: ValueKey<String>('${widget.cameraName}_$_previewStartCount'),
+      key: _cameraPreviewViewKey,
       backendClient: widget.backendClient,
       previewCamera: PreviewCameraChoice.profileCamera(profileName: widget.profileName, cameraName: widget.cameraName),
     );
@@ -408,12 +413,16 @@ class _ExtrinsicsCalibrationViewState extends State<ExtrinsicsCalibrationView> {
   List<Widget> _buildProjectionMappingStateRows(ProjectionMappingSummary projectionMapping) {
     final ColorScheme colorScheme = Theme.of(context).colorScheme;
     if (!projectionMapping.isCalibrated) {
-      return [
+      final List<Widget> uncalibratedRows = [
         _buildStateLine(
           isGood: false,
           stateText: 'Not calibrated: projected content does not line up with the table yet.',
         ),
       ];
+      if (projectionMapping.mappingFileErrorText.isNotEmpty) {
+        uncalibratedRows.add(Text(projectionMapping.mappingFileErrorText, style: TextStyle(color: colorScheme.error)));
+      }
+      return uncalibratedRows;
     }
     String mappingText = 'Calibrated';
     if (projectionMapping.measuredText.isNotEmpty) {
