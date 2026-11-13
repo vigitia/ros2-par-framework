@@ -72,6 +72,7 @@ ament_index par_framework_cameras blackfly    # its entry
 | `serial` (optional) | `none` (default: one unit per setup), `typed` (the launch file passes `serial`) or `listed` (also listed in the setup wizard, needs one lookup below) |
 | `v4l_by_id_prefix` | `listed` UVC camera: units are `/dev/v4l/by-id/<prefix>_<serial>-video-index0` |
 | `usb_vendor_id`, `usb_serial_base` | `listed` USB camera: units are the USB devices of this vendor (`'1e10'`, as `lsusb` shows it), their serial text read in base 10 (default) or 16 |
+| `usb_product_id` (optional, with `usb_vendor_id`) | only the USB devices of this product (`'097c'`), for a vendor with other USB devices or a camera that shows up as several USB devices |
 
 Rejected: data only in the entry (package, executable, remappings, serial parameter name) and core building the
 node, because every driver quirk (a fixed node name, two processes, a settings mapping file) would need a new field

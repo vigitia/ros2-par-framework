@@ -55,7 +55,11 @@ CAMERA_ENTRY_STREAMS_KEY = 'streams'
 # calibratable: intrinsics file per unit, written by run_cameracalibrator.sh; factory: the driver
 # publishes its own; none: no camera_info
 CAMERA_ENTRY_INTRINSICS_KEY = 'intrinsics'
-CAMERA_INTRINSICS_SOURCES = ('calibratable', 'factory', 'none')
+CAMERA_INTRINSICS_SOURCE_CALIBRATABLE = 'calibratable'
+CAMERA_INTRINSICS_SOURCE_FACTORY = 'factory'
+CAMERA_INTRINSICS_SOURCE_NONE = 'none'
+CAMERA_INTRINSICS_SOURCES = (CAMERA_INTRINSICS_SOURCE_CALIBRATABLE,
+                             CAMERA_INTRINSICS_SOURCE_FACTORY, CAMERA_INTRINSICS_SOURCE_NONE)
 # Optional: how the units of a type are told apart. none: one unit per setup, no serial (the
 # default); typed: the launch file passes a serial, which the user types; listed: as typed, and
 # the setup wizard lists the connected units' serials with one of CAMERA_ENTRY_UNIT_LOOKUP_KEYS
@@ -69,13 +73,17 @@ CAMERA_SERIAL_SOURCE_LISTED = 'listed'
 # The unit lookups of serial: listed, both plain Linux, no driver needed:
 # v4l_by_id_prefix: /dev/v4l/by-id/<prefix>_<serial>-video-index0 (UVC cameras);
 # usb_vendor_id: the USB devices of this vendor (4 hexadecimal digits), their serial text read in
-# usb_serial_base (16 when the device reports in hexadecimal what its driver takes in decimal)
+# usb_serial_base (16 when the device reports in hexadecimal what its driver takes in decimal);
+# usb_product_id (optional) narrows them to one product, for a vendor that makes other USB devices
+# too or a camera that shows up as several USB devices with the same serial
 CAMERA_ENTRY_V4L_BY_ID_PREFIX_KEY = 'v4l_by_id_prefix'
 CAMERA_ENTRY_USB_VENDOR_ID_KEY = 'usb_vendor_id'
+CAMERA_ENTRY_USB_PRODUCT_ID_KEY = 'usb_product_id'
 CAMERA_ENTRY_USB_SERIAL_BASE_KEY = 'usb_serial_base'
 CAMERA_ENTRY_UNIT_LOOKUP_KEYS = (CAMERA_ENTRY_V4L_BY_ID_PREFIX_KEY, CAMERA_ENTRY_USB_VENDOR_ID_KEY)
 USB_SERIAL_BASES = (10, 16)
-USB_VENDOR_ID_PATTERN = re.compile(r'[0-9a-f]{4}')
+# Vendor and product ids alike, as lsusb shows them
+USB_ID_PATTERN = re.compile(r'[0-9a-f]{4}')
 # The launch arguments every camera launch file declares (templates/par_camera/)
 CAMERA_LAUNCH_ARGUMENT_NAMES = ('namespace', 'camera_name', 'serial', 'camera_info_url',
                                 'params_files')
@@ -88,6 +96,7 @@ FOLDER_PATH_EXTRINSICS = 'calibration/extrinsics'
 # params_file, and each profile keeps its calibrations in FOLDER_PATH_CAMERA_INTRINSICS/<name> and
 # FOLDER_PATH_EXTRINSICS/<name>
 FOLDER_PATH_PROFILES = 'profiles'
+PROFILE_FILE_EXTENSION = '.yaml'
 # Profile names and camera serials become parts of file names: nothing that could leave the folder
 FILE_NAME_PART_PATTERN = re.compile(r'[A-Za-z0-9_-]+')
 # Co-authored by Claude Code: par_launch.cameras maps each camera's name to its unit,
@@ -108,6 +117,12 @@ ProfileCamera = collections.namedtuple('ProfileCamera', ['camera_name', 'camera_
 POSE_TRANSLATION_KEYS = [f'translation.{axis}' for axis in 'xyz']
 POSE_ROTATION_KEYS = [f'rotation.{axis}' for axis in 'xyzw']
 CAMERA_POSE_KEYS = POSE_TRANSLATION_KEYS + POSE_ROTATION_KEYS
+# Co-authored by Claude Code: the placeholder pose of a camera is the parameter file section
+# /<camera name><CAMERA_TF_PUBLISHER_NAME_SUFFIX>, also the name of its mount transform publisher
+CAMERA_TF_PUBLISHER_NAME_SUFFIX = '_tf_publisher'
+# Co-authored by Claude Code: rotation of a camera's optical frame (z forward, y down) in its body
+# frame (x forward, z up), REP 103, as quaternion x, y, z, w: roll -90 deg, yaw -90 deg
+OPTICAL_FRAME_ROTATION_QUATERNION_XYZW = (-0.5, 0.5, -0.5, 0.5)
 
 # PAR apps register in the ament index under this resource type: an installed marker file
 # share/ament_index/resource_index/par_framework_apps/<package> whose content is the app's entry,
@@ -152,15 +167,20 @@ SENSOR_NODE_ENTRY_TEXT_KEYS = ('display_name', 'description')
 SENSOR_NODE_ENTRY_LIST_KEYS = ('required_sensor_nodes',)
 
 
+# Written by Claude Code
+def get_installed_par_setup_path():
+    """Return the path of the installed default par_setup.yaml, the params_file of every launch."""
+    return os.path.join(get_package_share_directory('par_framework_core'), 'config',
+                        'par_setup.yaml')
+
+
 # Co-authored by Claude Code: names of the function, its parameter and its variables
 def get_path_in_config_folder(relative_path):
     """Return the absolute path of relative_path below the folder of the real par_setup.yaml."""
     # The default par_setup.yaml, not params_file: the calibrations are shared by every parameter
     # file. realpath follows the --symlink-install links back to the source folder, so files
     # written there survive rebuilds
-    installed_par_setup_path = os.path.join(get_package_share_directory('par_framework_core'),
-                                            'config', 'par_setup.yaml')
-    config_folder_path = os.path.dirname(os.path.realpath(installed_par_setup_path))
+    config_folder_path = os.path.dirname(os.path.realpath(get_installed_par_setup_path()))
     absolute_path = os.path.join(config_folder_path, relative_path)
     # The writers (camera_info_manager, camera_pose_calibrator, ...) open the file without
     # creating its folder
@@ -190,13 +210,20 @@ def get_profile_name(context):
     return profile_name
 
 
+# Written by Claude Code
+def get_profile_file_path(profile_name):
+    """Return the path of a profile's file: config/profiles/<profile_name>.yaml."""
+    return get_path_in_config_folder(
+        f'{FOLDER_PATH_PROFILES}/{profile_name}{PROFILE_FILE_EXTENSION}')
+
+
 # Co-authored by Claude Code
 def get_params_file_paths(context):
     """Return the parameter files in the order ROS applies them: params_file, then the profile."""
     params_file_paths = [LaunchConfiguration('params_file').perform(context)]
     profile_name = get_profile_name(context)
     if profile_name:
-        profile_path = get_path_in_config_folder(f'{FOLDER_PATH_PROFILES}/{profile_name}.yaml')
+        profile_path = get_profile_file_path(profile_name)
         if not os.path.exists(profile_path):
             raise RuntimeError(f'[launch_helpers]: profile {profile_name} has no file '
                                f'{profile_path}: create it with only the sections and keys that '
@@ -251,12 +278,17 @@ def get_intrinsics_folder_path(context):
 
 
 # Written by Claude Code
-def get_camera_info_url(context, camera_info_file_name):
-    """Return the file:// URL of a camera's intrinsics file, the drivers' camera_info_url."""
+def get_unit_intrinsics_file_path(context, camera_type, serial):
+    """Return the absolute path of a camera unit's intrinsics file in the intrinsics folder."""
     intrinsics_folder_path = get_intrinsics_folder_path(context)
-    camera_info_path = get_path_in_config_folder(
-        f'{intrinsics_folder_path}/{camera_info_file_name}')
-    return f'file://{camera_info_path}'
+    camera_info_file_name = get_camera_info_file_name_of_unit(camera_type, serial)
+    return get_path_in_config_folder(f'{intrinsics_folder_path}/{camera_info_file_name}')
+
+
+# Written by Claude Code
+def get_camera_info_url(context, camera_type, serial):
+    """Return the file:// URL of a camera unit's intrinsics file, the drivers' camera_info_url."""
+    return f'file://{get_unit_intrinsics_file_path(context, camera_type, serial)}'
 
 
 # Co-authored by Claude Code
@@ -545,7 +577,8 @@ def read_camera_entry(camera_type):
                   CAMERA_ENTRY_INTRINSICS_KEY)
     required_keys = CAMERA_ENTRY_TEXT_KEYS + CAMERA_ENTRY_NAME_KEYS + other_keys
     optional_keys = (CAMERA_ENTRY_REQUIRED_PACKAGES_KEY, CAMERA_ENTRY_SERIAL_KEY,
-                     CAMERA_ENTRY_USB_SERIAL_BASE_KEY, *CAMERA_ENTRY_UNIT_LOOKUP_KEYS)
+                     CAMERA_ENTRY_USB_SERIAL_BASE_KEY, CAMERA_ENTRY_USB_PRODUCT_ID_KEY,
+                     *CAMERA_ENTRY_UNIT_LOOKUP_KEYS)
     known_keys = required_keys + optional_keys
     unknown_keys = sorted(set(entry) - set(known_keys))
     if unknown_keys:
@@ -603,6 +636,7 @@ def _check_camera_entry_serial_keys(entry, error_start_text):
                            f'{list(CAMERA_SERIAL_SOURCES)}')
     v4l_by_id_prefix = entry.get(CAMERA_ENTRY_V4L_BY_ID_PREFIX_KEY)
     usb_vendor_id = entry.get(CAMERA_ENTRY_USB_VENDOR_ID_KEY)
+    usb_product_id = entry.get(CAMERA_ENTRY_USB_PRODUCT_ID_KEY)
     usb_serial_base = entry.get(CAMERA_ENTRY_USB_SERIAL_BASE_KEY, 10)
     unit_lookup_count = 0
     if v4l_by_id_prefix is not None:
@@ -625,22 +659,32 @@ def _check_camera_entry_serial_keys(entry, error_start_text):
                                f'the start of the camera\'s /dev/v4l/by-id names before the '
                                f'serial, e.g. usb-046d_Logitech_BRIO')
     if usb_vendor_id is not None:
-        is_vendor_id = isinstance(usb_vendor_id, str) and USB_VENDOR_ID_PATTERN.fullmatch(
-            usb_vendor_id)
-        if not is_vendor_id:
-            raise RuntimeError(f'{error_start_text}: {CAMERA_ENTRY_USB_VENDOR_ID_KEY} must be 4 '
-                               f'lower case hexadecimal digits as text, as lsusb shows it, e.g. '
-                               f"'1e10'")
-    elif CAMERA_ENTRY_USB_SERIAL_BASE_KEY in entry:
-        raise RuntimeError(f'{error_start_text}: {CAMERA_ENTRY_USB_SERIAL_BASE_KEY} only goes '
-                           f'with {CAMERA_ENTRY_USB_VENDOR_ID_KEY}')
+        _check_usb_id(usb_vendor_id, CAMERA_ENTRY_USB_VENDOR_ID_KEY, "'1e10'", error_start_text)
+        if usb_product_id is not None:
+            _check_usb_id(usb_product_id, CAMERA_ENTRY_USB_PRODUCT_ID_KEY, "'097c'",
+                          error_start_text)
+    else:
+        for usb_only_key in (CAMERA_ENTRY_USB_SERIAL_BASE_KEY, CAMERA_ENTRY_USB_PRODUCT_ID_KEY):
+            if usb_only_key in entry:
+                raise RuntimeError(f'{error_start_text}: {usb_only_key} only goes with '
+                                   f'{CAMERA_ENTRY_USB_VENDOR_ID_KEY}')
     if usb_serial_base not in USB_SERIAL_BASES:
         raise RuntimeError(f'{error_start_text}: {CAMERA_ENTRY_USB_SERIAL_BASE_KEY} must be one '
                            f'of {list(USB_SERIAL_BASES)}')
     return {CAMERA_ENTRY_SERIAL_KEY: serial_source,
             CAMERA_ENTRY_V4L_BY_ID_PREFIX_KEY: v4l_by_id_prefix,
             CAMERA_ENTRY_USB_VENDOR_ID_KEY: usb_vendor_id,
+            CAMERA_ENTRY_USB_PRODUCT_ID_KEY: usb_product_id,
             CAMERA_ENTRY_USB_SERIAL_BASE_KEY: usb_serial_base}
+
+
+# Written by Claude Code
+def _check_usb_id(usb_id, entry_key, example_text, error_start_text):
+    """Raise RuntimeError naming the fix unless usb_id is 4 lower case hexadecimal digits."""
+    is_usb_id = isinstance(usb_id, str) and USB_ID_PATTERN.fullmatch(usb_id)
+    if not is_usb_id:
+        raise RuntimeError(f'{error_start_text}: {entry_key} must be 4 lower case hexadecimal '
+                           f'digits as text, as lsusb shows it, e.g. {example_text}')
 
 
 # Written by Claude Code
@@ -667,9 +711,8 @@ def create_camera_actions(context, profile_camera):
                            f'setup.py data_files of {camera_entry["package"]} '
                            f'(templates/par_camera/) and run ./scripts/local_build.sh')
     camera_info_url = ''
-    if camera_entry[CAMERA_ENTRY_INTRINSICS_KEY] == 'calibratable':
-        camera_info_url = get_camera_info_url(
-            context, get_camera_info_file_name_of_unit(camera_type, serial))
+    if camera_entry[CAMERA_ENTRY_INTRINSICS_KEY] == CAMERA_INTRINSICS_SOURCE_CALIBRATABLE:
+        camera_info_url = get_camera_info_url(context, camera_type, serial)
     camera_launch_arguments = {
         'namespace': get_camera_namespace(camera_name),
         'camera_name': camera_name,
@@ -679,7 +722,8 @@ def create_camera_actions(context, profile_camera):
     }
     return [IncludeLaunchDescription(PythonLaunchDescriptionSource(launch_file_path),
                                      launch_arguments=camera_launch_arguments.items()),
-            *create_mount_tf_publisher(context, f'{camera_name}_tf_publisher',
+            *create_mount_tf_publisher(context,
+                                       f'{camera_name}{CAMERA_TF_PUBLISHER_NAME_SUFFIX}',
                                        get_camera_body_frame_id(camera_name, camera_entry))]
 
 
@@ -730,52 +774,71 @@ def get_camera_info_file_name_of_unit(camera, serial):
 # named after the camera
 def create_optical_frame_tf_publisher(camera_name, namespace):
     """Create the publisher of <camera_name>_link -> <camera_name>_optical_frame in namespace."""
-    # What the Brio node publishes itself: z forward, y down (REP 103), roll -90, yaw -90 deg
+    # What the Brio node publishes itself: OPTICAL_FRAME_ROTATION_QUATERNION_XYZW
+    transform_arguments = ['--frame-id', f'{camera_name}_link',
+                           '--child-frame-id', f'{camera_name}_optical_frame']
+    for axis, quaternion_component in zip('xyzw', OPTICAL_FRAME_ROTATION_QUATERNION_XYZW):
+        transform_arguments += [f'--q{axis}', str(quaternion_component)]
     return Node(
         package='tf2_ros',
         executable='static_transform_publisher',
         name='optical_tf_publisher',
         namespace=namespace,
-        arguments=['--frame-id', f'{camera_name}_link',
-                   '--child-frame-id', f'{camera_name}_optical_frame',
-                   '--qx', '-0.5', '--qy', '0.5', '--qz', '-0.5', '--qw', '0.5'],
+        arguments=transform_arguments,
     )
 
 
+# Written by Claude Code
+def read_published_camera_pose(context, camera_name):
+    """
+    Return the pose a launch publishes for the camera, as (pose, source text, is measured).
+
+    The measurement while it exists: camera_pose_<camera name>.yaml in the profile's extrinsics
+    folder, written by camera_pose_calibrator. Else the placeholder /<camera name>_tf_publisher in
+    the parameter files. pose is the file's or section's content unchecked (None without a
+    placeholder); get_invalid_pose_keys checks it. Raises OSError or yaml.YAMLError when the
+    measured file cannot be read.
+    """
+    measured_pose_relative_path = get_extrinsics_relative_path(context, 'camera_pose',
+                                                               camera_name)
+    measured_pose_path = get_path_in_config_folder(measured_pose_relative_path)
+    if os.path.exists(measured_pose_path):
+        with open(measured_pose_path) as measured_pose_file:
+            camera_pose = yaml.safe_load(measured_pose_file)
+        return camera_pose, measured_pose_path, True
+    publisher_key = f'/{camera_name}{CAMERA_TF_PUBLISHER_NAME_SUFFIX}'
+    publisher_section = read_merged_parameters(context).get(publisher_key) or {}
+    camera_pose = publisher_section.get('ros__parameters')
+    pose_source_text = f'{publisher_key} in {" + ".join(get_params_file_paths(context))}'
+    return camera_pose, pose_source_text, False
+
+
 # Co-authored by Claude Code: checks the pose before it is used, reads the profile's files,
-# variable names
+# variable names, the pose source shared with the setup wizard
 def create_mount_tf_publisher(context, publisher_name, child_frame_id):
     """
     Create the publisher of world -> child_frame_id: the measured camera pose, or the placeholder.
 
-    The placeholder is stored under /<publisher_name> in the parameter files. The measurement is
-    camera_pose_<camera>.yaml in the profile's extrinsics folder, written by
-    camera_pose_calibrator (<camera> is <publisher_name> without _tf_publisher), and is used while
-    that file exists.
+    The pose is the one read_published_camera_pose returns for <camera>, which is
+    <publisher_name> without _tf_publisher.
     """
     # static_transform_publisher takes its transform only as command-line flags: parameters from
     # a file are overridden by the flags' defaults, and without --frame-id it does not start. So
     # the pose is read from the file here, which is only possible once params_file is known.
-    camera = publisher_name.removesuffix('_tf_publisher')
-    measured_pose_relative_path = get_extrinsics_relative_path(context, 'camera_pose', camera)
-    pose_source_path = get_path_in_config_folder(measured_pose_relative_path)
-    if os.path.exists(pose_source_path):
-        with open(pose_source_path) as measured_pose_file:
-            camera_pose = yaml.safe_load(measured_pose_file)
+    camera = publisher_name.removesuffix(CAMERA_TF_PUBLISHER_NAME_SUFFIX)
+    camera_pose, pose_source_text, is_pose_measured = read_published_camera_pose(context, camera)
+    if is_pose_measured:
         fix_hint = (f're-run the camera pose calibration, or delete the file to use the '
                     f'placeholder /{publisher_name} in the parameter files')
     else:
-        pose_source_path = ' + '.join(get_params_file_paths(context))
-        publisher_section = read_merged_parameters(context).get(f'/{publisher_name}') or {}
-        camera_pose = publisher_section.get('ros__parameters')
         fix_hint = f'set them under /{publisher_name} ros__parameters in the parameter files'
     # Both files can be edited by hand or cut short, and every launch with this camera reads
     # them: a gap is reported here with its file instead of ending as a bare KeyError
     invalid_keys = get_invalid_pose_keys(camera_pose)
     if invalid_keys:
-        raise RuntimeError(f'[launch_helpers]: {pose_source_path} has no finite number for '
+        raise RuntimeError(f'[launch_helpers]: {pose_source_text} has no finite number for '
                            f'{", ".join(invalid_keys)}: {fix_hint}')
-    print(f'[launch_helpers]: {publisher_name}: camera pose from {pose_source_path}')
+    print(f'[launch_helpers]: {publisher_name}: camera pose from {pose_source_text}')
     transform_arguments = ['--frame-id', 'world', '--child-frame-id', child_frame_id]
     for axis in 'xyz':
         transform_arguments += [f'--{axis}', str(camera_pose[f'translation.{axis}'])]
@@ -958,6 +1021,12 @@ def _read_ament_index_entry(resource_type, package_name, entry_kind_text, instal
 def get_sensor_node_package_names():
     """Return the packages that registered a sensor processing node in the ament index, sorted."""
     return sorted(get_resources(SENSOR_NODE_RESOURCE_TYPE))
+
+
+# Written by Claude Code
+def get_sensor_node_name(sensor_node_package_name):
+    """Return the node name par.launch.py gives a sensor node in its camera's namespace."""
+    return f'{sensor_node_package_name}_node'
 
 
 # Written by Claude Code

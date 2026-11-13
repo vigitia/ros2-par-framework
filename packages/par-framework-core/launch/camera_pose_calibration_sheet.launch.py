@@ -15,24 +15,20 @@ using the camera first. The launch ends when the calibrator is done:
         square_size_mm:=19.2 board_columns:=11 board_rows:=7
 """
 
-import os
-
-from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction, Shutdown
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
-from par_framework_core.launch_helpers import (create_camera_actions,
+from par_framework_core.launch_helpers import (CAMERA_TF_PUBLISHER_NAME_SUFFIX,
+                                               create_camera_actions,
                                                create_camera_choice_launch_argument,
                                                create_camera_stream_remappings,
                                                create_profile_launch_argument,
-                                               get_camera_body_frame_id,
-                                               get_camera_to_calibrate,
+                                               get_camera_body_frame_id, get_camera_to_calibrate,
                                                get_extrinsics_relative_path,
+                                               get_installed_par_setup_path,
                                                get_path_in_config_folder, POSE_ROTATION_KEYS,
                                                read_camera_entry, read_merged_parameters)
-
-PACKAGE_NAME = 'par_framework_core'
 
 
 # Co-authored by Claude Code: the pose file is per camera name
@@ -40,7 +36,8 @@ def launch_setup(context):
     camera_to_calibrate = get_camera_to_calibrate(context)
     camera = camera_to_calibrate.camera_name
     merged_parameters = read_merged_parameters(context)
-    placeholder_pose = merged_parameters[f'/{camera}_tf_publisher']['ros__parameters']
+    placeholder_publisher_name = f'/{camera}{CAMERA_TF_PUBLISHER_NAME_SUFFIX}'
+    placeholder_pose = merged_parameters[placeholder_publisher_name]['ros__parameters']
     placeholder_rotation = [float(placeholder_pose[key]) for key in POSE_ROTATION_KEYS]
     camera_pose_relative_path = get_extrinsics_relative_path(context, 'camera_pose', camera)
     camera_pose_file_path = get_path_in_config_folder(camera_pose_relative_path)
@@ -74,9 +71,9 @@ def launch_setup(context):
     ]
 
 
+# Co-authored by Claude Code
 def generate_launch_description():
-    default_params_file_path = os.path.join(
-        get_package_share_directory(PACKAGE_NAME), 'config', 'par_setup.yaml')
+    default_params_file_path = get_installed_par_setup_path()
 
     return LaunchDescription([
         DeclareLaunchArgument(

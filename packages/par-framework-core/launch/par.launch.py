@@ -59,17 +59,16 @@ from par_framework_core.launch_helpers import (create_camera_actions,
                                                create_profile_launch_argument,
                                                create_projection_calibration_server_node,
                                                create_projector_display_id_launch_argument,
-                                               get_cameras_to_start, get_params_file_paths,
+                                               get_camera_namespace, get_cameras_to_start,
+                                               get_installed_par_setup_path, get_params_file_paths,
                                                get_profile_name, get_projector_display_id,
+                                               get_sensor_node_name,
                                                get_sensor_node_names_by_camera,
-                                               get_camera_namespace,
                                                get_sensor_node_package_names,
-                                               PAR_APP_ENTRY_INPUTS_KEY,
-                                               PAR_LAUNCH_APP_INPUTS_KEY,
+                                               PAR_APP_ENTRY_INPUTS_KEY, PAR_LAUNCH_APP_INPUTS_KEY,
                                                PAR_LAUNCH_CAMERAS_KEY, PROJECTOR_APP_NONE,
-                                               read_camera_entry,
-                                               read_launch_section, read_par_app_entry,
-                                               read_profile_cameras,
+                                               read_camera_entry, read_launch_section,
+                                               read_par_app_entry, read_profile_cameras,
                                                RENDERING_MANAGER_APP_NAME,
                                                SENSOR_NODE_RESOURCE_TYPE)
 
@@ -460,7 +459,7 @@ def launch_setup(context):
         return Node(
             package=package,
             executable=package,
-            name=f'{package}_node',
+            name=get_sensor_node_name(package),
             namespace=get_camera_namespace(camera_name),
             output='screen',
             emulate_tty=True,
@@ -545,9 +544,9 @@ def launch_setup(context):
     return launch_actions
 
 
+# Co-authored by Claude Code
 def generate_launch_description():
-    default_params_file_path = os.path.join(
-        get_package_share_directory(PACKAGE_NAME), 'config', 'par_setup.yaml')
+    default_params_file_path = get_installed_par_setup_path()
 
     switch_arguments = []
     for sensor_node_name in get_sensor_node_package_names():

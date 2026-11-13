@@ -16,10 +16,6 @@ setup's own, in config/calibration/intrinsics/<name>/ and config/calibration/ext
 (added with the help of Claude Code).
 """
 
-import os
-
-from ament_index_python.packages import get_package_share_directory
-
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction, Shutdown
 from launch_ros.actions import Node
@@ -29,10 +25,9 @@ from par_framework_core.launch_helpers import (create_camera_actions,
                                                create_profile_launch_argument,
                                                create_projection_calibration_server_node,
                                                create_projector_display_id_launch_argument,
-                                               get_camera_to_calibrate, get_params_file_paths,
+                                               get_camera_to_calibrate,
+                                               get_installed_par_setup_path, get_params_file_paths,
                                                get_projector_display_id, read_launch_section)
-
-PACKAGE_NAME = 'par_framework_core'
 
 
 # Written by Claude Code; the remappings of the camera streams and the projector display
@@ -69,8 +64,7 @@ def create_camera_and_surface_selector(context):
 
 # Co-authored by Claude Code
 def generate_launch_description():
-    default_params_file_path = os.path.join(
-        get_package_share_directory(PACKAGE_NAME), 'config', 'par_setup.yaml')
+    default_params_file_path = get_installed_par_setup_path()
 
     return LaunchDescription([
         DeclareLaunchArgument(

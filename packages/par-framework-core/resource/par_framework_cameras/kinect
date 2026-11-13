@@ -12,5 +12,9 @@ body_frame: camera_base
 streams: [image_raw, camera_info, depth_registered/image_raw, ir/image_raw,
           depth_sensor/ir/image_raw, depth_sensor/depth/image_raw, depth_sensor/camera_info]
 intrinsics: factory
-# The launch file passes it as sensor_sn; the setup wizard does not list connected units yet
-serial: typed
+# The launch file passes it as sensor_sn. The connected units are the Kinects' depth camera USB
+# devices (Microsoft 045e, product 097c); each Kinect has several USB devices with the same serial,
+# which is the one the driver takes
+serial: listed
+usb_vendor_id: '045e'
+usb_product_id: '097c'

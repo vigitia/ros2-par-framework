@@ -10,6 +10,11 @@ config/calibration/extrinsics/projection_mapping_<camera>.yaml, and published la
 /cameras/<camera>/projection_mapping. The launch ends when the calibrator is done. camera:= picks
 the camera when the profile has several (a name of par_launch.cameras).
 
+With a measured camera pose (camera_pose_<camera>.yaml), world becomes the projected image's:
+origin at its bottom left corner on the table, x along its bottom edge. The mapping is stored from
+that world and the pose file gets the matching x, y and rotation about the vertical, so all
+cameras that see the projection share one world. Without one, the camera keeps its own world.
+
 Needs the camera calibration and the camera pose (/<camera>_tf_publisher in par_setup.yaml), and
 a clear table. The camera calibration is
 config/calibration/intrinsics/camera_info_<type>[_<serial>].yaml; the Kinect and the RealSense
@@ -25,9 +30,6 @@ camera (kinect or realsense) and a mapping from the first step; re-running the f
 the centre again.
 """
 
-import os
-
-from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction, Shutdown
 from launch.substitutions import LaunchConfiguration
@@ -38,11 +40,12 @@ from par_framework_core.launch_helpers import (create_camera_actions,
                                                create_projection_calibration_server_node,
                                                create_projector_display_id_launch_argument,
                                                get_camera_namespace, get_camera_to_calibrate,
-                                               get_params_file_paths,
+                                               get_extrinsics_relative_path,
+                                               get_installed_par_setup_path, get_params_file_paths,
+                                               get_path_in_config_folder,
                                                get_projector_display_id, read_camera_entry,
                                                read_launch_section)
 
-PACKAGE_NAME = 'par_framework_core'
 # The stream the projector centre step needs: depth registered to the colour image
 DEPTH_REGISTERED_STREAM_NAME = 'depth_registered/image_raw'
 # The projected markers are large and lie still, unlike the printed ones a profile may tune
@@ -66,8 +69,12 @@ def launch_setup(context):
         raise RuntimeError(f'[projection_calibration.launch]: '
                            f'projector_center:={projector_center_argument}: use true or false')
     is_projector_center_run = projector_center_argument == 'true'
+    # With a measured pose, the calibrator moves the camera into the projected image's world
+    camera_pose_file_path = get_path_in_config_folder(
+        get_extrinsics_relative_path(context, 'camera_pose', camera))
     projection_calibrator_parameters = [*params_file_paths,
-                                        {'projector_center': is_projector_center_run}]
+                                        {'projector_center': is_projector_center_run,
+                                         'camera_pose_file': camera_pose_file_path}]
     # The same display the projector app gets; without one, the calibrator's own default applies
     projector_display_id = get_projector_display_id(context, read_launch_section(context))
     if projector_display_id is not None:
@@ -112,9 +119,9 @@ def launch_setup(context):
             projection_calibrator_node]
 
 
+# Co-authored by Claude Code
 def generate_launch_description():
-    default_params_file_path = os.path.join(
-        get_package_share_directory(PACKAGE_NAME), 'config', 'par_setup.yaml')
+    default_params_file_path = get_installed_par_setup_path()
 
     return LaunchDescription([
         DeclareLaunchArgument(
