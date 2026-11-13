@@ -5,7 +5,7 @@
 // drawing and the missing calibration steps), the projector's display, the profile's cameras with their calibrations,
 // the profile's sensor processing nodes and the profile's apps; the Run button sits in the bottom right
 // corner of the Overview. The profile menu (hamburger icon, top right of the app bar) switches profiles, starts
-// the new-profile wizard and deletes a profile; the hub remembers the choice for the next start. Without any profile
+// the new-profile wizard, copies and deletes a profile; the hub remembers the choice for the next start. Without any profile
 // the Overview shows only a hint, and the other areas and the Run button are disabled. Each area lives in its own
 // file and gets only the backend client and the profile name, so the areas can be built independently; switching
 // profiles builds them afresh. The Overview's requests to open a camera section or the Projectors area pass through
@@ -20,7 +20,9 @@ import '../core/ui/top_aligned_page_content.dart';
 import '../../data/services/setup_wizard_backend_client.dart';
 import '../apps/apps_screen.dart';
 import '../cameras/cameras_screen.dart';
+import '../new_profile/new_profile_hardware_step.dart';
 import '../new_profile/new_profile_wizard_screen.dart';
+import 'copy_profile_dialog.dart';
 import 'profile_overview_screen.dart';
 import '../projectors/projectors_screen.dart';
 import '../sensor_nodes/sensor_nodes_screen.dart';
@@ -143,6 +145,37 @@ class _ProfileHubScreenState extends State<ProfileHubScreen> {
     await _loadProfileList();
   }
 
+  /// Asks for the copy's name, copies the profile with its calibrations and shows the copy, also for the next start.
+  Future<void> _askNameAndCopyProfile(String sourceProfileName) async {
+    final String? newProfileDisplayName = await showDialog<String>(
+      context: context,
+      builder: (BuildContext dialogContext) => CopyProfileDialog(
+        sourceProfileName: sourceProfileName,
+        existingProfileNames: _profileNames,
+      ),
+    );
+    if (newProfileDisplayName == null || !mounted) {
+      return;
+    }
+    final String newProfileName = createInternalProfileName(newProfileDisplayName);
+    try {
+      await widget.backendClient.copyProfile(
+        sourceProfileName: sourceProfileName,
+        newProfileName: newProfileName,
+        newProfileDisplayName: newProfileDisplayName,
+      );
+    } catch (error) {
+      _showMessage(WizardStrings.getCopyProfileErrorText(
+        sourceProfileName: sourceProfileName,
+        backendErrorText: describeBackendErrorForUser(error),
+      ));
+      return;
+    }
+    await _selectProfile(newProfileName);
+    _showMessage(WizardStrings.getProfileCopiedText(sourceProfileName: sourceProfileName, newProfileName: newProfileName));
+    await _loadProfileList();
+  }
+
   /// Asks first, since deleting removes the profile from the app; the backend keeps its files in a folder from
   /// which they can be restored by hand.
   Future<void> _confirmAndDeleteProfile(String profileName) async {
@@ -213,6 +246,7 @@ class _ProfileHubScreenState extends State<ProfileHubScreen> {
       shownProfileName: _shownProfileName,
       onProfileSelected: _selectProfile,
       onNewProfileClicked: _openNewProfileWizard,
+      onCopyProfileClicked: _askNameAndCopyProfile,
       onDeleteProfileClicked: _confirmAndDeleteProfile,
     );
   }

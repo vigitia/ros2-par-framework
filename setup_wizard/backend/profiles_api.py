@@ -3,8 +3,9 @@
 Profiles API of the setup wizard backend: the hardware setups (config/profiles/<name>.yaml).
 
 Lists them with their cameras and apps and each camera's calibration state (profile_summary.py),
-remembers the one selected last time, creates a new profile from the new-profile wizard, stores
-the profile's projector and moves a deleted profile out of use. A profile's cameras are added and
+remembers the one selected last time, creates a new profile from the new-profile wizard, copies a
+profile with its calibrations, stores the profile's projector and moves a deleted profile out of
+use. A profile's cameras are added and
 removed through cameras_api.py, its apps through apps_api.py; all of them read and write the
 profile files through profile_files.py.
 """
@@ -39,6 +40,8 @@ LAST_SELECTED_PROFILE_FILE_NAME = '.setup_wizard_last_selected_profile'
 # A deleted profile's intrinsics and extrinsics go into these subfolders of its deleted folder
 DELETED_INTRINSICS_FOLDER_NAME = 'intrinsics'
 DELETED_EXTRINSICS_FOLDER_NAME = 'extrinsics'
+# How the first line of a profile the wizard writes starts; a copy replaces that line
+PROFILE_HEADER_LINE_START = '# Setup profile '
 
 profiles_router = APIRouter()
 
@@ -67,6 +70,13 @@ class NewProfileRequest(BaseModel):
 class ProjectorDisplayChoiceRequest(BaseModel):
     # A display_id from GET /api/displays
     display_id: int
+
+
+class ProfileCopyRequest(BaseModel):
+    # The copy's file name without .yaml and the value of profile:=
+    new_profile_name: str
+    # As the user typed it, kept as a comment at the top of the copy
+    new_profile_display_name: str
 
 
 class NewProfileResponse(BaseModel):
@@ -136,11 +146,7 @@ def create_profile(request: NewProfileRequest) -> NewProfileResponse:
 
 def _check_new_profile_cameras(request: NewProfileRequest) -> list[ProfileCamera]:
     """Return the new profile's cameras, checked with its name; HTTP 4xx when it cannot be made."""
-    # The name becomes a file name and profile:=, so only what profile:= accepts
-    if not FILE_NAME_PART_PATTERN.fullmatch(request.profile_name):
-        raise HTTPException(status_code=422,
-                            detail=f'{request.profile_name!r} is no valid profile name: use only '
-                                   f'letters, digits, _ and -')
+    _check_new_profile_name(request.profile_name)
     if not request.cameras:
         # Without a camera the launch would silently take par_setup.yaml's camera
         raise HTTPException(status_code=422,
@@ -155,12 +161,9 @@ def _check_new_profile_cameras(request: NewProfileRequest) -> list[ProfileCamera
 def _create_profile_file(request: NewProfileRequest, new_cameras: list[ProfileCamera]) -> None:
     """Write the new profile file with its cameras; 409 when a profile of the name exists."""
     profile_path = get_profile_file_path(request.profile_name)
-    # One line, so a typed line break cannot end the comment and add YAML of its own
-    one_line_display_name = ' '.join(request.profile_display_name.split())
     creation_date_text = datetime.date.today().isoformat()
     profile_lines = [
-        f'# Setup profile {one_line_display_name}: only what differs from par_setup.yaml '
-        f'(profile:={request.profile_name}).',
+        _create_profile_header_line(request.profile_display_name, request.profile_name),
         f'# Created by the setup wizard on {creation_date_text}.',
         'par_launch:',
         f'  {ROS_PARAMETERS_KEY}:',
@@ -206,6 +209,59 @@ def set_projector_display(profile_name: str, request: ProjectorDisplayChoiceRequ
                                           _find_connected_display(request.display_id))
 
 
+@profiles_router.post('/api/profiles/{profile_name}/copy')
+def copy_profile(profile_name: str, request: ProfileCopyRequest) -> None:
+    """
+    Copy the profile under a new name, with its calibrations, so it runs on the same setup at once.
+
+    The copy's file is the original's, comments and all, under a new header; its intrinsics and
+    extrinsics folders are copies, changed or recalibrated independently of the original's.
+    """
+    # Only the name of a listed profile reaches a path, so no other file can be read
+    check_profile_exists(profile_name)
+    new_profile_name = request.new_profile_name
+    _check_new_profile_name(new_profile_name)
+    new_profile_path = get_profile_file_path(new_profile_name)
+    if os.path.exists(new_profile_path):
+        raise HTTPException(status_code=409,
+                            detail=f'A profile named {new_profile_name!r} exists already')
+    # Calibration folders without a profile file are left over by hand; they are never merged
+    # into or overwritten, since measured calibrations take real work to redo
+    copied_folder_paths = []
+    for calibration_folder_path in (FOLDER_PATH_CAMERA_INTRINSICS, FOLDER_PATH_EXTRINSICS):
+        source_folder_path = get_path_in_config_folder(f'{calibration_folder_path}/{profile_name}')
+        new_folder_path = get_path_in_config_folder(
+            f'{calibration_folder_path}/{new_profile_name}')
+        if os.path.exists(new_folder_path):
+            raise HTTPException(status_code=409,
+                                detail=f'{new_folder_path} exists already, without a profile: '
+                                       f'move it away or choose another name')
+        if os.path.isdir(source_folder_path):
+            copied_folder_paths.append((source_folder_path, new_folder_path))
+
+    with open(get_profile_file_path(profile_name)) as source_profile_file:
+        source_profile_lines = source_profile_file.read().splitlines()
+    # The wizard's header names the original; a hand-written first line is kept below the new one
+    if source_profile_lines and source_profile_lines[0].startswith(PROFILE_HEADER_LINE_START):
+        source_profile_lines = source_profile_lines[1:]
+    copy_date_text = datetime.date.today().isoformat()
+    new_profile_lines = [
+        _create_profile_header_line(request.new_profile_display_name, new_profile_name),
+        f'# Copied by the setup wizard from profile {profile_name} on {copy_date_text}.',
+        *source_profile_lines,
+    ]
+    for source_folder_path, new_folder_path in copied_folder_paths:
+        shutil.copytree(source_folder_path, new_folder_path)
+    # The profile file last: once it exists, the profile is listed and launched with its
+    # calibrations in place. 'x' never overwrites a profile made in the meantime
+    try:
+        with open(new_profile_path, 'x') as new_profile_file:
+            new_profile_file.write('\n'.join(new_profile_lines) + '\n')
+    except FileExistsError:
+        raise HTTPException(status_code=409,
+                            detail=f'A profile named {new_profile_name!r} exists already')
+
+
 @profiles_router.delete('/api/profiles/{profile_name}')
 def delete_profile(profile_name: str) -> DeletedProfileResponse:
     """Move the profile and its calibrations into config/profiles/.deleted/, to restore by hand."""
@@ -232,6 +288,22 @@ def delete_profile(profile_name: str) -> DeletedProfileResponse:
         shutil.move(extrinsics_folder_path,
                     os.path.join(deleted_profile_folder_path, DELETED_EXTRINSICS_FOLDER_NAME))
     return DeletedProfileResponse(deleted_profile_folder_path=deleted_profile_folder_path)
+
+
+def _check_new_profile_name(profile_name: str) -> None:
+    """HTTP 422 unless the name is one profile:= accepts; it becomes a file and folder name."""
+    if not FILE_NAME_PART_PATTERN.fullmatch(profile_name):
+        raise HTTPException(status_code=422,
+                            detail=f'{profile_name!r} is no valid profile name: use only '
+                                   f'letters, digits, _ and -')
+
+
+def _create_profile_header_line(profile_display_name: str, profile_name: str) -> str:
+    """Return the first line of a profile the wizard writes, naming it and its profile:=."""
+    # One line, so a typed line break cannot end the comment and add YAML of its own
+    one_line_display_name = ' '.join(profile_display_name.split())
+    return (f'{PROFILE_HEADER_LINE_START}{one_line_display_name}: only what differs from '
+            f'par_setup.yaml (profile:={profile_name}).')
 
 
 def _get_last_selected_profile_path() -> str:

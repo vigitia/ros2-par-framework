@@ -1,8 +1,9 @@
 // Written by Claude Code
 //
 // The hardware setup (profile) chooser: a menu button (hamburger icon) in the top right corner of the app bar, whose
-// menu switches to another profile, starts the new-profile wizard or deletes the shown profile. It only reports the
-// choice; the hub (profile_hub_screen.dart) remembers it, runs the wizard and asks before deleting.
+// menu switches to another profile, starts the new-profile wizard, copies or deletes the shown profile. It only
+// reports the choice; the hub (profile_hub_screen.dart) remembers it, runs the wizard, asks for the copy's name and
+// asks before deleting.
 
 import 'package:flutter/material.dart';
 import '../../config/wizard_strings.dart';
@@ -14,6 +15,7 @@ class ProfileSelectorView extends StatelessWidget {
     required this.shownProfileName,
     required this.onProfileSelected,
     required this.onNewProfileClicked,
+    required this.onCopyProfileClicked,
     required this.onDeleteProfileClicked,
   });
 
@@ -23,6 +25,7 @@ class ProfileSelectorView extends StatelessWidget {
   final String? shownProfileName;
   final ValueChanged<String> onProfileSelected;
   final VoidCallback onNewProfileClicked;
+  final ValueChanged<String> onCopyProfileClicked;
   final ValueChanged<String> onDeleteProfileClicked;
 
   @override
@@ -48,6 +51,14 @@ class ProfileSelectorView extends StatelessWidget {
       onPressed: onNewProfileClicked,
       child: const Text(WizardStrings.newProfileMenuLabel),
     ));
+    final String? copyableProfileName = shownProfileName;
+    if (copyableProfileName != null) {
+      menuEntries.add(MenuItemButton(
+        leadingIcon: const Icon(Icons.copy),
+        onPressed: () => onCopyProfileClicked(copyableProfileName),
+        child: Text(WizardStrings.getCopyProfileMenuLabel(copyableProfileName: copyableProfileName)),
+      ));
+    }
     final String? deletableProfileName = shownProfileName;
     if (deletableProfileName != null) {
       final Color deleteColor = Theme.of(context).colorScheme.error;

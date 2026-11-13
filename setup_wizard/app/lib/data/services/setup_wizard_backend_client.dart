@@ -191,6 +191,19 @@ class SetupWizardBackendClient {
     });
   }
 
+  /// Copies a profile under a new name, with its lens calibrations, camera poses and projector calibration. Throws
+  /// with the backend's reason, e.g. when the name is taken.
+  Future<void> copyProfile({
+    required String sourceProfileName,
+    required String newProfileName,
+    required String newProfileDisplayName,
+  }) async {
+    await sendJson('POST', '/api/profiles/${Uri.encodeComponent(sourceProfileName)}/copy', {
+      'new_profile_name': newProfileName,
+      'new_profile_display_name': newProfileDisplayName,
+    });
+  }
+
   /// Deletes a profile: the backend moves its file and extrinsics into config/profiles/.deleted/, from where it can
   /// be restored by hand. Returns that folder.
   Future<String> deleteProfile(String profileName) async {

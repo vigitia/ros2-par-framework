@@ -67,6 +67,30 @@ abstract final class WizardStrings {
     return 'Could not delete $profileName. $backendErrorText';
   }
 
+  static String getCopyProfileDialogTitle({required String sourceProfileName}) {
+    return 'Copy profile $sourceProfileName';
+  }
+
+  static const String copyProfileDialogText =
+      'The copy gets this profile\'s cameras, settings, apps, projector and calibrations (lens calibrations, camera '
+      'poses, projector calibration). Changes to one profile do not affect the other.';
+  static String getCopiedProfileDefaultDisplayName({required String sourceProfileName}) {
+    return '$sourceProfileName copy';
+  }
+
+  static String getCopyProfileNameTakenText({required String newProfileName}) {
+    return 'A profile "$newProfileName" exists already. Choose another name.';
+  }
+
+  static const String copyButtonLabel = 'Copy';
+  static String getProfileCopiedText({required String sourceProfileName, required String newProfileName}) {
+    return 'Copied $sourceProfileName to $newProfileName.';
+  }
+
+  static String getCopyProfileErrorText({required String sourceProfileName, required String backendErrorText}) {
+    return 'Could not copy $sourceProfileName. $backendErrorText';
+  }
+
   static const String noProfileYetText =
       'There is no profile yet. Create one with New profile in the menu at the top right.';
   static const String overviewNavigationLabel = 'Overview';
@@ -80,6 +104,10 @@ abstract final class WizardStrings {
   }
 
   static const String newProfileMenuLabel = 'New profile';
+  static String getCopyProfileMenuLabel({required String copyableProfileName}) {
+    return 'Copy $copyableProfileName …';
+  }
+
   static String getDeleteProfileMenuLabel({required String deletableProfileName}) {
     return 'Delete $deletableProfileName …';
   }

@@ -5092,3 +5092,35 @@ which made it hard to see which text belongs to which control.
   window, so names and controls of different lists would not line up.
 - *A width that follows the longest name.* Rejected: it would need measuring text across all rows. Long names
   wrap within the fixed column instead.
+
+## 2026-11-13: Copy a profile from the wizard's profile menu
+
+**What changed:**
+- Backend (`setup_wizard/backend/profiles_api.py`): new `POST /api/profiles/{profile_name}/copy` with the copy's
+  internal name and display name. It copies the profile file, keeping the original's comments, and its
+  `calibration/intrinsics/<profile>/` and `calibration/extrinsics/<profile>/` folders.
+  - The wizard's header line (`# Setup profile …`) is replaced by one naming the copy, and a second line records
+    which profile it was copied from and when. A hand-written first line is kept below these.
+  - The new name is checked like a new profile's. The shared check is `_check_new_profile_name`, and the header
+    line now comes from `_create_profile_header_line`, which `create_profile` also uses.
+  - The request is refused (409) when a profile of that name exists, or when a calibration folder of that name
+    exists without a profile, so leftover measured calibrations are never merged into or overwritten.
+  - The calibration folders are copied first and the profile file is written last, opened with `'x'`. The copy
+    only appears in lists and launches once its calibrations are in place, and a profile made in the meantime is
+    never overwritten.
+- App: the profile menu (hamburger, top right) has a "Copy <profile> …" entry. A new `CopyProfileDialog`
+  (`ui/profiles/copy_profile_dialog.dart`) asks for the name, prefilled with "<profile> copy", and checks it while
+  typing by internal name (`createInternalProfileName`), as the new-profile wizard does. The hub then copies the
+  profile, shows the copy and remembers it for the next start, as after creating a new profile.
+
+**Why:** Variants of one physical setup (other apps, other node settings) previously meant either editing the
+profile in place or creating a new one and redoing every calibration.
+
+**Alternatives considered:**
+- *Copy only the profile file, or only the intrinsics.* Rejected: a copy is mostly a variant of the same setup,
+  where the camera poses and projector calibration are still valid. Each copy can be recalibrated on its own.
+- *Copy in the app by creating a profile through the new-profile endpoint.* Rejected: that endpoint writes a fresh
+  file from cameras and settings and would lose everything else the profile holds (apps, node settings,
+  comments).
+- *Copy the file byte for byte, header included.* Rejected: the header would then name the original's
+  `profile:=`, which misleads anyone reading the file by hand.
