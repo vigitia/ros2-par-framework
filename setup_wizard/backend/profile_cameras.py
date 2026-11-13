@@ -133,8 +133,10 @@ def write_camera_placeholder_pose(profile_name: str, profile_camera: ProfileCame
 
     A copy of its type's placeholder in par_setup.yaml, else GENERIC_PLACEHOLDER_POSE.
     """
-    publisher_key = get_camera_tf_publisher_section_name(profile_camera.camera_name)
-    merged_parameters = read_merged_parameters(create_profile_launch_context(profile_name))
+    camera_name = profile_camera.camera_name
+    publisher_key = get_camera_tf_publisher_section_name(camera_name)
+    profile_launch_context = create_profile_launch_context(profile_name)
+    merged_parameters = read_merged_parameters(profile_launch_context)
     publisher_section = merged_parameters.get(publisher_key) or {}
     existing_pose = publisher_section.get(ROS_PARAMETERS_KEY)
     if isinstance(existing_pose, dict) and not get_invalid_pose_keys(existing_pose):
@@ -146,9 +148,18 @@ def write_camera_placeholder_pose(profile_name: str, profile_camera: ProfileCame
         placeholder_pose = {}
         for pose_key in CAMERA_POSE_KEYS:
             placeholder_pose[pose_key] = type_placeholder_pose[pose_key]
-    # Written even where equal to par_setup.yaml's, which has no section of this name
+    # Written even where equal to par_setup.yaml's, which has no section of this name. The
+    # comment says why the section is there, for whoever reads the profile by hand
+    measured_pose_relative_path = get_extrinsics_relative_path(profile_launch_context,
+                                                               'camera_pose', camera_name)
+    placeholder_pose_comment = (
+        f'\nSaved by the setup wizard: placeholder pose of camera {camera_name}, needed because\n'
+        f'par_setup.yaml has placeholders only for the default camera names and a launch\n'
+        f'refuses a camera without a pose. Unused once the camera pose calibration has written\n'
+        f'config/{measured_pose_relative_path}.')
     write_node_settings_into_profile(profile_name, publisher_key, placeholder_pose,
-                                     always_written_setting_names=tuple(CAMERA_POSE_KEYS))
+                                     always_written_setting_names=tuple(CAMERA_POSE_KEYS),
+                                     added_node_section_comment=placeholder_pose_comment)
 
 
 def write_profile_cameras(profile_name: str, profile_cameras: list[ProfileCamera]) -> None:

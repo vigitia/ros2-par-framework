@@ -270,7 +270,8 @@ def move_camera_node_sections(profile_name: str, camera_name: str,
 
 def write_node_settings_into_profile(profile_name: str, full_node_name: str,
                                      setting_value_by_name: dict,
-                                     always_written_setting_names: tuple = ()
+                                     always_written_setting_names: tuple = (),
+                                     added_node_section_comment: str = ADDED_NODE_SECTION_COMMENT
                                      ) -> NodeSettingsWriteResult:
     """
     Write settings of a node into the profile, as ROS reads them at the node's next start.
@@ -278,7 +279,8 @@ def write_node_settings_into_profile(profile_name: str, full_node_name: str,
     Only what differs from par_setup.yaml is kept, as in a hand-written profile: a value equal
     to par_setup.yaml's removes its key, except for always_written_setting_names. A value None
     removes its key too. The file is rewritten with ruamel.yaml's round trip, which keeps
-    comments, quotes and layout of everything else.
+    comments, quotes and layout of everything else. added_node_section_comment goes above the
+    node's section when this call adds it (one line per line, a leading newline as empty line).
     """
     check_profile_exists(profile_name)
     profile_path = get_profile_file_path(profile_name)
@@ -295,7 +297,8 @@ def write_node_settings_into_profile(profile_name: str, full_node_name: str,
         written_setting_names, removed_setting_names = _set_node_parameters(
             node_parameters, setting_value_by_name, default_setting_value_by_name,
             always_written_setting_names)
-        _store_node_section(profile_document, node_section_name, node_section, node_parameters)
+        _store_node_section(profile_document, node_section_name, node_section, node_parameters,
+                            added_node_section_comment)
         _replace_file_contents(profile_path, round_trip_yaml, profile_document)
 
     return NodeSettingsWriteResult(node_section_name=node_section_name,
@@ -362,7 +365,7 @@ def _is_par_setup_value(setting_name: str, setting_value,
 
 
 def _store_node_section(profile_document: CommentedMap, node_section_name: str, node_section,
-                        node_parameters) -> None:
+                        node_parameters, added_node_section_comment: str) -> None:
     """Put the node's parameters into the profile; drop a section left with nothing in it."""
     if node_parameters:
         node_section[ROS_PARAMETERS_KEY] = node_parameters
@@ -370,7 +373,7 @@ def _store_node_section(profile_document: CommentedMap, node_section_name: str, 
         profile_document[node_section_name] = node_section
         if is_new_node_section:
             profile_document.yaml_set_comment_before_after_key(
-                node_section_name, before=ADDED_NODE_SECTION_COMMENT)
+                node_section_name, before=added_node_section_comment)
     elif node_section_name in profile_document:
         # Nothing left that differs; a section with other keys besides the parameters stays
         if ROS_PARAMETERS_KEY in node_section:
