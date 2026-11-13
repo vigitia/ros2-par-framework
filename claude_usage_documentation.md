@@ -5071,3 +5071,24 @@ them when par_setup.yaml already has placeholders.
 the reader is looking at the profile, not at par_setup.yaml. A constant comment text without the
 camera name and file path: rejected, because naming the file that replaces the placeholder tells
 the reader exactly what to run and where the result lands.
+
+## 2026-11-13: Setting rows sit at the left edge, explanations only below the control
+
+**What changed:** `setup_wizard/app/lib/ui/core/ui/setting_row_view.dart`. On a wide row (one line), the name
+and the control used to share the whole width in a 2:3 ratio, and the explanations (range, description, allowed
+values, errors) ran across the full width below both. Now the name column and the control column have fixed
+widths (`settingNameColumnWidthLogicalPx`, `settingControlColumnWidthLogicalPx`) and sit at the window's left
+edge. The name stays right-aligned next to its control. The explanations are indented by the name column and
+the gap, so they sit only below the control, at the control column's width. A read-only value is written out
+left-aligned in the control column. The one-line threshold is now the sum of the two columns and the gap.
+Narrow rows stay stacked as before. The row is split into `_buildOneLineSettingRow` and
+`_buildStackedSettingRow`, because the one-line/stacked decision now also decides where the explanations go.
+
+**Why:** On a wide window the controls drifted far to the right and the long explanations ran under the names,
+which made it hard to see which text belongs to which control.
+
+**Alternatives considered:**
+- *Keep the flex ratio and only cap the row's width.* Rejected: the columns would still change width with the
+  window, so names and controls of different lists would not line up.
+- *A width that follows the longest name.* Rejected: it would need measuring text across all rows. Long names
+  wrap within the fixed column instead.

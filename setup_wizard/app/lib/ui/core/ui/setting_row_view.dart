@@ -5,8 +5,9 @@
 // with few allowed values or a menu, a slider for other numbers with a range, a text field for everything else that
 // accepts only what the setting's type allows and passes on every valid entry right away (shortly after the last
 // keystroke), nothing when it may not be changed. A reset button appears while the value differs from the default.
-// Name and control share one line when the row is wide enough, the name right-aligned so it sits next to its control;
-// otherwise the control goes below the name. The value
+// Name and control share one line when the row is wide enough: fixed-width columns at the left edge, the name
+// right-aligned so it sits next to its control, and the explanations (range, description, errors) only below the
+// control; otherwise the control goes below the name. The value
 // is written out only where no control shows it (read-only settings, next to a slider). A change is handed to the
 // owner (onSettingChanged), which decides what it means: CameraSettingsView sends it to the running driver, the node
 // settings collect it until Save.
@@ -25,8 +26,15 @@ const int maximumSliderDivisionCount = 1000;
 /// An integer setting with at most this many allowed values gets a dropdown instead of a slider.
 const int maximumDropdownOptionCount = 12;
 
+/// On a one-line row: the width of the name column (a longer name wraps), of the gap after it, and of the control
+/// column, which the explanations below the control share. Fixed, so the rows of a list line up at the left edge.
+const double settingNameColumnWidthLogicalPx = 220;
+const double settingNameControlGapLogicalPx = 12;
+const double settingControlColumnWidthLogicalPx = 380;
+
 /// From this row width on, the name and the control share one line.
-const double settingRowOneLineMinimumWidthLogicalPx = 560;
+const double settingRowOneLineMinimumWidthLogicalPx =
+    settingNameColumnWidthLogicalPx + settingNameControlGapLogicalPx + settingControlColumnWidthLogicalPx;
 
 /// Room above each setting, so the rows read as separate settings.
 const double settingRowTopSpacingLogicalPx = 20;
@@ -183,46 +191,24 @@ class _SettingRowViewState extends State<SettingRowView> {
       detailParts.add(lockedText);
     }
 
-    final Widget nameText = Text(nodeSetting.settingName, style: textTheme.bodyMedium);
     final Widget? settingControl = _buildSettingControl(nodeSetting);
-    // Without a control, the value is written out next to the name
-    Widget? valueText;
-    if (settingControl == null) {
-      // Wraps instead of overflowing: values can be long, e.g. a file URL, and must stay readable in full.
-      valueText = Text(_formatValue(_getShownValue(nodeSetting)), style: textTheme.titleSmall, textAlign: TextAlign.end);
-    }
-    final Widget nameAndControl = LayoutBuilder(builder: (BuildContext context, BoxConstraints constraints) {
-      Widget valueOrControl = settingControl ?? Align(alignment: Alignment.centerRight, child: valueText);
-      final Widget? resetButton = _buildResetButton(nodeSetting);
-      if (resetButton != null) {
-        valueOrControl = Row(children: [Expanded(child: valueOrControl), resetButton]);
-      }
-      if (constraints.maxWidth >= settingRowOneLineMinimumWidthLogicalPx) {
-        final Widget rightAlignedNameText =
-            Text(nodeSetting.settingName, style: textTheme.bodyMedium, textAlign: TextAlign.end);
-        return Row(children: [
-          Expanded(flex: 2, child: rightAlignedNameText),
-          const SizedBox(width: 12),
-          Expanded(flex: 3, child: valueOrControl),
-        ]);
-      }
-      if (settingControl == null) {
-        return Row(children: [Expanded(child: nameText), const SizedBox(width: 12), Flexible(child: valueOrControl)]);
-      }
-      return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [nameText, settingControl]);
-    });
+    // Without a control, the value is written out next to the name. Wraps instead of overflowing: values can be
+    // long, e.g. a file URL, and must stay readable in full.
+    final String shownValueText = _formatValue(_getShownValue(nodeSetting));
+    final Widget? resetButton = _buildResetButton(nodeSetting);
 
-    final List<Widget> rowLines = [nameAndControl];
+    // Range, description, allowed values and errors: below the name and control, or only below the control
+    final List<Widget> explanationLines = [];
     if (detailParts.isNotEmpty) {
-      rowLines.add(Text(detailParts.join(' · '), style: mutedSmallTextStyle));
+      explanationLines.add(Text(detailParts.join(' · '), style: mutedSmallTextStyle));
     }
     if (nodeSetting.description.isNotEmpty) {
-      rowLines.add(Text(nodeSetting.description, style: mutedSmallTextStyle));
+      explanationLines.add(Text(nodeSetting.description, style: mutedSmallTextStyle));
     }
     // A menu read into a dropdown already shows its options.
     final bool isMenuInDropdown = widget.isEditable && _readMenuOptions(nodeSetting) != null;
     if (nodeSetting.additionalConstraints.isNotEmpty && !isMenuInDropdown) {
-      rowLines.add(
+      explanationLines.add(
         Text(
           WizardStrings.getSettingAllowedValuesText(additionalConstraints: nodeSetting.additionalConstraints),
           style: mutedSmallTextStyle,
@@ -231,12 +217,75 @@ class _SettingRowViewState extends State<SettingRowView> {
     }
     final String? changeErrorText = _textErrorText ?? widget.errorText;
     if (changeErrorText != null) {
-      rowLines.add(Text(changeErrorText, style: textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.error)));
+      explanationLines.add(
+        Text(changeErrorText, style: textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.error)),
+      );
     }
+
+    final Widget settingRow = LayoutBuilder(builder: (BuildContext context, BoxConstraints constraints) {
+      if (constraints.maxWidth >= settingRowOneLineMinimumWidthLogicalPx) {
+        return _buildOneLineSettingRow(nodeSetting, textTheme, settingControl, shownValueText, resetButton,
+            explanationLines);
+      }
+      return _buildStackedSettingRow(nodeSetting, textTheme, settingControl, shownValueText, resetButton,
+          explanationLines);
+    });
     return Padding(
       padding: const EdgeInsets.only(top: settingRowTopSpacingLogicalPx),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: rowLines),
+      child: settingRow,
     );
+  }
+
+  /// Name column and control column side by side at the left edge, the explanations only below the control.
+  Widget _buildOneLineSettingRow(NodeSetting nodeSetting, TextTheme textTheme, Widget? settingControl,
+      String shownValueText, Widget? resetButton, List<Widget> explanationLines) {
+    final Widget rightAlignedNameText =
+        Text(nodeSetting.settingName, style: textTheme.bodyMedium, textAlign: TextAlign.end);
+    Widget valueOrControl = settingControl ?? Text(shownValueText, style: textTheme.titleSmall);
+    if (resetButton != null) {
+      valueOrControl = Row(children: [Expanded(child: valueOrControl), resetButton]);
+    }
+    final Widget nameAndControl = Row(children: [
+      SizedBox(width: settingNameColumnWidthLogicalPx, child: rightAlignedNameText),
+      const SizedBox(width: settingNameControlGapLogicalPx),
+      SizedBox(width: settingControlColumnWidthLogicalPx, child: valueOrControl),
+    ]);
+    if (explanationLines.isEmpty) {
+      return nameAndControl;
+    }
+    const double explanationIndentLogicalPx = settingNameColumnWidthLogicalPx + settingNameControlGapLogicalPx;
+    final Widget explanationsBelowControl = Padding(
+      padding: const EdgeInsets.only(left: explanationIndentLogicalPx),
+      child: SizedBox(
+        width: settingControlColumnWidthLogicalPx,
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: explanationLines),
+      ),
+    );
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [nameAndControl, explanationsBelowControl]);
+  }
+
+  /// For a narrow row: the control below the name (a written-out value at the right of it), the explanations below.
+  Widget _buildStackedSettingRow(NodeSetting nodeSetting, TextTheme textTheme, Widget? settingControl,
+      String shownValueText, Widget? resetButton, List<Widget> explanationLines) {
+    final Widget nameText = Text(nodeSetting.settingName, style: textTheme.bodyMedium);
+    Widget nameAndControl;
+    if (settingControl == null) {
+      Widget rightAlignedValue = Align(
+        alignment: Alignment.centerRight,
+        child: Text(shownValueText, style: textTheme.titleSmall, textAlign: TextAlign.end),
+      );
+      if (resetButton != null) {
+        rightAlignedValue = Row(children: [Expanded(child: rightAlignedValue), resetButton]);
+      }
+      nameAndControl = Row(children: [
+        Expanded(child: nameText),
+        const SizedBox(width: settingNameControlGapLogicalPx),
+        Flexible(child: rightAlignedValue),
+      ]);
+    } else {
+      nameAndControl = Column(crossAxisAlignment: CrossAxisAlignment.start, children: [nameText, settingControl]);
+    }
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [nameAndControl, ...explanationLines]);
   }
 
   /// "Reset to default" while the shown value differs from the default; null otherwise.
