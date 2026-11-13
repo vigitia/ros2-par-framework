@@ -4939,3 +4939,25 @@ set by the profile, so it stays editable.
 already shown with the profile's projector. *Removing `display_id` from the apps*: apps started alone, outside
 `par.launch.py`, still need it (`templates/par_app/`). *Filtering when the cache is written*: the cache would no longer
 hold what the node reported, and a later change of the rule would need a re-read.
+
+## 2026-11-13: One rule for where an app's required sensor nodes run; start_projector_app
+
+**What:** `get_app_input_camera_names` moved unchanged from `par.launch.py` into `launch_helpers`, next to the new
+`get_par_app_sensor_node_camera_names(par_app_entry, camera_name_by_input, main_camera_name, sensor_node_names)`,
+which returns `{sensor node: [camera]}` for the app's `required_launch_switches`: every camera the app reads, the main
+camera for an app without inputs, switches that are no sensor node (`rviz`) left out. `par.launch.py` uses both;
+`get_camera_names_by_sensor_node` takes that mapping instead of the required switch names and the app's cameras. New
+launch argument `start_projector_app` (default `true`): `false` starts what the projector app needs (its sensor nodes
+on its bound cameras, with the input bindings checked) but not the app, and skips the projector display lookup.
+
+**Why:** The setup wizard should show an app's required sensor nodes under Sensor nodes ("needed by Object
+teaching"), derived, not written into the profile, like a sensor node's own required nodes. For that the backend
+needs the same rule `par.launch.py` applies; a copy in the backend could drift from the launch. The wizard's sensor
+node run used `projector_app:=none`, so an app's required nodes did not run there and could not be tuned; with
+`start_projector_app:=false` the run starts them without the app taking the projector.
+
+**Alternatives:** *Writing the app's nodes into the profile's `par_launch` lists when the app is chosen*: rejected
+with Vitus: two sources of truth, and entries stay behind when the app is removed or bound to another camera.
+*Passing `<node>:=true` per required node in the wizard's run*: `:=true` runs a node only on the single started camera,
+so it fails with several cameras and ignores the app's input binding. *Only skipping the app's own node with an
+argument naming it*: an app may start several processes through its launch file; skipping the whole app is simpler.

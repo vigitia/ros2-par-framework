@@ -988,6 +988,81 @@ def _check_par_app_inputs(inputs, error_start_text):
     return checked_inputs
 
 
+# Written by Claude Code
+def get_app_input_camera_names(launch_section, app_name, app_inputs, profile_camera_names,
+                               started_camera_names):
+    """
+    Return {input name: camera name} for every input of the app's entry.
+
+    par_launch.app_inputs.<app>.<input> binds an input to a camera of par_launch.cameras; an
+    input left unbound reads the only camera of the run. Raises RuntimeError naming the fix when
+    a binding is malformed, names an unknown input or camera, or a camera this run does not
+    start, and when an unbound input has several cameras to choose from.
+    """
+    example_text = f'e.g. {PAR_LAUNCH_APP_INPUTS_KEY}: {{{app_name}: {{<input>: <camera>}}}}'
+    input_camera_name_by_app = launch_section.get(PAR_LAUNCH_APP_INPUTS_KEY, {})
+    if not isinstance(input_camera_name_by_app, dict):
+        raise RuntimeError(f'[par.launch]: par_launch.{PAR_LAUNCH_APP_INPUTS_KEY} must map each '
+                           f'app to the cameras of its inputs, {example_text}')
+    bound_camera_name_by_input = input_camera_name_by_app.get(app_name, {})
+    error_start_text = f'[par.launch]: par_launch.{PAR_LAUNCH_APP_INPUTS_KEY}.{app_name}'
+    if not isinstance(bound_camera_name_by_input, dict):
+        raise RuntimeError(f'{error_start_text} must map each input to a camera, {example_text}')
+    unknown_input_names = sorted(set(bound_camera_name_by_input) - set(app_inputs))
+    if unknown_input_names:
+        raise RuntimeError(f'{error_start_text} names the inputs {unknown_input_names}, which '
+                           f'{app_name} does not have; its inputs: {list(app_inputs)}')
+
+    camera_name_by_input = {}
+    for input_name in app_inputs:
+        bound_camera_name = bound_camera_name_by_input.get(input_name)
+        if bound_camera_name is None:
+            if len(started_camera_names) != 1:
+                raise RuntimeError(f'{error_start_text}.{input_name} is not set, and this run '
+                                   f'starts the cameras {started_camera_names}: bind the input '
+                                   f'to one of them, {example_text}')
+            camera_name_by_input[input_name] = started_camera_names[0]
+            continue
+        if bound_camera_name not in profile_camera_names:
+            raise RuntimeError(f'{error_start_text}.{input_name}: {bound_camera_name!r} is no '
+                               f'camera of par_launch.cameras; known: {profile_camera_names}')
+        if bound_camera_name not in started_camera_names:
+            raise RuntimeError(f'{error_start_text}.{input_name} reads {bound_camera_name}, '
+                               f'which this run does not start (camera:='
+                               f'{started_camera_names[0]}): start it too, or pass '
+                               f'projector_app:={PROJECTOR_APP_NONE}')
+        camera_name_by_input[input_name] = bound_camera_name
+    return camera_name_by_input
+
+
+# Written by Claude Code
+def get_par_app_sensor_node_camera_names(par_app_entry, camera_name_by_input, main_camera_name,
+                                         sensor_node_names):
+    """
+    Return {sensor node: [camera name]}: where the app's required sensor nodes run for it.
+
+    They run on every camera the app reads (camera_name_by_input, from
+    get_app_input_camera_names); an app without inputs reads no camera of its own, so they run on
+    the main camera. Required launch switches that are no sensor node (rviz) are left out.
+    par.launch.py starts them this way and the setup wizard shows them, so both follow this one
+    rule.
+    """
+    # Simplification: the required sensor nodes run on every camera the app reads, also on a
+    # camera whose input does not use them (e.g. markers on a capture camera). Upgrade: the entry
+    # names the required sensor nodes per input
+    app_camera_names = []
+    for camera_name in camera_name_by_input.values():
+        if camera_name not in app_camera_names:
+            app_camera_names.append(camera_name)
+    if not app_camera_names:
+        app_camera_names = [main_camera_name]
+    camera_names_by_sensor_node = {}
+    for switch_name in par_app_entry['required_launch_switches']:
+        if switch_name in sensor_node_names:
+            camera_names_by_sensor_node[switch_name] = list(app_camera_names)
+    return camera_names_by_sensor_node
+
+
 # Co-authored by Claude Code
 def _read_ament_index_entry(resource_type, package_name, entry_kind_text, installed_names,
                             blueprint_path):
