@@ -47,6 +47,9 @@ from rclpy.parameter import Parameter
 
 NODE_KIND_SENSOR_NODE = 'sensor_node'
 NODE_KIND_APP = 'app'
+# par.launch.py sets an app's display_id from the profile's projector display, which overrides
+# the app's own settings, so the Apps area does not offer it (the projector is chosen per profile)
+APP_SETTING_NAMES_SET_BY_PROFILE = ('display_id',)
 # A sensor node is read in this camera's namespace, so the sections every camera gets
 # (/cameras/*/<node>) apply. Simplification: a profile camera of this name running at the same
 # time would clash; reads only start while this backend runs no launch
@@ -125,6 +128,9 @@ def get_node_settings(profile_name: str, node_kind: str, package_name: str,
     profile_value_by_name = read_profile_node_settings(profile_name, full_node_name)
     settings = []
     for cached_setting in cached_settings_by_node_name[read_node_name]:
+        is_app = node_kind == NODE_KIND_APP
+        if is_app and cached_setting.setting_name in APP_SETTING_NAMES_SET_BY_PROFILE:
+            continue
         shown_setting = cached_setting.model_copy()
         # The value read without a profile is what the node uses when the profile sets nothing
         shown_setting.has_default_value = True
