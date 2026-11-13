@@ -37,9 +37,13 @@ index under par_framework_apps, see templates/par_app/; the framework nodes it r
 started too), or rendering_manager, the Wayland compositor whose ROS bridge shows one app on every
 detected page. A PAR app reads the cameras its entry's inputs name: par_launch.app_inputs binds
 each input to a camera, e.g. app_inputs: {demo_app: {camera: overhead}}; an input left unbound
-reads the only camera of the run. The app's required sensor nodes run on its bound cameras;
-start_projector_app:=false starts no app, only what the projector app and every app of
-par_launch.apps need (the setup wizard's sensor node run).
+reads the only camera of the run. The app's required sensor nodes run on its bound cameras.
+A run with a PAR app starts only what the app depends on: the cameras its inputs read (for an
+app without inputs, the main camera if it requires sensor nodes) and its required sensor nodes;
+the par_launch.<sensor node> lists are not used, a <sensor node>:=true still adds one, and
+camera:=<name> still starts that camera. start_projector_app:=false starts no app, but every
+camera and what the projector app and every app of par_launch.apps need (the setup wizard's
+sensor node run).
 
 A camera taking single high-resolution frames on request (e.g. a Blackfly S in software trigger
 mode, see par_setup.yaml) is an ordinary camera of par_launch.cameras with its own settings.
@@ -325,21 +329,24 @@ def read_sensor_node_camera_names(launch_section, sensor_node_name, profile_came
 
 
 # Written by Claude Code
+# Co-authored by Claude Code: are_par_launch_lists_read, so a PAR app's run starts only its nodes
 def get_camera_names_by_sensor_node(context, launch_section, sensor_node_names,
                                     profile_camera_names, started_camera_names,
-                                    app_camera_names_by_sensor_node):
+                                    app_camera_names_by_sensor_node, are_par_launch_lists_read):
     """
     Return, per sensor node, the started cameras it runs on, in the order of the started cameras.
 
-    par_launch.<sensor node> lists them. The launch argument <sensor node>:=false turns every
-    run off for one run, :=true runs the node on the only started camera. A sensor node the
-    projector app requires also runs where app_camera_names_by_sensor_node says
-    (get_par_app_sensor_node_camera_names).
+    par_launch.<sensor node> lists them, unless are_par_launch_lists_read is False. The launch
+    argument <sensor node>:=false turns every run off for one run, :=true runs the node on the
+    only started camera. A sensor node the projector app requires also runs where
+    app_camera_names_by_sensor_node says (get_par_app_sensor_node_camera_names).
     """
     camera_names_by_sensor_node = {}
     for sensor_node_name in sensor_node_names:
         argument_value = LaunchConfiguration(sensor_node_name).perform(context)
-        if argument_value == '':
+        if argument_value == '' and not are_par_launch_lists_read:
+            listed_camera_names = []
+        elif argument_value == '':
             listed_camera_names = read_sensor_node_camera_names(launch_section, sensor_node_name,
                                                                 profile_camera_names)
         elif argument_value == 'false':
@@ -366,8 +373,8 @@ def get_camera_names_by_sensor_node(context, launch_section, sensor_node_names,
     return camera_names_by_sensor_node
 
 
-# Co-authored by Claude Code: starts every camera of the profile, the projector app and the
-# sensor processing nodes registered in the ament index
+# Co-authored by Claude Code: starts the profile's cameras, the projector app and the sensor
+# processing nodes registered in the ament index; with a PAR app only what the app depends on
 def launch_setup(context):
     params_file_paths = get_params_file_paths(context)
     launch_section = read_launch_section(context)
@@ -381,6 +388,12 @@ def launch_setup(context):
     if PAR_LAUNCH_CAMERAS_KEY in launch_section:
         for profile_camera in read_profile_cameras(context):
             profile_camera_names.append(profile_camera.camera_name)
+    # Every camera asked for, whatever the projector app needs (e.g. a preview or a calibration)
+    if LaunchConfiguration('camera_only').perform(context) == 'true':
+        camera_only_actions = []
+        for camera_to_start in cameras_to_start:
+            camera_only_actions += create_camera_actions(context, camera_to_start)
+        return camera_only_actions
 
     def read_true_false_argument(argument_name):
         """Return True or False from a true/false launch argument, None when it is left empty."""
@@ -428,11 +441,55 @@ def launch_setup(context):
             return launch_section.get(switch_name, False)
         return switch_value
 
+    # Read before the cameras start: a PAR app's run starts only the cameras the app depends on
+    started_camera_names = []
+    for camera_to_start in cameras_to_start:
+        started_camera_names.append(camera_to_start.camera_name)
+    app_input_remappings = []
+    app_camera_names_by_sensor_node = {}
+    is_app_dependency_run = False
+    if is_par_app:
+        app_inputs = par_app_entry[PAR_APP_ENTRY_INPUTS_KEY]
+        camera_name_by_input = get_app_input_camera_names(
+            launch_section, projector_app_name, app_inputs, profile_camera_names,
+            started_camera_names)
+        app_input_remappings = create_app_input_remappings(app_inputs, camera_name_by_input)
+        app_camera_names_by_sensor_node = get_par_app_sensor_node_camera_names(
+            par_app_entry, camera_name_by_input, main_camera_name, sensor_node_names)
+        # camera:=<name> asks for that camera explicitly, so it starts even when the app does
+        # not read it; start_projector_app:=false runs what every offered app needs, below
+        is_camera_chosen = context.launch_configurations.get('camera', '') != ''
+        is_app_dependency_run = is_projector_app_started and not is_camera_chosen
+
     launch_actions = []
+    if is_app_dependency_run:
+        # The cameras the app reads, and those its required sensor nodes run on (the main
+        # camera for an app without inputs)
+        app_camera_names = list(camera_name_by_input.values())
+        for camera_names in app_camera_names_by_sensor_node.values():
+            app_camera_names += camera_names
+        app_cameras_to_start = []
+        for camera_to_start in cameras_to_start:
+            if camera_to_start.camera_name in app_camera_names:
+                app_cameras_to_start.append(camera_to_start)
+        launch_actions.append(LogInfo(msg=f'[par.launch]: projector app {projector_app_name}: '
+                                          f'only its cameras and required sensor nodes start, '
+                                          f'the par_launch.<sensor node> lists are not used'))
+        skipped_camera_names = sorted(set(started_camera_names) - set(app_camera_names))
+        if skipped_camera_names:
+            launch_actions.append(LogInfo(msg=f'[par.launch]: {projector_app_name} reads none '
+                                              f'of the cameras {skipped_camera_names}: they are '
+                                              f'not started'))
+        cameras_to_start = app_cameras_to_start
+        started_camera_names = []
+        for camera_to_start in cameras_to_start:
+            started_camera_names.append(camera_to_start.camera_name)
+        # An app reading no camera keeps the profile's main camera name for RViz's remappings
+        if cameras_to_start:
+            main_camera_name = cameras_to_start[0].camera_name
+
     for camera_to_start in cameras_to_start:
         launch_actions += create_camera_actions(context, camera_to_start)
-    if LaunchConfiguration('camera_only').perform(context) == 'true':
-        return launch_actions
     if len(cameras_to_start) > 1:
         launch_actions.append(LogInfo(msg=f'[par.launch]: RViz (image and markers) and the '
                                           f'rendering manager use the main camera '
@@ -478,19 +535,6 @@ def launch_setup(context):
     # Each sensor node runs once per camera it is listed for, in the camera's namespace, where its
     # relative names resolve to that camera's streams and its outputs stay apart from another
     # camera's, e.g. /cameras/overhead/fiducials
-    started_camera_names = []
-    for camera_to_start in cameras_to_start:
-        started_camera_names.append(camera_to_start.camera_name)
-    app_input_remappings = []
-    app_camera_names_by_sensor_node = {}
-    if is_par_app:
-        app_inputs = par_app_entry[PAR_APP_ENTRY_INPUTS_KEY]
-        camera_name_by_input = get_app_input_camera_names(
-            launch_section, projector_app_name, app_inputs, profile_camera_names,
-            started_camera_names)
-        app_input_remappings = create_app_input_remappings(app_inputs, camera_name_by_input)
-        app_camera_names_by_sensor_node = get_par_app_sensor_node_camera_names(
-            par_app_entry, camera_name_by_input, main_camera_name, sensor_node_names)
     if not is_projector_app_started:
         # A run without the app (the setup wizard's Debug run) starts what every offered app
         # needs, so their sensor nodes can be tuned before one is chosen for the projector
@@ -512,7 +556,7 @@ def launch_setup(context):
                         merged_camera_names.append(camera_name)
     camera_names_by_sensor_node = get_camera_names_by_sensor_node(
         context, launch_section, sensor_node_names, profile_camera_names, started_camera_names,
-        app_camera_names_by_sensor_node)
+        app_camera_names_by_sensor_node, are_par_launch_lists_read=not is_app_dependency_run)
     # A node that reads another one's output (required_sensor_nodes, e.g. page_locator reads
     # fiducials) starts that one along with it, on the same camera
     sensor_node_names_by_camera = get_sensor_node_names_by_camera(camera_names_by_sensor_node,

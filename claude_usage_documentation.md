@@ -5018,3 +5018,56 @@ node on one camera, so the names are kept per camera.
 **Alternatives:** *Only the projector app's requirements*: matches a real run exactly, but hides the nodes of an app
 just added. *Making the only offered app the projector app automatically*: keeps the rule, but surprises with two
 offered apps and changes the Run menu's choice behind the user's back.
+
+## 2026-11-13: A PAR app's run starts only the cameras and sensor nodes it depends on
+
+**What changed:** `par.launch.py` used to start every camera of the profile and every sensor node its
+`par_launch.<sensor node>` lists name, and then add the projector app's requirements on top. Now, when the
+projector app is a PAR app and is started, the launch reads the app's entry before the cameras start and keeps
+only:
+- the cameras bound to the app's inputs (`par_launch.app_inputs`), plus the main camera when an app without
+  inputs requires sensor nodes;
+- the app's required sensor nodes (and the nodes they need) on those cameras.
+
+The `par_launch.<sensor node>` lists are not read in such a run. `get_camera_names_by_sensor_node` has a new
+parameter for this, `are_par_launch_lists_read`. Two log lines say that only the app's dependencies start and
+which profile cameras are skipped. When the app reads no camera at all, the main camera's name stays the
+profile's first camera, so RViz's remappings remain valid. `camera_only:=true` now returns before the projector
+app is read, so a preview or calibration still starts every requested camera and does not fail on an app's input
+bindings.
+
+**Why:** A profile can have several cameras, sensor nodes and apps. Starting all of them for one app costs CPU
+and USB bandwidth, and it holds cameras the app never reads.
+
+**Unchanged on purpose:** `camera:=<name>` (an explicit choice still starts that camera),
+`start_projector_app:=false` (the setup wizard's sensor node run still starts every camera and what every
+offered app needs), and runs with `projector_app` `none` or `rendering_manager`, which still follow the
+`par_launch` lists. A `<sensor node>:=true` argument still adds that node for one run.
+
+**Alternatives considered:**
+- *Keep the listed sensor nodes, limited to the app's cameras.* Rejected: an app run should start what the app
+  needs and nothing else. The lists still describe runs without a PAR app.
+- *Always start the main camera for an app without inputs.* Rejected: an app that requires no sensor node reads
+  no camera, so starting one would hold it for nothing.
+- *Move the camera rule into a `launch_helpers` function for the setup wizard.* Not done for now, because only
+  `par.launch.py` uses it. The wizard's sensor node list already follows the shared
+  `get_par_app_sensor_node_camera_names`.
+
+## 2026-11-13: The wizard explains a camera's placeholder pose in the profile
+
+**What changed.** When the setup wizard adds a camera, it writes a comment above the
+`/<camera name>_tf_publisher` section it puts into the profile. The comment says why the section
+is needed (par_setup.yaml has placeholders only for the default camera names, and a launch
+refuses a camera without a pose) and names the `camera_pose_<camera name>.yaml` that replaces it
+once the camera pose calibration has run. `write_node_settings_into_profile` takes an optional
+`added_node_section_comment` for this; every other caller keeps the plain
+"Saved by the setup wizard".
+
+**Why.** Someone reading a profile by hand saw two identical poses for cameras that hang in
+different places and could not tell that they are placeholders, nor why the profile repeats
+them when par_setup.yaml already has placeholders.
+
+**Alternatives.** A comment in par_setup.yaml next to the type placeholders: rejected, because
+the reader is looking at the profile, not at par_setup.yaml. A constant comment text without the
+camera name and file path: rejected, because naming the file that replaces the placeholder tells
+the reader exactly what to run and where the result lands.
