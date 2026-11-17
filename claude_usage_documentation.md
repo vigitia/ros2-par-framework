@@ -5169,3 +5169,34 @@ the backend's start command lived only in its module docstring.
 - *One README in `setup_wizard/` instead of filling `app/README.md`,* because running the app always needs the
   backend too, so both belong in one place.
 - *Steps not repeated in the main README,* which already points to `setup_wizard/`; a second copy would drift.
+
+## 2026-11-17: Core node list, catalog and per-installation store lists
+
+**What changed:** `config/nodes.list` now holds only the repositories every installation needs
+(`par_framework_interfaces`, `framework-calibration`, and `fiducials_detector`, which
+`projection_calibration.launch.py` starts). All other repositories moved into the new tracked
+`config/node_catalog.list`, which has the same format. What one installation adds goes into two gitignored lists:
+`config/store_installed.list` (repositories, `nodes.list` format) and `config/store_ros_packages.list` (rosdep keys).
+The camera drivers left `config/ros_packages.list` for the second one. `scripts/common.sh`'s parsers take a path.
+`read_installed_nodes_lists` combines the core and store lists: a directory in both is read once, from the core
+list, and a conflicting entry produces a warning. `write_ros_packages_manifest` merges both key lists.
+`sync_nodes.sh` reads the combined list before its loop, so a broken list stops it, and a failed clone shows git's
+own error. `par_framework_core` no longer declares `fiducials_detector`, `object_detector` and `hand_landmarks` as
+`exec_depend`. The messages that told users to add a repo to `nodes.list` now name the catalog and the store list.
+README updated.
+
+**Why:** First step of the plan "Fresh Install from the Setup Wizard": the setup wizard should start on a fresh clone
+with an empty `src/` and install only the cameras, sensor nodes and apps the user picks. This was impossible while
+`local_build.sh` cloned every known repository. The removed `exec_depend`s also stopped a build without those nodes,
+because `rosdep --ignore-src` tries to resolve a missing workspace package as a released package and fails.
+
+**Decisions:**
+- *Core list + store lists* (Vitus). This continues the earlier decision that the store records its installs in its
+  own gitignored list. Rejected: turning `nodes.list` itself into the catalog with one selection file, which
+  would replace that decision; keeping `nodes.list` as it was, which contradicts an empty `src/`.
+- *The catalog holds only where repositories are* (Vitus). What a repository offers is read from the repository
+  itself later, so its ament index entries stay the one source of truth. Rejected: names and descriptions in the
+  catalog, a second copy that drifts.
+- *Same format and parser for every list* instead of a new YAML format, so the shell scripts need no new parser.
+- *Store list entries never override the core list,* so a store install cannot move a core repository to another
+  branch.

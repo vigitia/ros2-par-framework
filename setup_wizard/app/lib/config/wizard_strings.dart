@@ -709,8 +709,8 @@ abstract final class WizardStrings {
 
   static const String noSensorNodeInProfileText = 'The profile starts no sensor node. Add one with "Add sensor node".';
   static const String noSensorNodeInstalledText =
-      'No sensor processing node is installed. Add their repos to config/nodes.list and run '
-      './scripts/local_build.sh.';
+      'No sensor processing node is installed. Add their repos from config/node_catalog.list to '
+      'config/store_installed.list and run ./scripts/local_build.sh.';
   static const String addSensorNodeButtonLabel = 'Add sensor node';
   static const String stopDebuggingTooltip = 'Stop the cameras and the sensor nodes.';
   static const String stopDebuggingButtonLabel = 'Stop debugging';
@@ -814,7 +814,8 @@ abstract final class WizardStrings {
   static const String noAppInProfileText =
       'The profile offers no app. Add one with "Add app"; the Run menu then offers it.';
   static const String noAppInstalledText =
-      'No app is installed. Add their repos to config/nodes.list and run ./scripts/local_build.sh.';
+      'No app is installed. Add their repos from config/node_catalog.list to config/store_installed.list '
+      'and run ./scripts/local_build.sh.';
   static const String addAppButtonLabel = 'Add app';
   static const String appNotInstalledText = 'Not installed (any more): disable it, or install it again.';
   static const String disableAppOfferTooltip = 'The profile no longer offers this app in the Run menu.';

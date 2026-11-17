@@ -1,0 +1,38 @@
+# Written by Claude Code
+# Node repositories that can be added to an installation of the PAR framework: cameras, sensor processing
+# nodes and apps. Same format as config/nodes.list (<directory> <git-url> [branch]); the repositories every
+# installation needs are listed there, not here.
+#
+# Only where the repositories are lives here. What a repository offers (its display names, descriptions,
+# kind and dependencies) is read from the repository itself: its ament index entries
+# (resource/par_framework_{apps,cameras,sensor_nodes}/) and its package.xml files.
+#
+# Nothing here is cloned by itself. To install a repository, add its line to the gitignored
+# config/store_installed.list (the setup wizard does that) and run ./scripts/local_build.sh. For everything
+# at once, e.g. in a development workspace: cp config/node_catalog.list config/store_installed.list
+
+# Sensors (released camera drivers are rosdep keys instead, see config/ros_packages.list):
+
+logitech_brio             git@github.com:vigitia/ros2-logitech-brio.git                     main
+see3cam_cu40              git@github.com:vigitia/ros2-see3cam-cu40.git                      main
+azure_kinect_ros_driver   git@github.com:nlouman/azure_kinect_ros_driver_extended.git       main
+
+
+# Sensor processing nodes (what is needed depends on the applications you want to use):
+
+object_detector           git@github.com:vigitia/ros2-par-framework-object-detection.git    main
+hand_landmarks            git@github.com:vigitia/ros2-par-framework-hand-landmarks.git      main
+gesture_detector          git@github.com:vigitia/ros2-par-framework-gestures.git            main
+page_locator              git@github.com:vigitia/ros2-par-framework-page-locator.git        main
+projection_mask           git@github.com:vigitia/ros2-par-framework-projection-mask.git     main
+object_teaching           git@github.com:vigitia/ros2-par-framework-object-teaching.git     main
+
+# Rendering (the rendering manager is a Wayland compositor, built with cargo; colcon builds its ROS bridge):
+
+rendering_manager         git@github.com:vigitia/ros2-par-framework-rendering-manager.git   main
+
+
+# Applications:
+
+demo_app                  git@github.com:vigitia/ros2-par-framework-demo-application.git    main
+worksheets_app            git@github.com:vigitia/ros2-par-framework-worksheets.git          main

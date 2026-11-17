@@ -1,4 +1,5 @@
-# ROS2 Nodes that make up the current ROS2 PAR Framework.
+# Co-authored by Claude Code (split into this core list and node_catalog.list)
+# ROS2 node repositories every installation of the PAR framework needs.
 # These nodes live in their own repository for better modularity and reusability.
 #
 # One node repository per line:
@@ -8,45 +9,18 @@
 # <git-url>    scripts/sync_nodes.sh will take the URL and do the work
 # [branch]     optional; "-" or omitted means the remote's default branch
 #
-# Every node listed here will be cloned and installed automatically on setup, including
-# its package.xml + requirements.txt dependencies. From then on, the node will be available for
-# you to use, but you still decide what you need depending on your launch configuration.
-# TODO: In the future a UI should help the user to select the nodes he/she needs.
+# Every node listed here is cloned and installed by scripts/local_build.sh, including its package.xml and
+# requirements.txt dependencies. Everything else (cameras, sensor processing nodes, apps) is listed in
+# config/node_catalog.list and installed only when chosen: the setup wizard records the choice in the
+# gitignored config/store_installed.list, which local_build.sh reads next to this file.
 
-# Framework Core (usually always needed):
+# Framework Core:
 
-par_framework_interfaces      git@github.com:vigitia/ros2-par-framework-interfaces.git          main
+par_framework_interfaces  git@github.com:vigitia/ros2-par-framework-interfaces.git          main
 
 
-# Calibration (everything related to intrinsic and extrinsic calibration, cameras and projectors):
+# Calibration (everything related to intrinsic and extrinsic calibration, cameras and projectors).
+# fiducials_detector finds the projected markers in projection_calibration.launch.py:
 
 framework-calibration     git@github.com:vigitia/ros2-par-framework-calibration.git         main
-
-
-# Sensors (check also ros_packages.list, especially some cameras already provide prebuilt rosdep packages):
-
-logitech_brio             git@github.com:vigitia/ros2-logitech-brio.git                     main
-see3cam_cu40              git@github.com:vigitia/ros2-see3cam-cu40.git                      main
-azure_kinect_ros_driver   git@github.com:nlouman/azure_kinect_ros_driver_extended.git       main
-# Released packages, e.g. the RealSense driver, are installed from ros_packages.list instead
-
-
-# Sensor Processing Nodes (what is needed depends on the applications you want to use):
-
-object_detector           git@github.com:vigitia/ros2-par-framework-object-detection.git    main
 fiducials_detector        git@github.com:vigitia/ros2-par-framework-fiducials.git           main
-hand_landmarks            git@github.com:vigitia/ros2-par-framework-hand-landmarks.git      main
-gesture_detector          git@github.com:vigitia/ros2-par-framework-gestures.git            main
-page_locator              git@github.com:vigitia/ros2-par-framework-page-locator.git        main
-projection_mask           git@github.com:vigitia/ros2-par-framework-projection-mask.git     main
-object_teaching           git@github.com:vigitia/ros2-par-framework-object-teaching.git     main
-
-# Rendering (the rendering manager is a Wayland compositor, built with cargo; colcon builds its ROS bridge):
-
-rendering_manager         git@github.com:vigitia/ros2-par-framework-rendering-manager.git   main
-
-
-# Applications:
-
-demo_app                  git@github.com:vigitia/ros2-par-framework-demo-application.git    main
-worksheets_app            git@github.com:vigitia/ros2-par-framework-worksheets.git          main

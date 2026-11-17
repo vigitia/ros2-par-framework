@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# Clone (or update) every repository listed in config/nodes.list into src/.
+# Clone (or update) every repository listed in config/nodes.list and config/store_installed.list into src/.
 # Each repo stays a normal git repo you can commit and push from.
-# Co-authored by Claude Code: called by scripts/local_build.sh; split into functions for readability.
+# Co-authored by Claude Code: called by scripts/local_build.sh; split into functions for readability; reads
+# the store list next to the core list and reports git's own error for a failed clone.
 #
 # A repository is never changed when that could lose work: a checkout with uncommitted changes, on another
-# branch than nodes.list names, or with local commits is reported and left as it is.
+# branch than its list names, or with local commits is reported and left as it is.
 
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 
@@ -25,10 +26,13 @@ clone_repo() {
         clone_args+=(--branch "$branch")
     fi
 
-    if ! git clone "${clone_args[@]}" "$url" "$target" 2>/dev/null; then
+    # git's own message (e.g. no access, branch not found) is kept to show it when the clone fails
+    local clone_error_text
+    if ! clone_error_text="$(git clone "${clone_args[@]}" "$url" "$target" 2>&1)"; then
         rm -rf "$target"    # remove what a half-finished clone left behind
-        warn "${dir}: clone failed"
-        hint "check the URL in config/nodes.list and that branch '${branch}' exists"
+        warn "${dir}: clone failed: ${clone_error_text}"
+        hint "check the URL in config/nodes.list or config/store_installed.list and that branch '${branch}' exists"
+        hint "for an SSH URL (git@github.com:...): ssh -T git@github.com must greet you; else add an SSH key to GitHub"
         hint "a repository with no commits yet has no branches -- push it first"
         failures+=("$dir")
         return 1
@@ -50,7 +54,7 @@ update_repo() {
     local current_branch
     current_branch="$(git -C "$target" rev-parse --abbrev-ref HEAD)"
     if [[ "$branch" != "$NO_BRANCH" && "$current_branch" != "$branch" ]]; then
-        warn "${dir} is on '${current_branch}', nodes.list says '${branch}' -- leaving it untouched"
+        warn "${dir} is on '${current_branch}', its list says '${branch}' -- leaving it untouched"
         return 1
     fi
 
@@ -87,10 +91,15 @@ step "Syncing node repositories"
 mkdir -p "$SRC_DIR"
 
 # Co-authored by Claude Code
-# read_nodes_list prints "<dir><TAB><url><TAB><branch>" per entry; IFS=$'\t' splits each line at the tabs.
-# `< <(...)` feeds that output into the loop. A pipe (read_nodes_list | while ...) would run the loop in a
-# subshell, and the failures it records would be lost when the subshell ends.
+# read_installed_nodes_lists prints "<dir><TAB><url><TAB><branch>" per entry; IFS=$'\t' splits each line at
+# the tabs. It runs first on its own, so a broken list stops the script instead of silently syncing fewer
+# repos. `<<<` feeds the entries into the loop; a pipe (... | while ...) would run the loop in a subshell,
+# and the failures it records would be lost when the subshell ends.
+node_entries="$(read_installed_nodes_lists)" || die "fix the list named above"
 while IFS=$'\t' read -r dir url branch; do
+    if [[ -z "$dir" ]]; then
+        continue    # no entries at all
+    fi
     target="${SRC_DIR}/${dir}"
 
     # An empty repository has no branch yet, so it is checked before update_repo asks for one
@@ -103,7 +112,7 @@ while IFS=$'\t' read -r dir url branch; do
     fi
 
     ok "${dir} at $(git -C "$target" rev-parse --short HEAD)"
-done < <(read_nodes_list)
+done <<< "$node_entries"
 
 if (( ${#failures[@]} > 0 )); then
     die "could not sync: ${failures[*]}"

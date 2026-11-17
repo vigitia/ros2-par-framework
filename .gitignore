@@ -1,13 +1,18 @@
 
-# Node repositories are cloned to the src/ folder and should not be commited
-/src/
-
 # Calibration files belonging to a local setup
 /packages/par-framework-core/config/calibration/
 
 # Setup profiles (profile:=<name>) belonging to local setups, added with the help of Claude Code
 /packages/par-framework-core/config/profiles/
 
+# What this installation added from config/node_catalog.list and which camera drivers it uses, written by
+# the setup wizard
+/config/store_installed.list
+/config/store_ros_packages.list
+
+
+# Node repositories are cloned to the src/ folder and should not be commited
+/src/
 # colcon output, created when the workspace is built
 /build/
 /install/

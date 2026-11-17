@@ -30,9 +30,12 @@ Install ROS2 and set the distro you picked in `scripts/common.sh` under `ROS_DIS
 TODO: In the future a proper wizard/installer will take care of this
 
 ```bash
-./scripts/local_build.sh           # clone every node, install dependencies, build
+./scripts/local_build.sh           # clone the core nodes, install dependencies, build
 ```
-`local_build.sh` is safe to re-run — that is also how you pull node updates;
+`local_build.sh` is safe to re-run — that is also how you pull node updates. It installs only what every setup needs
+(`config/nodes.list`). Cameras, sensor processing nodes and apps are chosen per installation: add their lines from
+`config/node_catalog.list` to `config/store_installed.list` (released camera drivers: their rosdep key to
+`config/store_ros_packages.list`) and re-run it. For everything: `cp config/node_catalog.list config/store_installed.list`.
 
 Source ROS, the python venv and the local ROS2 setup. Then enable Fast DDS Large Data Mode, so that large video streams don't drop packages:
 ```bash
@@ -86,8 +89,11 @@ After editing node code, re-run the `colcon build` line.
 ### Repo structure
 
 ```
-config/nodes.list           ROS2 Node repositories that make up the framework
-config/ros_packages.list    released ROS packages installed instead of cloned (e.g. camera drivers)
+config/nodes.list           ROS2 node repositories every installation needs
+config/node_catalog.list    ROS2 node repositories an installation can add (cameras, sensor nodes, apps)
+config/ros_packages.list    released ROS packages every installation needs, installed instead of cloned
+config/store_installed.list     (gitignored) repositories of node_catalog.list this installation added
+config/store_ros_packages.list  (gitignored) released packages this installation added (e.g. camera drivers)
 packages/                   this repo's own ROS packages, built together with src/
   par-framework-core/       launch files + parameters (package par_framework_core)
     launch/                 ROS2 launch files
@@ -137,8 +143,8 @@ most of these best-effort frames are lost on the way. The setting must be identi
 **every** ROS process: if only the publisher or only the subscriber has it, they don't connect at all and
 nothing arrives (measured between two nodes).
 
-**Nodes live in `src/`.** `scripts/sync_nodes.sh` clones each entry of `config/nodes.list` into
-`src/`. Each node stays a normal git repository you can edit and can commit from if desired; after changing node code,
+**Nodes live in `src/`.** `scripts/sync_nodes.sh` clones each entry of `config/nodes.list` and
+`config/store_installed.list` into `src/`. Each node stays a normal git repository you can edit and can commit from if desired; after changing node code,
 rebuild with `./scripts/local_build.sh <pkg>`.
 
 **Dependencies come from the manifests.** `local_build.sh` installs the apt dependencies of every
@@ -158,7 +164,8 @@ projector is on differ per machine and sometimes even after a restart, so they l
 
 1. Create the repository containing your new ROS2 node (if you use Python: an `ament_python` package with a `package.xml`, and a `requirements.txt` at its
    root for PyPI dependencies). The package may sit at the repo root or in a subdirectory.
-2. Add the new repository to `config/nodes.list`.
+2. Add the new repository to `config/node_catalog.list` (or to `config/nodes.list` if every installation needs it),
+   and to your `config/store_installed.list`.
 3. Re-run `./scripts/local_build.sh`, this will clone the repo to `src/`.
 
 ### Custom messages, services and actions
@@ -270,7 +277,8 @@ Then:
 
 1. `config/par_setup.yaml`: the driver's defaults under `/cameras/*/<driver node>` (colour images in BGR order) and
    a placeholder pose under `/<type>_tf_publisher`.
-2. A released driver goes into `config/ros_packages.list`, a driver from source into `config/nodes.list`.
+2. A released driver is named in the camera entry's `required_packages` (installations add its rosdep key to
+   `config/store_ros_packages.list`), a driver from source goes into `config/node_catalog.list`.
 
 The one RViz configuration, `config/rviz/par_framework.rviz`, shows the main camera and needs no change.
 

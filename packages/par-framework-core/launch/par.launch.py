@@ -175,9 +175,9 @@ def write_rviz_config_with_camera_frustums(cameras_to_start):
 def create_rendering_manager_actions(params_file_paths, projector_display_id, camera_name):
     """Create the rendering manager, fullscreen on the projector, and its ROS bridge."""
     if not has_resource('packages', RENDERING_MANAGER_BRIDGE_PACKAGE_NAME):
-        return [LogInfo(msg='[par.launch]: rendering_manager is not installed: add '
-                            'ros2-par-framework-rendering-manager to config/nodes.list and run '
-                            './scripts/local_build.sh')]
+        return [LogInfo(msg='[par.launch]: rendering_manager is not installed: add its line '
+                            'from config/node_catalog.list to config/store_installed.list and '
+                            'run ./scripts/local_build.sh')]
     binary_path = get_rendering_manager_binary_path()
     if not os.path.isfile(binary_path):
         return [LogInfo(msg=f'[par.launch]: {binary_path} is not built: run '
@@ -298,8 +298,8 @@ def create_uninstalled_switch_messages(launch_section, launch_switch_names, prof
         uninstalled_switch_messages.append(LogInfo(
             msg=f'[par.launch]: par_launch.{switch_name} lists cameras, but no installed package '
                 f'registers {switch_name} as a sensor node (ament index '
-                f'{SENSOR_NODE_RESOURCE_TYPE}): add its repo to config/nodes.list and run '
-                f'./scripts/local_build.sh'))
+                f'{SENSOR_NODE_RESOURCE_TYPE}): add its repo from config/node_catalog.list to '
+                f'config/store_installed.list and run ./scripts/local_build.sh'))
     return uninstalled_switch_messages
 
 

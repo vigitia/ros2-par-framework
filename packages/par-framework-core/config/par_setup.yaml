@@ -477,10 +477,10 @@ par_launch:
     # RViz with rviz_bridge
     rviz: false
     # Keeps projected light off hands and objects (/projector/mask); needs a depth camera, the calibration and
-    # ros2-par-framework-projection-mask in config/nodes.list
+    # projection_mask from config/node_catalog.list installed
     projection_mask: []
     # The one app that owns the projector: none, rendering_manager (Wayland compositor with its bridge, one app per
-    # detected page; needs ros2-par-framework-rendering-manager in config/nodes.list and page_locator) or the
+    # detected page; needs rendering_manager from config/node_catalog.list installed and page_locator) or the
     # package of an installed PAR app, e.g. demo_app (ros2-par-framework-demo-application). A PAR app registers in
     # the ament index (templates/par_app/), and the framework nodes it requires are switched on for it.
     projector_app: none

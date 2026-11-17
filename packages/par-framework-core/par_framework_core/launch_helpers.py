@@ -1102,7 +1102,8 @@ def _read_ament_index_entry(resource_type, package_name, entry_kind_text, instal
         installed_names_text = ', '.join(installed_names) or 'none'
         raise RuntimeError(f'[launch_helpers]: {package_name!r} is no installed '
                            f'{entry_kind_text} (installed: {installed_names_text}): add its repo '
-                           f'to config/nodes.list and run ./scripts/local_build.sh')
+                           f'from config/node_catalog.list to config/store_installed.list and '
+                           f'run ./scripts/local_build.sh')
     error_start_text = (f'[launch_helpers]: the {entry_kind_text} entry of {package_name} '
                         f'(share/ament_index/resource_index/{resource_type}/{package_name})')
     # The entry comes from another repo: every key is checked by the caller, so a typo fails at

@@ -74,8 +74,10 @@ def read_installed_camera_entry(camera_type: str) -> dict:
             required_package_names_text = ', '.join(camera_type_summary.required_package_names)
             raise HTTPException(status_code=409,
                                 detail=f'The driver of {camera_type} is not installed '
-                                       f'({required_package_names_text}): add it to '
-                                       f'config/ros_packages.list and run '
+                                       f'({required_package_names_text}): add a released '
+                                       f'driver to config/store_ros_packages.list, a driver '
+                                       f'from config/node_catalog.list to '
+                                       f'config/store_installed.list, and run '
                                        f'./scripts/local_build.sh')
         return read_camera_entry(camera_type)
     raise HTTPException(status_code=404, detail=f'No camera type {camera_type!r} is installed')

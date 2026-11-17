@@ -7,7 +7,8 @@
 #   ./scripts/local_build.sh logitech_brio   # rebuild one package
 #
 # Steps:
-#   1. clone or update the node repositories of config/nodes.list into src/ (scripts/sync_nodes.sh)
+#   1. clone or update the node repositories of config/nodes.list and config/store_installed.list into src/
+#      (scripts/sync_nodes.sh)
 #   2. install their apt dependencies with rosdep
 #   3. install their PyPI dependencies and the setup wizard backend's into .venv
 #   4. build the workspace with colcon
@@ -39,7 +40,8 @@ fi
 
 # 2. apt dependencies
 step "Installing apt dependencies (rosdep)"
-# The released packages of config/ros_packages.list, as a package.xml rosdep can read. It goes into a
+# The released packages of config/ros_packages.list and config/store_ros_packages.list, as a package.xml
+# rosdep can read. It goes into a
 # temporary directory outside the workspace, so colcon never builds it; `trap ... EXIT` deletes the
 # directory when the script ends, also after an error.
 ros_packages_dir="$(mktemp -d)"
