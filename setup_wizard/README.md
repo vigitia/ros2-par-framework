@@ -2,11 +2,14 @@
 
 # ROS2 PAR-Framework - Setup wizard
 
+
+
 ![Wizard.png](assets/Wizard.png)
 
-Creates, edits and calibrates profiles and launches PAR apps. Two parts:
+With the Wizard, you can create, edit and calibrate profiles and launch apps of the framework. 
 
-- `app/`: Flutter desktop app, the user interface.
+Two parts:
+- `app/`: Flutter desktop/web app. the user interface.
 - `backend/`: FastAPI backend that does everything touching the PAR machine (profiles, cameras, displays,
   launches). The app talks to it at `http://127.0.0.1:8800`, so the backend must run before the app is useful.
 
@@ -62,3 +65,9 @@ By hand:
 
 `flutter run -d linux` in `setup_wizard/app` builds a debug version and starts it, with hot reload (`r` in the
 terminal) and hot restart (`R`). The backend has to run as in step 1.
+
+
+---
+
+App-icon generated with Claude Code:
+![app_icon.svg](app/assets/app_icon.svg)
