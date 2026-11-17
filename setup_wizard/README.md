@@ -1,6 +1,8 @@
-<!-- Written by Claude Code -->
+<!-- Partly written by Claude Code -->
 
-# Setup wizard
+# ROS2 PAR-Framework - Setup wizard
+
+![Wizard.png](assets/Wizard.png)
 
 Creates, edits and calibrates profiles and launches PAR apps. Two parts:
 
