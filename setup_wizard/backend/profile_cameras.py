@@ -179,14 +179,11 @@ def remove_camera_from_profile(profile_name: str, camera_name: str) -> str:
     Remove a camera from the profile; return where its files went, '' when it had none.
 
     Its calibrations and node sections (/cameras/<camera name>/...) move to
-    config/profiles/.deleted/, so a new camera of the same name starts with the defaults. 409 for
-    the profile's only camera.
+    config/profiles/.deleted/, so a new camera of the same name starts with the defaults. The
+    last camera can go too: the profile then names no camera and cannot run until one is added.
     """
     profile_cameras = read_profile_cameras_or_raise(profile_name)
     removed_camera = find_profile_camera(profile_cameras, camera_name)
-    if len(profile_cameras) == 1:
-        raise HTTPException(status_code=409,
-                            detail='A profile needs at least one camera: add another one first')
     deleted_folder_path = _move_camera_files_out_of_use(profile_name, removed_camera)
     remaining_cameras = []
     for profile_camera in profile_cameras:

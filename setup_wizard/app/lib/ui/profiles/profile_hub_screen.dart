@@ -2,15 +2,15 @@
 //
 // The setup wizard's home: the hardware setup (profile) used last time, opened right away (the first profile when that
 // one no longer exists); the app bar reads "Profile: <name>". A bar below it leads to the overview (the setup
-// drawing and the missing calibration steps), the projector's display, the profile's cameras with their calibrations,
-// the profile's sensor processing nodes and the profile's apps; the Run button sits in the bottom right
-// corner of the Overview. The profile menu (hamburger icon, top right of the app bar) switches profiles, starts
-// the new-profile wizard, copies and deletes a profile; the hub remembers the choice for the next start. Without any profile
-// the Overview shows only a hint, Projectors and the Run button are disabled. Each area lives in its own
-// file and gets only the backend client and the profile name, so the areas can be built independently; switching
-// profiles builds them afresh. Without a profile, Cameras, Sensor nodes and Apps list what is installed and what can
-// be installed (OfferCatalogView), so a fresh installation gets its parts before the first profile. The Overview's requests to open a camera section or the Projectors area pass through
-// the hub.
+// drawing and what is still to do), the projector's display, the profile's cameras with their calibrations, the
+// profile's sensor processing nodes and the profile's apps; the Run button sits in the bottom right corner of the
+// Overview. The profile menu (hamburger icon, top right of the app bar) switches profiles, creates a profile (only its
+// name is asked, then its Overview shows what to do next), copies and deletes one; the hub remembers the choice for
+// the next start. Without any profile the Overview shows only a hint, Projectors and the Run button are disabled.
+// Each area lives in its own file and gets only the backend client and the profile name, so the areas can be built
+// independently; switching profiles builds them afresh. Without a profile, Cameras, Sensor nodes and Apps list what
+// is installed and what can be installed (OfferCatalogView), so a fresh installation gets its parts before the first
+// profile. The Overview's requests to open an area (a camera section, Projectors, Apps) pass through the hub.
 
 import 'package:flutter/material.dart';
 
@@ -21,9 +21,7 @@ import '../core/ui/top_aligned_page_content.dart';
 import '../../data/services/setup_wizard_backend_client.dart';
 import '../apps/apps_screen.dart';
 import '../cameras/cameras_screen.dart';
-import '../new_profile/new_profile_hardware_step.dart';
-import '../new_profile/new_profile_wizard_screen.dart';
-import 'copy_profile_dialog.dart';
+import 'profile_name_dialog.dart';
 import 'profile_overview_screen.dart';
 import '../../data/services/install_api.dart';
 import '../install/offer_catalog_view.dart';
@@ -63,6 +61,9 @@ class _ProfileHubScreenState extends State<ProfileHubScreen> {
 
   /// The camera section the Cameras area opens with, after the Overview asked for it; null otherwise.
   CameraSectionRequest? _requestedCameraSection;
+
+  /// True when the Cameras area opens with its Add camera dialog, after the Overview asked for it.
+  bool _isAddCameraDialogRequested = false;
 
   /// Raised when the Run menu stored another app, so the shown area reads the profile again.
   int _storedAppChangeCount = 0;
@@ -123,6 +124,7 @@ class _ProfileHubScreenState extends State<ProfileHubScreen> {
     setState(() {
       _shownProfileName = profileName;
       _requestedCameraSection = null;
+      _isAddCameraDialogRequested = false;
     });
     try {
       await widget.backendClient.setLastSelectedProfile(profileName);
@@ -133,18 +135,38 @@ class _ProfileHubScreenState extends State<ProfileHubScreen> {
     }
   }
 
-  /// Opens the wizard; a profile it created becomes the shown one, also for the next start.
-  Future<void> _openNewProfileWizard() async {
-    final String? createdProfileName = await Navigator.of(context).push<String>(
-      MaterialPageRoute<String>(
-        builder: (BuildContext context) => NewProfileWizardScreen(backendClient: widget.backendClient),
+  /// Asks for the new profile's name, creates it without cameras and shows its Overview, which lists what is still
+  /// to do; the profile is also the one shown at the next start.
+  Future<void> _askNameAndCreateProfile() async {
+    final String? newProfileDisplayName = await showDialog<String>(
+      context: context,
+      builder: (BuildContext dialogContext) => ProfileNameDialog(
+        dialogTitle: WizardStrings.newProfileDialogTitle,
+        explanationText: WizardStrings.newProfileDialogText,
+        confirmButtonLabel: WizardStrings.createButtonLabel,
+        existingProfileNames: _profileNames,
       ),
     );
-    if (!mounted || createdProfileName == null) {
+    if (newProfileDisplayName == null || !mounted) {
       return;
     }
-    await _selectProfile(createdProfileName);
-    _showMessage(WizardStrings.getProfileCreatedText(createdProfileName: createdProfileName));
+    final String newProfileName = createInternalProfileName(newProfileDisplayName);
+    try {
+      await widget.backendClient.createProfile(
+        profileName: newProfileName,
+        profileDisplayName: newProfileDisplayName,
+      );
+    } catch (error) {
+      _showMessage(
+        WizardStrings.getCreateProfileErrorText(createProfileErrorText: describeBackendErrorForUser(error)),
+      );
+      return;
+    }
+    setState(() {
+      _selectedAreaIndex = overviewAreaIndex;
+    });
+    await _selectProfile(newProfileName);
+    _showMessage(WizardStrings.getProfileCreatedText(createdProfileName: newProfileName));
     await _loadProfileList();
   }
 
@@ -152,9 +174,14 @@ class _ProfileHubScreenState extends State<ProfileHubScreen> {
   Future<void> _askNameAndCopyProfile(String sourceProfileName) async {
     final String? newProfileDisplayName = await showDialog<String>(
       context: context,
-      builder: (BuildContext dialogContext) => CopyProfileDialog(
-        sourceProfileName: sourceProfileName,
+      builder: (BuildContext dialogContext) => ProfileNameDialog(
+        dialogTitle: WizardStrings.getCopyProfileDialogTitle(sourceProfileName: sourceProfileName),
+        explanationText: WizardStrings.copyProfileDialogText,
+        confirmButtonLabel: WizardStrings.copyButtonLabel,
         existingProfileNames: _profileNames,
+        initialProfileDisplayName: WizardStrings.getCopiedProfileDefaultDisplayName(
+          sourceProfileName: sourceProfileName,
+        ),
       ),
     );
     if (newProfileDisplayName == null || !mounted) {
@@ -233,6 +260,15 @@ class _ProfileHubScreenState extends State<ProfileHubScreen> {
   void _openCameraSection(CameraSectionRequest cameraSectionRequest) {
     setState(() {
       _requestedCameraSection = cameraSectionRequest;
+      _isAddCameraDialogRequested = false;
+      _selectedAreaIndex = camerasAreaIndex;
+    });
+  }
+
+  void _openCamerasAreaToAddCamera() {
+    setState(() {
+      _requestedCameraSection = null;
+      _isAddCameraDialogRequested = true;
       _selectedAreaIndex = camerasAreaIndex;
     });
   }
@@ -243,12 +279,18 @@ class _ProfileHubScreenState extends State<ProfileHubScreen> {
     });
   }
 
+  void _openAppsArea() {
+    setState(() {
+      _selectedAreaIndex = appsAreaIndex;
+    });
+  }
+
   Widget _buildProfileSelector() {
     return ProfileSelectorView(
       profileNames: _profileNames,
       shownProfileName: _shownProfileName,
       onProfileSelected: _selectProfile,
-      onNewProfileClicked: _openNewProfileWizard,
+      onNewProfileClicked: _askNameAndCreateProfile,
       onCopyProfileClicked: _askNameAndCopyProfile,
       onDeleteProfileClicked: _confirmAndDeleteProfile,
     );
@@ -299,6 +341,7 @@ class _ProfileHubScreenState extends State<ProfileHubScreen> {
           backendClient: widget.backendClient,
           profileName: shownProfileName,
           requestedCameraSection: _requestedCameraSection,
+          isAddCameraDialogRequested: _isAddCameraDialogRequested,
         );
       case sensorNodesAreaIndex:
         return SensorNodesScreen(key: areaKey, backendClient: widget.backendClient, profileName: shownProfileName);
@@ -311,6 +354,8 @@ class _ProfileHubScreenState extends State<ProfileHubScreen> {
           profileName: shownProfileName,
           onCameraSectionRequested: _openCameraSection,
           onProjectorClicked: _openProjectorsArea,
+          onAddCameraRequested: _openCamerasAreaToAddCamera,
+          onAppsAreaRequested: _openAppsArea,
         );
     }
   }
@@ -330,6 +375,7 @@ class _ProfileHubScreenState extends State<ProfileHubScreen> {
             _selectedAreaIndex = areaIndex;
             // Chosen in the bar: the areas open as usual
             _requestedCameraSection = null;
+            _isAddCameraDialogRequested = false;
           });
         },
         destinations: [

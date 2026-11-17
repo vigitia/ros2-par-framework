@@ -3,11 +3,10 @@
 Profiles API of the setup wizard backend: the hardware setups (config/profiles/<name>.yaml).
 
 Lists them with their cameras and apps and each camera's calibration state (profile_summary.py),
-remembers the one selected last time, creates a new profile from the new-profile wizard, copies a
-profile with its calibrations, stores the profile's projector and moves a deleted profile out of
-use. A profile's cameras are added and
-removed through cameras_api.py, its apps through apps_api.py; all of them read and write the
-profile files through profile_files.py.
+remembers the one selected last time, creates a new profile without cameras and projector,
+copies a profile with its calibrations, stores the profile's projector and moves a deleted
+profile out of use. A profile's cameras are added and removed through cameras_api.py, its apps
+through apps_api.py; all of them read and write the profile files through profile_files.py.
 """
 
 import datetime
@@ -15,19 +14,16 @@ import os
 import shutil
 
 from backend_shared_helpers import read_connected_displays_or_raise
-from camera_launch_session import take_new_profile_setting_values
 from fastapi import APIRouter, HTTPException
 from par_framework_core.connected_displays import (ConnectedDisplay, get_projector_display_mode,
                                                    get_projector_identity)
-from par_framework_core.launch_helpers import (CAMERAS_NAMESPACE, FILE_NAME_PART_PATTERN,
+from par_framework_core.launch_helpers import (FILE_NAME_PART_PATTERN,
                                                FOLDER_PATH_CAMERA_INTRINSICS,
                                                FOLDER_PATH_EXTRINSICS, FOLDER_PATH_PROFILES,
                                                get_path_in_config_folder, get_profile_file_path,
-                                               PAR_LAUNCH_CAMERAS_KEY, ProfileCamera)
-from profile_cameras import (check_new_camera, create_camera_unit_text, NewCameraRequest,
-                             write_camera_placeholder_pose)
+                                               PAR_LAUNCH_CAMERAS_KEY)
 from profile_files import (check_profile_exists, DELETED_PROFILES_FOLDER_NAME,
-                           DeletedProfileResponse, NodeSettingsWriteResult, PAR_LAUNCH_NODE_NAME,
+                           DeletedProfileResponse, PAR_LAUNCH_NODE_NAME,
                            read_profile_names, ROS_PARAMETERS_KEY,
                            write_node_settings_into_profile)
 from profile_summary import (ProfileSummary, read_connected_displays_for_summary,
@@ -61,10 +57,6 @@ class NewProfileRequest(BaseModel):
     profile_name: str
     # As the user typed it, kept as a comment at the top of the file
     profile_display_name: str
-    # The profile's cameras from the Hardware step, in their order (the first is the main camera)
-    cameras: list[NewCameraRequest]
-    # SDL/pygame display index of the projector; None when the profile has no projector yet
-    projector_display_id: int | None
 
 
 class ProjectorDisplayChoiceRequest(BaseModel):
@@ -77,12 +69,6 @@ class ProfileCopyRequest(BaseModel):
     new_profile_name: str
     # As the user typed it, kept as a comment at the top of the copy
     new_profile_display_name: str
-
-
-class NewProfileResponse(BaseModel):
-    profile_name: str
-    # The setting changes of the wizard written into the new profile, by node section
-    written_setting_names_by_node_name: dict[str, list[str]]
 
 
 @profiles_router.get('/api/profiles')
@@ -120,46 +106,15 @@ def set_last_selected_profile(request: LastSelectedProfileRequest) -> None:
 
 
 @profiles_router.post('/api/profiles')
-def create_profile(request: NewProfileRequest) -> NewProfileResponse:
-    """Create config/profiles/<name>.yaml: cameras, projector and the wizard's setting changes."""
-    new_cameras = _check_new_profile_cameras(request)
-    # Checked before the file exists, so a display that went away leaves no half-made profile
-    projector_display = None
-    if request.projector_display_id is not None:
-        projector_display = _find_connected_display(request.projector_display_id)
+def create_profile(request: NewProfileRequest) -> None:
+    """
+    Create config/profiles/<name>.yaml without cameras and projector.
 
-    _create_profile_file(request, new_cameras)
-    for new_camera in new_cameras:
-        write_camera_placeholder_pose(request.profile_name, new_camera)
-    write_results = _write_new_profile_setting_changes(request.profile_name, new_cameras)
-    if projector_display is not None:
-        _write_projector_display_into_profile(request.profile_name, projector_display)
-    written_setting_names_by_node_name = {}
-    for write_result in write_results:
-        node_setting_names = written_setting_names_by_node_name.setdefault(
-            write_result.node_section_name, [])
-        node_setting_names += write_result.written_setting_names
-    return NewProfileResponse(
-        profile_name=request.profile_name,
-        written_setting_names_by_node_name=written_setting_names_by_node_name)
-
-
-def _check_new_profile_cameras(request: NewProfileRequest) -> list[ProfileCamera]:
-    """Return the new profile's cameras, checked with its name; HTTP 4xx when it cannot be made."""
+    The user adds them afterwards in the Cameras and Projectors areas; the profile names an empty
+    camera list, so par_setup.yaml's default camera is not taken over unnoticed (a launch refuses
+    the profile until it has a camera).
+    """
     _check_new_profile_name(request.profile_name)
-    if not request.cameras:
-        # Without a camera the launch would silently take par_setup.yaml's camera
-        raise HTTPException(status_code=422,
-                            detail='Add a camera to the profile first (Hardware step)')
-    new_cameras = []
-    for camera_request in request.cameras:
-        new_cameras.append(check_new_camera(new_cameras, camera_request.camera_name,
-                                            camera_request.camera_type, camera_request.serial))
-    return new_cameras
-
-
-def _create_profile_file(request: NewProfileRequest, new_cameras: list[ProfileCamera]) -> None:
-    """Write the new profile file with its cameras; 409 when a profile of the name exists."""
     profile_path = get_profile_file_path(request.profile_name)
     creation_date_text = datetime.date.today().isoformat()
     profile_lines = [
@@ -167,11 +122,8 @@ def _create_profile_file(request: NewProfileRequest, new_cameras: list[ProfileCa
         f'# Created by the setup wizard on {creation_date_text}.',
         'par_launch:',
         f'  {ROS_PARAMETERS_KEY}:',
-        f'    {PAR_LAUNCH_CAMERAS_KEY}:',
+        f'    {PAR_LAUNCH_CAMERAS_KEY}: {{}}',
     ]
-    for new_camera in new_cameras:
-        profile_lines.append(
-            f"      {new_camera.camera_name}: '{create_camera_unit_text(new_camera)}'")
     try:
         # 'x' creates the file only if it does not exist, so an existing profile is never
         # overwritten, even by two requests at once
@@ -180,25 +132,6 @@ def _create_profile_file(request: NewProfileRequest, new_cameras: list[ProfileCa
     except FileExistsError:
         raise HTTPException(status_code=409,
                             detail=f'A profile named {request.profile_name!r} exists already')
-
-
-def _write_new_profile_setting_changes(profile_name: str, new_cameras: list[ProfileCamera]
-                                       ) -> list[NodeSettingsWriteResult]:
-    """Write the settings changed in the units' previews into the new profile, per camera."""
-    write_results = []
-    setting_values_by_unit = take_new_profile_setting_values()
-    for new_camera in new_cameras:
-        unit_key = (new_camera.camera_type, new_camera.serial)
-        # The unit's preview ran without a profile, so its camera was named after its type
-        preview_namespace = f'{CAMERAS_NAMESPACE}/{new_camera.camera_type}/'
-        camera_namespace = f'{CAMERAS_NAMESPACE}/{new_camera.camera_name}/'
-        for node_name, setting_value_by_name in setting_values_by_unit.get(unit_key, {}).items():
-            # Saved for this camera alone, under its name
-            if node_name.startswith(preview_namespace):
-                node_name = camera_namespace + node_name.removeprefix(preview_namespace)
-            write_results.append(write_node_settings_into_profile(
-                profile_name, node_name, setting_value_by_name))
-    return write_results
 
 
 @profiles_router.put('/api/profiles/{profile_name}/projector-display')

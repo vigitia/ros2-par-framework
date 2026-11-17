@@ -3,8 +3,9 @@
 Camera preview API of the setup wizard backend: starts one camera, serves its feeds and settings.
 
 The camera runs as the backend's camera launch (camera_launch_session.py), started here as
-`ros2 launch par_framework_core par.launch.py camera:=<camera> camera_only:=true`. Everything else
-is generic, so any driver that follows the ROS 2 conventions works without code here:
+`ros2 launch par_framework_core par.launch.py camera:=<camera> profile:=<name> camera_only:=true`.
+Everything else is generic, so any driver that follows the ROS 2 conventions works without code
+here:
 - The driver node is the node that publishes the camera's image_raw.
 - Its feeds are all sensor_msgs/Image topics that node publishes (e.g. colour, depth and infrared
   of a depth camera). The backend's ROS node subscribes to a feed once the app asks for it and
@@ -16,7 +17,7 @@ The router's lifespan starts and stops the backend's ROS node and the camera lau
 
 from backend_ros_node import CAMERA_IMAGE_STREAM_NAME
 from camera_launch_session import (check_camera_process_runs, create_profile_preview_camera,
-                                   create_unit_preview_camera, find_own_camera_driver_node_name,
+                                   find_own_camera_driver_node_name,
                                    get_camera_launch_session, get_driver_parameter_client,
                                    get_preview_topic_name, run_ros_for_camera_launches,
                                    start_camera_launch, stop_camera_launch)
@@ -45,7 +46,7 @@ camera_preview_router = APIRouter(lifespan=run_ros_for_camera_launches)
 class CameraSettingsResponse(BaseModel):
     camera_name: str
     settings: list[NodeSetting]
-    # Where changes can be saved; None while the camera runs without a saved profile
+    # The profile the camera runs with, where changes are saved; None when it stopped meanwhile
     profile_name: str | None
     unsaved_setting_names: list[str]
 
@@ -72,15 +73,10 @@ class CameraFeedsResponse(BaseModel):
 
 
 class CameraPreviewStartRequest(BaseModel):
-    # Starts the camera with this saved profile's settings; None uses par_setup.yaml's, e.g. for a
-    # profile that is not saved yet.
-    profile_name: str | None = None
-    # A camera of the profile, by its name in par_launch.cameras; needs profile_name
-    camera_name: str = ''
-    # Instead of camera_name: a unit no profile names yet, of an installed camera type, and its
-    # serial ('' opens the unit the driver finds first)
-    camera_type: str = ''
-    serial: str = ''
+    # The saved profile whose settings the camera starts with
+    profile_name: str
+    # A camera of the profile, by its name in par_launch.cameras
+    camera_name: str
 
 
 class CameraPreviewStartResponse(BaseModel):
@@ -100,14 +96,7 @@ def start_camera_preview(request: CameraPreviewStartRequest) -> CameraPreviewSta
 
     The same camera's preview launch, still running, is kept and gets a new preview id.
     """
-    if request.camera_name:
-        if request.profile_name is None:
-            raise HTTPException(status_code=422,
-                                detail='camera_name names a camera of a profile: send '
-                                       'profile_name too, or camera_type for a unit')
-        preview_camera = create_profile_preview_camera(request.profile_name, request.camera_name)
-    else:
-        preview_camera = create_unit_preview_camera(request.camera_type, request.serial)
+    preview_camera = create_profile_preview_camera(request.profile_name, request.camera_name)
     # The camera's sections (image, lens, pose) each show a preview: switching between them keeps
     # the running camera instead of restarting it
     preview_id = start_camera_launch(preview_camera, request.profile_name,
@@ -248,10 +237,6 @@ def save_camera_preview_settings_to_profile() -> CameraSettingsSaveResponse:
         preview_id = session.running_preview_id
         driver_node_name = session.unsaved_settings_node_name
         setting_value_by_name = dict(session.unsaved_setting_value_by_name)
-    if profile_name is None:
-        raise HTTPException(status_code=409,
-                            detail='The camera runs without a saved profile; the new-profile '
-                                   'wizard saves its changes when the profile is created')
     if not setting_value_by_name:
         return CameraSettingsSaveResponse(profile_name=profile_name, node_section_name='',
                                           written_setting_names=[], removed_setting_names=[])
@@ -268,16 +253,6 @@ def save_camera_preview_settings_to_profile() -> CameraSettingsSaveResponse:
                                       node_section_name=write_result.node_section_name,
                                       written_setting_names=write_result.written_setting_names,
                                       removed_setting_names=write_result.removed_setting_names)
-
-
-@camera_preview_router.delete('/api/camera-preview/new-profile-settings')
-def discard_new_profile_settings() -> None:
-    """Forget setting changes kept for a new profile, e.g. when the new-profile wizard starts."""
-    session = get_camera_launch_session()
-    with session.session_lock:
-        session.new_profile_setting_values_by_unit = {}
-        if session.profile_name is None:
-            session.unsaved_setting_value_by_name = {}
 
 
 def _convert_image_message_to_preview_frame(image_message):

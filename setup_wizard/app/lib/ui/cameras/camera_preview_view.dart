@@ -166,7 +166,7 @@ class _CameraPreviewViewState extends State<CameraPreviewView> {
         children: [
           Text(
             WizardStrings.getCameraPreviewErrorText(
-              runningCameraName: widget.previewCamera.runningCameraName,
+              cameraName: widget.previewCamera.cameraName,
               previewErrorText: previewErrorText,
             ),
             style: TextStyle(color: Theme.of(context).colorScheme.error),
@@ -180,7 +180,7 @@ class _CameraPreviewViewState extends State<CameraPreviewView> {
     final List<String>? feedTopicNames = _feedTopicNames;
     if (feedTopicNames == null) {
       return _buildWaitingRow(
-        WizardStrings.getCameraPreviewStartingText(runningCameraName: widget.previewCamera.runningCameraName),
+        WizardStrings.getCameraPreviewStartingText(cameraName: widget.previewCamera.cameraName),
       );
     }
     return LayoutBuilder(builder: (BuildContext context, BoxConstraints constraints) {

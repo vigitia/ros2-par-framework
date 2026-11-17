@@ -619,7 +619,7 @@ class _SensorNodesScreenState extends State<SensorNodesScreen> {
             key: ValueKey<String>('camera_${cameraName}_$_runStartCount'),
             backendClient: widget.backendClient,
             // The run starts every camera of the profile; this one is the node's run shown in the tab
-            feedTopicName: PreviewCameraChoice.profileCamera(
+            feedTopicName: PreviewCameraChoice(
               profileName: widget.profileName,
               cameraName: cameraName,
             ).imageTopicName,

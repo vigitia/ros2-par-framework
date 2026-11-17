@@ -63,7 +63,7 @@ class _FocusAssistViewState extends State<FocusAssistView> {
   @override
   void didUpdateWidget(FocusAssistView oldWidget) {
     super.didUpdateWidget(oldWidget);
-    final bool isOtherCamera = oldWidget.previewCamera.runningCameraName != widget.previewCamera.runningCameraName ||
+    final bool isOtherCamera = oldWidget.previewCamera.cameraName != widget.previewCamera.cameraName ||
         oldWidget.previewCamera.profileName != widget.previewCamera.profileName;
     if (isOtherCamera) {
       widget.measuredAreaNotifier?.value = null;

@@ -18,15 +18,19 @@ from par_framework_core.connected_displays import (
 from par_framework_core.launch_helpers import (CAMERA_ENTRY_INTRINSICS_KEY,
                                                CAMERA_INTRINSICS_SOURCE_FACTORY,
                                                CAMERA_INTRINSICS_SOURCE_NONE,
+                                               get_extrinsics_relative_path,
                                                get_invalid_pose_keys,
+                                               get_path_in_config_folder,
                                                get_unit_intrinsics_file_path, ProfileCamera,
                                                PROJECTOR_APP_NONE, read_camera_entry,
-                                               read_launch_section, read_profile_cameras,
+                                               read_launch_section,
                                                read_projector_identity,
                                                read_published_camera_pose,
                                                read_stored_projector_display_id)
 from profile_files import (create_profile_launch_context, PROFILE_READ_ERROR_TYPES,
-                           read_camera_name_by_input_by_app, read_enabled_app_names)
+                           read_camera_name_by_input_by_app, read_enabled_app_names,
+                           read_profile_cameras_allowing_none,
+                           read_profile_own_launch_parameters)
 from pydantic import BaseModel
 
 # Calibration states as the app receives them.
@@ -66,6 +70,8 @@ class CameraCalibrationSummary(BaseModel):
     intrinsics_state: str
     # One of the POSE_STATE_* values.
     pose_state: str
+    # Whether the projector is calibrated against this camera (its projection mapping file exists)
+    has_projection_mapping: bool = False
 
 
 class ProfileSummary(BaseModel):
@@ -119,9 +125,9 @@ def read_profile_summary(profile_name: str, connected_displays: list[ConnectedDi
         launch_section = read_launch_section(profile_launch_context)
         enabled_app_names = read_enabled_app_names(launch_section)
         projector_display_summary = _create_projector_display_summary(
-            launch_section, connected_displays, displays_error_text)
+            profile_name, launch_section, connected_displays, displays_error_text)
         cameras = []
-        profile_cameras = read_profile_cameras(profile_launch_context)
+        profile_cameras = read_profile_cameras_allowing_none(profile_name)
         for camera_index, profile_camera in enumerate(profile_cameras):
             cameras.append(_create_camera_summary(profile_launch_context, profile_camera,
                                                   camera_index == 0))
@@ -141,11 +147,13 @@ def read_profile_summary(profile_name: str, connected_displays: list[ConnectedDi
                           **projector_display_summary)
 
 
-def _create_projector_display_summary(launch_section: dict,
+def _create_projector_display_summary(profile_name: str, launch_section: dict,
                                       connected_displays: list[ConnectedDisplay],
                                       displays_error_text: str | None) -> dict:
     """Return the ProfileSummary fields about the projector, checked like a launch finds it."""
-    stored_projector_display_id = read_stored_projector_display_id(launch_section)
+    # The profile's own choice: par_setup.yaml's default display is no projector chosen for it
+    stored_projector_display_id = read_stored_projector_display_id(
+        read_profile_own_launch_parameters(profile_name))
     projector_identity = read_projector_identity(launch_section)
     stored_display_title_text = ''
     for connected_display in connected_displays:
@@ -233,7 +241,9 @@ def _create_camera_summary(profile_launch_context: LaunchContext, profile_camera
         serial=profile_camera.serial,
         is_main_camera=is_main_camera,
         intrinsics_state=_read_camera_intrinsics_state(profile_launch_context, profile_camera),
-        pose_state=_read_camera_pose_state(profile_launch_context, profile_camera.camera_name))
+        pose_state=_read_camera_pose_state(profile_launch_context, profile_camera.camera_name),
+        has_projection_mapping=_has_projection_mapping(profile_launch_context,
+                                                       profile_camera.camera_name))
 
 
 def _read_camera_intrinsics_state(profile_launch_context: LaunchContext,
@@ -252,6 +262,15 @@ def _read_camera_intrinsics_state(profile_launch_context: LaunchContext,
     if os.path.exists(intrinsics_path):
         return INTRINSICS_STATE_CALIBRATED
     return INTRINSICS_STATE_MISSING
+
+
+def _has_projection_mapping(profile_launch_context: LaunchContext, camera_name: str) -> bool:
+    """Return whether the profile has a projection mapping for the named camera."""
+    # Simplification: only checks that the file exists, as for the intrinsics. The same file
+    # setup_geometry_api reads for the drawing
+    mapping_path = get_path_in_config_folder(get_extrinsics_relative_path(
+        profile_launch_context, 'projection_mapping', camera_name))
+    return os.path.exists(mapping_path)
 
 
 def _read_camera_pose_state(profile_launch_context: LaunchContext, camera_name: str) -> str:

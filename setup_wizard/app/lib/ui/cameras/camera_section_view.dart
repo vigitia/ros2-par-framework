@@ -3,7 +3,8 @@
 // One section of a camera in a saved profile: its images and settings, its lens calibration, its camera pose or the
 // projector calibration against it. Holds the rule which of them run under a black projector: the lens calibration
 // and the camera pose, so projector light does not disturb the board; the projector calibration needs the light, and
-// the camera image may be tuned under it. Used by the profile's Cameras area and the new-profile wizard's pages.
+// the camera image may be tuned under it. The projector calibration needs the profile's projector, so without one it
+// only says to choose it first. Used by the profile's Cameras area.
 
 import 'package:flutter/material.dart';
 
@@ -41,7 +42,8 @@ class CameraSectionView extends StatelessWidget {
   final String cameraName;
   final CameraSection cameraSection;
 
-  /// The projector's display, kept black during the lens calibration and the camera pose; null when none is known.
+  /// The projector's display, kept black during the lens calibration and the camera pose and projected onto for the
+  /// projector calibration; null when none is known.
   final int? projectorDisplayId;
 
   @override
@@ -59,7 +61,7 @@ class CameraSectionView extends StatelessWidget {
   }
 
   PreviewCameraChoice _createPreviewCamera() {
-    return PreviewCameraChoice.profileCamera(profileName: profileName, cameraName: cameraName);
+    return PreviewCameraChoice(profileName: profileName, cameraName: cameraName);
   }
 
   Widget _buildSectionContent() {
@@ -71,7 +73,7 @@ class CameraSectionView extends StatelessWidget {
         );
       case CameraSection.lensCalibration:
         return _LensCalibrationSection(
-          // It reads the camera's state once, so another camera (the next wizard page) needs a new one
+          // It reads the camera's state once, so another camera needs a new one
           key: ValueKey<String>(cameraName),
           backendClient: backendClient,
           profileName: profileName,
@@ -86,6 +88,9 @@ class CameraSectionView extends StatelessWidget {
           calibrationTopic: ExtrinsicsCalibrationTopic.cameraPose,
         );
       case CameraSection.projectorCalibration:
+        if (projectorDisplayId == null) {
+          return const Text(WizardStrings.chooseProjectorFirstText);
+        }
         return ExtrinsicsCalibrationView(
           backendClient: backendClient,
           profileName: profileName,
@@ -173,6 +178,23 @@ class _LensCalibrationSectionState extends State<_LensCalibrationSection> {
         ],
       );
     }
-    return IntrinsicsCalibrationView(backendClient: widget.backendClient, previewCamera: widget.previewCamera);
+    final Widget calibrationView = IntrinsicsCalibrationView(
+      backendClient: widget.backendClient,
+      previewCamera: widget.previewCamera,
+    );
+    if (intrinsicsState != IntrinsicsCalibrationState.missing) {
+      return calibrationView;
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          WizardStrings.setFocusBeforeLensCalibrationText,
+          style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant),
+        ),
+        const SizedBox(height: 12),
+        calibrationView,
+      ],
+    );
   }
 }

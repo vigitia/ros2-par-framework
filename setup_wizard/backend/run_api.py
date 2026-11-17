@@ -17,7 +17,8 @@ from backend_shared_helpers import get_ros2_executable_path, read_log_lines
 from camera_launch_session import stop_camera_launch
 from fastapi import APIRouter, HTTPException
 from process_groups import LAUNCH_STOP_SIGNALS, stop_process_group
-from profile_files import check_profile_exists
+from profile_files import (check_profile_exists, NO_CAMERA_TO_RUN_TEXT,
+                           read_profile_cameras_or_raise)
 from profile_run_state import (get_profile_run_process, is_profile_running, profile_run_lock,
                                set_profile_run_process)
 from pydantic import BaseModel
@@ -56,6 +57,8 @@ def start_run(request: RunStartRequest) -> RunState:
     """Start the profile as the framework; stops a camera preview first, which holds the camera."""
     global _run_profile_name, _was_run_stopped_by_user
     check_profile_exists(request.profile_name)
+    if not read_profile_cameras_or_raise(request.profile_name):
+        raise HTTPException(status_code=409, detail=NO_CAMERA_TO_RUN_TEXT)
     ros2_executable_path = get_ros2_executable_path()
     with profile_run_lock:
         if is_profile_running():

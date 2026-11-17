@@ -4,12 +4,13 @@
 // in the profile's order (the first is the main camera, which the framework nodes use). A camera's tab offers, on
 // request, its images and settings (changed on the running camera), its lens calibration, camera pose or projector
 // calibration (CameraSectionView, which also keeps the projector black where needed), and Remove, which moves the
-// camera's calibrations away after a confirmation. "Add camera" lists the installed and available camera types
-// (OfferPickerDialog; an available one is installed first), then adds a named camera of the chosen type
-// (AddCameraDialog, from its unit step). Every camera
-// can be shown and calibrated on its own; a run of the profile starts all of them. Opened with a requested camera
-// section (a camera clicked in the Overview's drawing, or a missing calibration step started there), the area brings
-// that camera's tab to the front and opens the section at once.
+// camera's calibrations away after a confirmation. Each section button shows whether that step is done or still to
+// do. "Add camera" lists the installed and available camera types (OfferPickerDialog; an available one is installed
+// first), then adds a named camera of the chosen type (AddCameraDialog, from its unit step) and opens its first step.
+// Every camera can be shown and calibrated on its own; a run of the profile starts all of them. Opened with a
+// requested camera section (a camera clicked in the Overview's drawing, or a step started in its To do list), the
+// area brings that camera's tab to the front and opens the section at once; opened to add a camera, it starts with
+// Add camera.
 
 import 'package:flutter/material.dart';
 
@@ -30,6 +31,7 @@ class CamerasScreen extends StatefulWidget {
     required this.backendClient,
     required this.profileName,
     this.requestedCameraSection,
+    this.isAddCameraDialogRequested = false,
   });
 
   final SetupWizardBackendClient backendClient;
@@ -38,6 +40,9 @@ class CamerasScreen extends StatefulWidget {
   /// A camera and section to open right away, e.g. a camera clicked in the Overview's drawing; null opens the area
   /// as usual.
   final CameraSectionRequest? requestedCameraSection;
+
+  /// True to start with Add camera, e.g. from the Overview's To do list.
+  final bool isAddCameraDialogRequested;
 
   @override
   State<CamerasScreen> createState() => _CamerasScreenState();
@@ -59,7 +64,18 @@ class _CamerasScreenState extends State<CamerasScreen> with ProfileSummaryLoadin
       _requestedTabCameraName = requestedCameraSection.cameraName;
       _shownCameraSection = requestedCameraSection.cameraSection;
     }
-    _loadProfile();
+    _loadProfileAndAddCameraIfRequested();
+  }
+
+  Future<void> _loadProfileAndAddCameraIfRequested() async {
+    await _loadProfile();
+    if (!mounted || !widget.isAddCameraDialogRequested) {
+      return;
+    }
+    final ProfileSummary? profileSummary = getShownProfileSummary();
+    if (profileSummary != null) {
+      await _addCamera(profileSummary.cameras);
+    }
   }
 
   /// isSpinnerShown false reloads in the background, so what is shown stays while the answer is on its way.
@@ -112,7 +128,7 @@ class _CamerasScreenState extends State<CamerasScreen> with ProfileSummaryLoadin
     if (chosenCameraType == null || !mounted) {
       return;
     }
-    final AddCameraChoice? choice = await showDialog<AddCameraChoice>(
+    final AddCameraChoice? addCameraChoice = await showDialog<AddCameraChoice>(
       context: context,
       builder: (BuildContext dialogContext) => AddCameraDialog(
         backendClient: widget.backendClient,
@@ -120,15 +136,15 @@ class _CamerasScreenState extends State<CamerasScreen> with ProfileSummaryLoadin
         cameraTypeToAdd: chosenCameraType,
       ),
     );
-    if (choice == null) {
+    if (addCameraChoice == null) {
       return;
     }
     try {
       await widget.backendClient.addProfileCamera(
         profileName: widget.profileName,
-        cameraName: choice.cameraName,
-        cameraType: choice.cameraType,
-        serial: choice.serial,
+        cameraName: addCameraChoice.cameraName,
+        cameraType: addCameraChoice.cameraType,
+        serial: addCameraChoice.serial,
       );
     } catch (error) {
       _showMessage(
@@ -141,7 +157,9 @@ class _CamerasScreenState extends State<CamerasScreen> with ProfileSummaryLoadin
     await _loadProfile(isSpinnerShown: false);
     if (mounted) {
       setState(() {
-        _requestedTabCameraName = choice.cameraName;
+        _requestedTabCameraName = addCameraChoice.cameraName;
+        // A new camera's first step: focus and exposure come before its lens calibration
+        _shownCameraSection = CameraSection.imageAndSettings;
       });
     }
   }
@@ -214,13 +232,12 @@ class _CamerasScreenState extends State<CamerasScreen> with ProfileSummaryLoadin
       // The user's own choice wins from now on, also when the tabs change later (e.g. a camera removed)
       onShownTabChanged: (int tabIndex) => _requestedTabCameraName = null,
       buildTabContent: (int tabIndex, bool isShownTab) =>
-          _buildCameraTab(cameras[tabIndex], cameras.length, profileSummary, isShownTab),
+          _buildCameraTab(cameras[tabIndex], profileSummary, isShownTab),
     );
   }
 
   Widget _buildCameraTab(
     CameraCalibrationSummary camera,
-    int cameraCount,
     ProfileSummary profileSummary,
     bool isShownTab,
   ) {
@@ -235,9 +252,9 @@ class _CamerasScreenState extends State<CamerasScreen> with ProfileSummaryLoadin
     tabRows.add(Text(unitText, style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)));
     tabRows.add(const SizedBox(height: 12));
     tabRows.add(Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Expanded(child: Align(alignment: Alignment.topLeft, child: _buildCameraSectionChoice())),
+      Expanded(child: Align(alignment: Alignment.topLeft, child: _buildCameraSectionChoice(camera))),
       const SizedBox(width: 12),
-      _buildRemoveButton(camera, cameraCount),
+      _buildRemoveButton(camera),
     ]));
     final CameraSection? shownCameraSection = _shownCameraSection;
     // Only in the tab in front, so a hidden tab never keeps a camera running
@@ -252,47 +269,92 @@ class _CamerasScreenState extends State<CamerasScreen> with ProfileSummaryLoadin
     );
   }
 
-  /// Removes the camera; disabled for the profile's only camera, since a profile needs one to run.
-  Widget _buildRemoveButton(CameraCalibrationSummary camera, int cameraCount) {
-    VoidCallback? onRemoveClicked;
-    String removeTooltipText = WizardStrings.lastCameraRemoveTooltip;
-    if (cameraCount > 1) {
-      removeTooltipText = WizardStrings.removeCameraTooltip;
-      onRemoveClicked = () => _confirmAndRemoveCamera(camera);
-    }
+  /// Removes the camera; also the last one, after which the profile cannot run until a camera is added.
+  Widget _buildRemoveButton(CameraCalibrationSummary camera) {
     return Tooltip(
-      message: removeTooltipText,
+      message: WizardStrings.removeCameraTooltip,
       child: OutlinedButton.icon(
-        onPressed: onRemoveClicked,
+        onPressed: () => _confirmAndRemoveCamera(camera),
         icon: const Icon(Icons.remove_circle_outline),
         label: const Text(WizardStrings.removeButtonLabel),
       ),
     );
   }
 
-  Widget _buildCameraSectionChoice() {
+  /// Whether the section's step is done for the camera: true, false (still to do) or null (nothing to track, e.g.
+  /// the image settings, or a step the camera does not need).
+  bool? _isCameraSectionDone(CameraSection cameraSection, CameraCalibrationSummary camera) {
+    switch (cameraSection) {
+      case CameraSection.imageAndSettings:
+        return null;
+      case CameraSection.lensCalibration:
+        switch (camera.intrinsicsState) {
+          case IntrinsicsCalibrationState.calibrated:
+          case IntrinsicsCalibrationState.factory:
+            return true;
+          case IntrinsicsCalibrationState.missing:
+            return false;
+          case IntrinsicsCalibrationState.unsupported:
+            return null;
+        }
+      case CameraSection.cameraPose:
+        return camera.poseState == CameraPoseState.measured;
+      case CameraSection.projectorCalibration:
+        if (camera.hasProjectionMapping) {
+          return true;
+        }
+        // Needed only against the main camera, whose mapping the framework nodes use
+        if (camera.isMainCamera) {
+          return false;
+        }
+        return null;
+    }
+  }
+
+  /// The section's own icon, or a done or to-do mark where the section's step is tracked.
+  Widget _buildCameraSectionIcon(CameraSection cameraSection, IconData sectionIconData, CameraCalibrationSummary camera) {
+    final ColorScheme colorScheme = Theme.of(context).colorScheme;
+    final bool? isSectionDone = _isCameraSectionDone(cameraSection, camera);
+    if (isSectionDone == true) {
+      return Tooltip(
+        message: WizardStrings.cameraSectionDoneTooltip,
+        child: Icon(Icons.check_circle, color: colorScheme.primary),
+      );
+    }
+    if (isSectionDone == false) {
+      return Tooltip(
+        message: WizardStrings.cameraSectionMissingTooltip,
+        child: Icon(Icons.radio_button_unchecked, color: colorScheme.error),
+      );
+    }
+    return Icon(sectionIconData);
+  }
+
+  Widget _buildCameraSectionChoice(CameraCalibrationSummary camera) {
     return SegmentedButton<CameraSection>(
       emptySelectionAllowed: true,
-      segments: const [
+      // The marks replace the selected check, so done and to do stay visible on the open section
+      showSelectedIcon: false,
+      segments: [
         ButtonSegment<CameraSection>(
           value: CameraSection.imageAndSettings,
-          icon: Icon(Icons.tune),
-          label: Text(WizardStrings.cameraImageSettingsTabLabel),
+          icon: _buildCameraSectionIcon(CameraSection.imageAndSettings, Icons.tune, camera),
+          label: const Text(WizardStrings.cameraImageSettingsTabLabel),
         ),
         ButtonSegment<CameraSection>(
           value: CameraSection.lensCalibration,
-          icon: Icon(Icons.center_focus_strong),
-          label: Text(WizardStrings.cameraIntrinsicsTabLabel),
+          icon: _buildCameraSectionIcon(CameraSection.lensCalibration, Icons.center_focus_strong, camera),
+          label: const Text(WizardStrings.cameraIntrinsicsTabLabel),
         ),
         ButtonSegment<CameraSection>(
           value: CameraSection.cameraPose,
-          icon: Icon(Icons.straighten),
-          label: Text(WizardStrings.cameraPoseTabLabel),
+          icon: _buildCameraSectionIcon(CameraSection.cameraPose, Icons.straighten, camera),
+          label: const Text(WizardStrings.cameraPoseTabLabel),
         ),
         ButtonSegment<CameraSection>(
           value: CameraSection.projectorCalibration,
-          icon: Icon(Icons.video_label),
-          label: Text(WizardStrings.cameraProjectorTabLabel),
+          icon: _buildCameraSectionIcon(CameraSection.projectorCalibration, Icons.video_label, camera),
+          label: const Text(WizardStrings.cameraProjectorTabLabel),
         ),
       ],
       selected: {?_shownCameraSection},
@@ -300,6 +362,8 @@ class _CamerasScreenState extends State<CamerasScreen> with ProfileSummaryLoadin
         setState(() {
           _shownCameraSection = selectedSections.firstOrNull;
         });
+        // A calibration saved in the section just left shows as done
+        _loadProfile(isSpinnerShown: false);
       },
     );
   }

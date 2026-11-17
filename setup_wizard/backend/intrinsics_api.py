@@ -101,9 +101,6 @@ class CameraIntrinsicsState(BaseModel):
     # When the calibration file (the framework's, else the one the driver's camera_info_url names)
     # was last written (ISO 8601, local time); empty when it does not exist
     calibration_file_modified_iso: str
-    # The image size the camera_info describes; 0 without camera_info
-    image_width_px: int
-    image_height_px: int
 
 
 class IntrinsicsCalibrationStartRequest(BaseModel):
@@ -131,12 +128,9 @@ class IntrinsicsCalibrationProgress(BaseModel):
     # After calibrating: how far the board's undistorted corners are from straight lines, in
     # pixels, for the board in the latest frame; None without a board in view
     linear_error_px: float | None = None
-    # After calibrating: focal lengths and principal point in pixels, distortion coefficients
+    # After calibrating: the focal lengths in pixels
     focal_length_x_px: float | None = None
     focal_length_y_px: float | None = None
-    principal_point_x_px: float | None = None
-    principal_point_y_px: float | None = None
-    distortion_coefficients: list[float] = []
     # Why the calibration failed; empty otherwise
     error_text: str = ''
 
@@ -190,10 +184,8 @@ def _read_camera_intrinsics_state(preview_session):
     # The file the framework gave the camera, else the one the driver names under the usual
     # parameter: drivers spell that parameter differently (e.g. camerainfo_url), the framework's
     # file is known whatever the spelling
-    calibration_file_path = None
-    if profile_name is not None and preview_camera.is_profile_camera:
-        calibration_file_path = get_camera_intrinsics_file_path(profile_name,
-                                                                preview_camera.camera_name)
+    calibration_file_path = get_camera_intrinsics_file_path(profile_name,
+                                                            preview_camera.camera_name)
     if calibration_file_path is None:
         calibration_file_path = _read_calibration_file_path(parameter_client)
     calibration_file_modified_iso = ''
@@ -206,8 +198,7 @@ def _read_camera_intrinsics_state(preview_session):
         return CameraIntrinsicsState(
             intrinsics_source=INTRINSICS_SOURCE_NO_CAMERA_INFO,
             can_store_calibration=can_store_calibration,
-            calibration_file_modified_iso=calibration_file_modified_iso,
-            image_width_px=0, image_height_px=0)
+            calibration_file_modified_iso=calibration_file_modified_iso)
     camera_info_message = _receive_one_camera_info(preview_ros_node, camera_info_topic_name)
     if camera_info_message is None:
         raise HTTPException(status_code=503,
@@ -227,9 +218,7 @@ def _read_camera_intrinsics_state(preview_session):
     return CameraIntrinsicsState(
         intrinsics_source=intrinsics_source,
         can_store_calibration=can_store_calibration,
-        calibration_file_modified_iso=calibration_file_modified_iso,
-        image_width_px=camera_info_message.width,
-        image_height_px=camera_info_message.height)
+        calibration_file_modified_iso=calibration_file_modified_iso)
 
 
 @intrinsics_router.post('/api/intrinsics/calibration/start')
@@ -278,13 +267,8 @@ def get_intrinsics_calibration_progress() -> IntrinsicsCalibrationProgress:
         # Calibrated: the calibrator is no longer written to, except by handle_msg's display part
         with calibration_session.calibrator_lock:
             camera_matrix = calibration_session.mono_calibrator.intrinsics
-            distortion = calibration_session.mono_calibrator.distortion
             calibration_progress.focal_length_x_px = float(camera_matrix[0, 0])
             calibration_progress.focal_length_y_px = float(camera_matrix[1, 1])
-            calibration_progress.principal_point_x_px = float(camera_matrix[0, 2])
-            calibration_progress.principal_point_y_px = float(camera_matrix[1, 2])
-            calibration_progress.distortion_coefficients = [float(coefficient)
-                                                            for coefficient in distortion.flat]
     return calibration_progress
 
 
@@ -540,10 +524,8 @@ def start_copying_factory_camera_info(profile_name, preview_camera):
     """
     Copy the running camera's factory calibration into the profile, in the background.
 
-    Only for a profile's camera whose entry says factory, and only while no copy exists yet.
+    Only for a camera whose entry says factory, and only while no copy exists yet.
     """
-    if profile_name is None or not preview_camera.is_profile_camera:
-        return
     camera_entry = read_installed_camera_entry(preview_camera.camera_type)
     if camera_entry[CAMERA_ENTRY_INTRINSICS_KEY] != CAMERA_INTRINSICS_SOURCE_FACTORY:
         return

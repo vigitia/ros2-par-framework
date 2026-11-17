@@ -4,10 +4,9 @@
 // description), each with a control chosen from its descriptor (SettingRowView), so it works for any driver;
 // read-only ones have none. Changeable settings come first. A change is sent to the running driver, which may
 // refuse it with a reason; the list is read again afterwards, since one setting can change others (e.g. automatic
-// exposure). The camera must be running, so the list waits and retries while the camera is still starting. For a
-// camera of a saved profile, every change the driver accepted is saved into the profile right away, like the node
-// settings (NodeSettingsEditorView); without a saved profile (new-profile wizard) the backend keeps the changes until
-// the profile is created.
+// exposure). The camera must be running, so the list waits and retries while the camera is still starting. Every
+// change the driver accepted is saved into the camera's profile right away, like the node settings
+// (NodeSettingsEditorView).
 
 import 'dart:async';
 
@@ -44,9 +43,6 @@ class CameraSettingsView extends StatefulWidget {
 
 class _CameraSettingsViewState extends State<CameraSettingsView> {
   List<NodeSetting>? _cameraSettings;
-
-  /// Where changes are saved: the saved profile the camera runs with; null without one.
-  String? _profileName;
   List<String> _unsavedSettingNames = [];
   bool _isSavingToProfile = false;
 
@@ -74,13 +70,12 @@ class _CameraSettingsViewState extends State<CameraSettingsView> {
   @override
   void didUpdateWidget(CameraSettingsView oldWidget) {
     super.didUpdateWidget(oldWidget);
-    final bool isOtherCamera = oldWidget.previewCamera.runningCameraName != widget.previewCamera.runningCameraName ||
+    final bool isOtherCamera = oldWidget.previewCamera.cameraName != widget.previewCamera.cameraName ||
         oldWidget.previewCamera.profileName != widget.previewCamera.profileName;
     if (isOtherCamera) {
       setState(() {
         _cameraSettings = null;
         _lastErrorText = null;
-        _profileName = null;
         _unsavedSettingNames = [];
         _isSaveRepeatNeeded = false;
         _saveStatusText = null;
@@ -109,7 +104,7 @@ class _CameraSettingsViewState extends State<CameraSettingsView> {
       // The backend answers for the camera running now: the previous one while this camera's start is still on
       // its way. Its settings must never be shown (or changed) as this camera's, so ask again.
       final bool isReportOfThisCamera =
-          cameraSettingsReport.cameraName == widget.previewCamera.runningCameraName &&
+          cameraSettingsReport.cameraName == widget.previewCamera.cameraName &&
           cameraSettingsReport.profileName == widget.previewCamera.profileName;
       if (!isReportOfThisCamera) {
         _retryTimer = Timer(cameraSettingsRetryInterval, _loadCameraSettings);
@@ -117,7 +112,6 @@ class _CameraSettingsViewState extends State<CameraSettingsView> {
       }
       setState(() {
         _cameraSettings = cameraSettingsReport.cameraSettings;
-        _profileName = cameraSettingsReport.profileName;
         _unsavedSettingNames = cameraSettingsReport.unsavedSettingNames;
         _lastErrorText = null;
       });
@@ -152,8 +146,7 @@ class _CameraSettingsViewState extends State<CameraSettingsView> {
         _changeErrorTextByName[settingName] = changeErrorText;
       }
     });
-    final bool isSavedToProfile = changeErrorText == null && _profileName != null;
-    if (isSavedToProfile) {
+    if (changeErrorText == null) {
       await _saveSettingsToProfile();
     } else {
       await _loadCameraSettings();
@@ -217,13 +210,7 @@ class _CameraSettingsViewState extends State<CameraSettingsView> {
   /// Whether changes are kept and the result of the last save. Changes still unsaved (the save failed, or an
   /// earlier visit left them) are named with the reason and a button to save them.
   Widget _buildSaveRow(Color mutedTextColor) {
-    final String? profileName = _profileName;
-    if (profileName == null) {
-      return Text(
-        WizardStrings.cameraSettingsNewProfileText,
-        style: TextStyle(color: mutedTextColor),
-      );
-    }
+    final String profileName = widget.previewCamera.profileName;
 
     String saveStateText = WizardStrings.getCameraSettingsSavedRightAwayText(profileName: profileName);
     if (_isSavingToProfile) {
@@ -268,7 +255,7 @@ class _CameraSettingsViewState extends State<CameraSettingsView> {
     final List<NodeSetting>? cameraSettings = _cameraSettings;
     final String titleText =
         widget.titleText ??
-        WizardStrings.getCameraSettingsTitle(runningCameraName: widget.previewCamera.runningCameraName);
+        WizardStrings.getCameraSettingsTitle(cameraName: widget.previewCamera.cameraName);
 
     final List<Widget> rows = [Text(titleText, style: textTheme.titleMedium)];
     if (cameraSettings == null) {

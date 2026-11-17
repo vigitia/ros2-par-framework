@@ -113,11 +113,13 @@ def get_setup_geometry(profile_name: str) -> SetupGeometryResponse:
             geometry_error_texts.append(f'{profile_camera.camera_name}: {error}')
 
     projector = None
-    try:
-        projector = _read_projector_geometry(profile_launch_context,
-                                             profile_cameras[0].camera_name)
-    except (OSError, ValueError, KeyError, TypeError, yaml.YAMLError) as error:
-        geometry_error_texts.append(f'projection mapping: {error}')
+    # The projection mapping belongs to the main camera, so without a camera there is none
+    if profile_cameras:
+        try:
+            projector = _read_projector_geometry(profile_launch_context,
+                                                 profile_cameras[0].camera_name)
+        except (OSError, ValueError, KeyError, TypeError, yaml.YAMLError) as error:
+            geometry_error_texts.append(f'projection mapping: {error}')
     if projector is not None and projector.center_m is None:
         projector.center_m = _read_other_camera_projector_center(
             profile_launch_context, profile_cameras[1:], geometry_error_texts)

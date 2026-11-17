@@ -1,12 +1,13 @@
 // Written by Claude Code
 //
 // Hub area "Overview" of a profile: the projector's warnings (not connected, display id or mode changed since it was
-// chosen) with the way to the Projectors area, the setup seen from the front or a side (SetupDrawingView), below it the cameras
-// and the projector the drawing cannot show yet with what each still needs, and the other calibration steps the
-// profile misses. Each missing step that can run has a button that opens it in the Cameras area
-// (cameras_screen.dart, through the hub); a step that cannot run yet says what it needs. Clicking a camera in the
-// drawing opens its images and settings in the Cameras area, clicking the projector opens the Projectors area. The
-// Run button floats over this area (profile_hub_screen.dart).
+// chosen) with the way to the Projectors area, the setup seen from the front or a side (SetupDrawingView, once a
+// camera pose or the projection is calibrated), and below it the "To do" list: what the profile still needs, in the
+// order it is best done (add a camera, choose the projector, per camera lens calibration and camera pose, the
+// projector calibration, the apps). Each step that can run has a button that opens its area (through the hub); a
+// step that needs another one first says which. Clicking a camera in the drawing opens its images and settings in
+// the Cameras area, clicking the projector opens the Projectors area. The Run button floats over this area
+// (profile_hub_screen.dart).
 
 import 'package:flutter/material.dart';
 
@@ -19,22 +20,24 @@ import '../core/ui/profile_summary_loading.dart';
 import '../../data/services/setup_wizard_backend_client.dart';
 import '../../config/wizard_strings.dart';
 
-/// A calibration the profile misses: what it is, and the camera section that performs it where there is one.
-class _MissingCalibrationStep {
-  const _MissingCalibrationStep({
+/// A step the profile still needs: what it is, why, and the button that opens where it is done.
+class _MissingSetupStep {
+  const _MissingSetupStep({
     required this.titleText,
-    this.cameraSectionRequest,
-    this.missingInDrawingText,
+    this.explanationText,
+    this.buttonLabel = WizardStrings.calibrateButtonLabel,
+    this.onButtonPressed,
     this.isOptional = false,
   });
 
   final String titleText;
 
-  /// Where the step runs; null when it cannot run yet.
-  final CameraSectionRequest? cameraSectionRequest;
+  /// Below the title: what the step is for, or what it needs first.
+  final String? explanationText;
+  final String buttonLabel;
 
-  /// Set for a step without which its device (titleText) is not in the drawing: what the drawing lacks.
-  final String? missingInDrawingText;
+  /// Opens where the step is done; null when it cannot run yet (explanationText says why).
+  final VoidCallback? onButtonPressed;
 
   /// True for a step the framework works without, e.g. the projector's position.
   final bool isOptional;
@@ -47,6 +50,8 @@ class ProfileOverviewScreen extends StatefulWidget {
     required this.profileName,
     required this.onCameraSectionRequested,
     required this.onProjectorClicked,
+    required this.onAddCameraRequested,
+    required this.onAppsAreaRequested,
   });
 
   final SetupWizardBackendClient backendClient;
@@ -59,6 +64,12 @@ class ProfileOverviewScreen extends StatefulWidget {
   /// Called when the projector was clicked in the drawing or a projector warning's button, to open the Projectors
   /// area.
   final VoidCallback onProjectorClicked;
+
+  /// Called to open the Cameras area with its Add camera dialog.
+  final VoidCallback onAddCameraRequested;
+
+  /// Called to open the Apps area.
+  final VoidCallback onAppsAreaRequested;
 
   @override
   State<ProfileOverviewScreen> createState() => _ProfileOverviewScreenState();
@@ -114,41 +125,87 @@ class _ProfileOverviewScreenState extends State<ProfileOverviewScreen>
     ));
   }
 
-  /// The profile's missing calibrations, camera by camera, then the projector's (they belong to the profile's main
-  /// camera, its first, which the framework nodes use).
-  List<_MissingCalibrationStep> _createMissingCalibrationSteps(
-    ProfileSummary profileSummary,
-    SetupGeometry setupGeometry,
-  ) {
-    final List<_MissingCalibrationStep> missingSteps = [];
+  void _requestCameraSection(String cameraName, CameraSection cameraSection) {
+    widget.onCameraSectionRequested((cameraName: cameraName, cameraSection: cameraSection));
+  }
+
+  /// What the profile still needs, in the order it is best done: a camera, the projector, each camera's lens
+  /// calibration and pose, then the projector calibration (it belongs to the main camera, the profile's first, which
+  /// the framework nodes use) and the apps.
+  List<_MissingSetupStep> _createMissingSetupSteps(ProfileSummary profileSummary, SetupGeometry setupGeometry) {
+    final List<_MissingSetupStep> missingSteps = [];
+    if (profileSummary.cameras.isEmpty) {
+      missingSteps.add(_MissingSetupStep(
+        titleText: WizardStrings.addCameraToDoTitle,
+        explanationText: WizardStrings.addCameraToDoText,
+        buttonLabel: WizardStrings.addCameraButtonLabel,
+        onButtonPressed: widget.onAddCameraRequested,
+      ));
+    }
+    final bool isProjectorChosen = profileSummary.projectorDisplayState != ProjectorDisplayState.notSet;
+    if (!isProjectorChosen) {
+      missingSteps.add(_MissingSetupStep(
+        titleText: WizardStrings.chooseProjectorToDoTitle,
+        explanationText: WizardStrings.chooseProjectorToDoText,
+        buttonLabel: WizardStrings.chooseButtonLabel,
+        onButtonPressed: widget.onProjectorClicked,
+      ));
+    }
+
     CameraCalibrationSummary? mainCamera;
     for (final CameraCalibrationSummary camera in profileSummary.cameras) {
       if (camera.isMainCamera) {
         mainCamera = camera;
       }
-      if (camera.intrinsicsState == IntrinsicsCalibrationState.missing) {
-        missingSteps.add(_MissingCalibrationStep(
-          titleText: WizardStrings.getLensCalibrationTitle(cameraName: camera.cameraName),
-          cameraSectionRequest: (cameraName: camera.cameraName, cameraSection: CameraSection.lensCalibration),
-        ));
-      }
-      if (camera.poseState == CameraPoseState.placeholder || camera.poseState == CameraPoseState.invalid) {
-        String missingInDrawingText =
-            WizardStrings.cameraPoseMissingText;
-        if (camera.poseState == CameraPoseState.invalid) {
-          missingInDrawingText = WizardStrings.cameraPoseFileUnusableText;
-        }
-        missingSteps.add(_MissingCalibrationStep(
-          titleText: camera.cameraName,
-          missingInDrawingText: missingInDrawingText,
-          cameraSectionRequest: (cameraName: camera.cameraName, cameraSection: CameraSection.cameraPose),
-        ));
-      }
+      missingSteps.addAll(_createMissingCameraSteps(camera));
     }
 
-    if (mainCamera == null) {
-      return missingSteps;
+    if (mainCamera != null) {
+      missingSteps.addAll(_createMissingProjectorSteps(profileSummary, setupGeometry, mainCamera, isProjectorChosen));
     }
+
+    if (profileSummary.enabledAppNames.isEmpty) {
+      missingSteps.add(_MissingSetupStep(
+        titleText: WizardStrings.chooseAppsToDoTitle,
+        explanationText: WizardStrings.chooseAppsToDoText,
+        buttonLabel: WizardStrings.openAppsButtonLabel,
+        onButtonPressed: widget.onAppsAreaRequested,
+      ));
+    }
+    return missingSteps;
+  }
+
+  /// The camera's lens calibration and camera pose, where missing.
+  List<_MissingSetupStep> _createMissingCameraSteps(CameraCalibrationSummary camera) {
+    final List<_MissingSetupStep> missingSteps = [];
+    if (camera.intrinsicsState == IntrinsicsCalibrationState.missing) {
+      missingSteps.add(_MissingSetupStep(
+        titleText: WizardStrings.getLensCalibrationTitle(cameraName: camera.cameraName),
+        explanationText: WizardStrings.setFocusBeforeLensCalibrationText,
+        onButtonPressed: () => _requestCameraSection(camera.cameraName, CameraSection.lensCalibration),
+      ));
+    }
+    if (camera.poseState == CameraPoseState.placeholder || camera.poseState == CameraPoseState.invalid) {
+      String explanationText = WizardStrings.cameraPoseMissingText;
+      if (camera.poseState == CameraPoseState.invalid) {
+        explanationText = WizardStrings.cameraPoseFileUnusableText;
+      }
+      missingSteps.add(_MissingSetupStep(
+        titleText: WizardStrings.getCameraPoseTitle(cameraName: camera.cameraName),
+        explanationText: explanationText,
+        onButtonPressed: () => _requestCameraSection(camera.cameraName, CameraSection.cameraPose),
+      ));
+    }
+    return missingSteps;
+  }
+
+  /// The projector calibration against the main camera, then the optional projector position.
+  List<_MissingSetupStep> _createMissingProjectorSteps(
+    ProfileSummary profileSummary,
+    SetupGeometry setupGeometry,
+    CameraCalibrationSummary mainCamera,
+    bool isProjectorChosen,
+  ) {
     final ProjectorGeometry? projector = setupGeometry.projector;
     if (projector == null) {
       String projectorTitleText = WizardStrings.overviewProjectorTitle;
@@ -157,44 +214,53 @@ class _ProfileOverviewScreenState extends State<ProfileOverviewScreen>
           projectorTitleText: profileSummary.projectorTitleText,
         );
       }
-      missingSteps.add(_MissingCalibrationStep(
-        titleText: projectorTitleText,
-        missingInDrawingText: WizardStrings.getProjectionMappingMissingText(cameraName: mainCamera.cameraName),
-        cameraSectionRequest: (cameraName: mainCamera.cameraName, cameraSection: CameraSection.projectorCalibration),
-      ));
-    } else if (projector.centerM == null) {
+      String explanationText = WizardStrings.getProjectionMappingMissingText(cameraName: mainCamera.cameraName);
+      VoidCallback? onCalibratePressed;
+      if (isProjectorChosen) {
+        onCalibratePressed = () => _requestCameraSection(mainCamera.cameraName, CameraSection.projectorCalibration);
+      } else {
+        explanationText = '$explanationText ${WizardStrings.chooseProjectorFirstText}';
+      }
+      return [
+        _MissingSetupStep(
+          titleText: projectorTitleText,
+          explanationText: explanationText,
+          onButtonPressed: onCalibratePressed,
+        ),
+      ];
+    }
+    if (projector.centerM == null) {
       // Simplification: whether a camera delivers depth is known only while it runs (extrinsics_api.py), so this
       // step never gets a button here. Upgrade: a depth flag per camera in the profile summary, then a button to
       // the Projector section of a depth camera.
-      missingSteps.add(const _MissingCalibrationStep(
-        titleText: WizardStrings.projectorPositionTitle,
-        missingInDrawingText: WizardStrings.projectorPositionMissingText,
-        isOptional: true,
-      ));
+      return [
+        const _MissingSetupStep(
+          titleText: WizardStrings.projectorPositionTitle,
+          explanationText: WizardStrings.projectorPositionMissingText,
+          isOptional: true,
+        ),
+      ];
     }
-    return missingSteps;
+    return [];
   }
 
-  Widget _buildMissingCalibrationStepRow(_MissingCalibrationStep missingStep) {
+  Widget _buildMissingSetupStepRow(_MissingSetupStep missingStep) {
     final ColorScheme colorScheme = Theme.of(context).colorScheme;
-    Icon stepIcon = Icon(Icons.error_outline, color: colorScheme.error);
+    Icon stepIcon = Icon(Icons.radio_button_unchecked, color: colorScheme.error);
     String titleText = missingStep.titleText;
     if (missingStep.isOptional) {
       stepIcon = Icon(Icons.info_outline, color: colorScheme.onSurfaceVariant);
       titleText = WizardStrings.getOptionalCalibrationTitle(titleText: titleText);
     }
     Widget? subtitle;
-    final String? explanationText = missingStep.missingInDrawingText;
+    final String? explanationText = missingStep.explanationText;
     if (explanationText != null) {
       subtitle = Text(explanationText);
     }
     Widget? trailingButton;
-    final CameraSectionRequest? cameraSectionRequest = missingStep.cameraSectionRequest;
-    if (cameraSectionRequest != null) {
-      trailingButton = FilledButton.tonal(
-        onPressed: () => widget.onCameraSectionRequested(cameraSectionRequest),
-        child: const Text(WizardStrings.calibrateButtonLabel),
-      );
+    final VoidCallback? onButtonPressed = missingStep.onButtonPressed;
+    if (onButtonPressed != null) {
+      trailingButton = FilledButton.tonal(onPressed: onButtonPressed, child: Text(missingStep.buttonLabel));
     }
     return ListTile(
       contentPadding: EdgeInsets.zero,
@@ -223,7 +289,8 @@ class _ProfileOverviewScreenState extends State<ProfileOverviewScreen>
     return warningRows;
   }
 
-  List<Widget> _buildSetupRows(ProfileSummary profileSummary) {
+  /// The setup drawing, below it the To do list and the files the drawing had to leave out.
+  List<Widget> _buildSetupDrawingAndToDoRows(ProfileSummary profileSummary) {
     final ColorScheme colorScheme = Theme.of(context).colorScheme;
     final String? setupGeometryErrorText = _setupGeometryErrorText;
     final SetupGeometry? setupGeometry = _setupGeometry;
@@ -248,46 +315,28 @@ class _ProfileOverviewScreenState extends State<ProfileOverviewScreen>
 
     final TextTheme textTheme = Theme.of(context).textTheme;
     final List<Widget> setupRows = [];
-    // Also with nothing measured yet: the bare table, which the steps below fill
-    setupRows.add(SetupDrawingView(
-      setupGeometry: setupGeometry,
-      onCameraClicked: _openCameraInCamerasArea,
-      onProjectorClicked: widget.onProjectorClicked,
-    ));
-    setupRows.add(const SizedBox(height: 24));
-    final List<_MissingCalibrationStep> missingSteps = _createMissingCalibrationSteps(profileSummary, setupGeometry);
-    final List<_MissingCalibrationStep> stepsMissingInDrawing = [];
-    final List<_MissingCalibrationStep> otherMissingSteps = [];
-    for (final _MissingCalibrationStep missingStep in missingSteps) {
-      if (missingStep.missingInDrawingText != null) {
-        stepsMissingInDrawing.add(missingStep);
-      } else {
-        otherMissingSteps.add(missingStep);
-      }
-    }
-    if (stepsMissingInDrawing.isNotEmpty) {
-      setupRows.add(Text(WizardStrings.notInDrawingHeading, style: textTheme.titleMedium));
-      for (final _MissingCalibrationStep missingStep in stepsMissingInDrawing) {
-        setupRows.add(_buildMissingCalibrationStepRow(missingStep));
-      }
+    // Once a camera pose is measured or the projection is calibrated: the table with what the steps below fill in.
+    // Before, the bare table would push the To do list out of sight
+    final bool hasSomethingToDraw = getDrawnCameras(setupGeometry).isNotEmpty || setupGeometry.projector != null;
+    if (hasSomethingToDraw) {
+      setupRows.add(SetupDrawingView(
+        setupGeometry: setupGeometry,
+        onCameraClicked: _openCameraInCamerasArea,
+        onProjectorClicked: widget.onProjectorClicked,
+      ));
       setupRows.add(const SizedBox(height: 24));
     }
-    setupRows.add(Text(WizardStrings.calibrationHeading, style: textTheme.titleMedium));
+    final List<_MissingSetupStep> missingSteps = _createMissingSetupSteps(profileSummary, setupGeometry);
+    setupRows.add(Text(WizardStrings.toDoHeading, style: textTheme.titleMedium));
     if (missingSteps.isEmpty) {
       setupRows.add(ListTile(
         contentPadding: EdgeInsets.zero,
         leading: Icon(Icons.check_circle_outline, color: colorScheme.primary),
-        title: const Text(WizardStrings.allCalibrationsDoneText),
-      ));
-    } else if (otherMissingSteps.isEmpty) {
-      setupRows.add(ListTile(
-        contentPadding: EdgeInsets.zero,
-        leading: Icon(Icons.info_outline, color: colorScheme.onSurfaceVariant),
-        title: const Text(WizardStrings.nothingMissingText),
+        title: const Text(WizardStrings.everythingSetUpText),
       ));
     }
-    for (final _MissingCalibrationStep missingStep in otherMissingSteps) {
-      setupRows.add(_buildMissingCalibrationStepRow(missingStep));
+    for (final _MissingSetupStep missingStep in missingSteps) {
+      setupRows.add(_buildMissingSetupStepRow(missingStep));
     }
     // A file the drawing had to leave out, e.g. one edited by hand
     for (final String geometryErrorText in setupGeometry.geometryErrorTexts) {
@@ -313,7 +362,7 @@ class _ProfileOverviewScreenState extends State<ProfileOverviewScreen>
       padding: const EdgeInsets.fromLTRB(24, 24, 24, runButtonClearanceLogicalPx),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
-        children: [..._buildProjectorWarningRows(profileSummary), ..._buildSetupRows(profileSummary)],
+        children: [..._buildProjectorWarningRows(profileSummary), ..._buildSetupDrawingAndToDoRows(profileSummary)],
       ),
     );
   }

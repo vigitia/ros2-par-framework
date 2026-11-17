@@ -82,8 +82,7 @@ class IntrinsicsCalibrationView extends StatefulWidget {
 
   final SetupWizardBackendClient backendClient;
 
-  /// The camera to calibrate. A profile's camera stores its calibration in the profile's intrinsics folder, a unit
-  /// without a profile in the shared one.
+  /// The camera to calibrate; it stores its calibration in its profile's intrinsics folder.
   final PreviewCameraChoice previewCamera;
 
   @override

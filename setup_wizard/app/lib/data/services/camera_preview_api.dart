@@ -17,60 +17,30 @@ const Duration cameraPreviewStartStopTimeout = Duration(seconds: 35);
 /// The namespace every camera runs in, `/cameras/<camera name>` (launch_helpers.CAMERAS_NAMESPACE).
 const String camerasNamespace = '/cameras';
 
-/// The camera a preview starts: a saved profile's camera by its name, or a unit no profile names yet by its type
-/// and serial, which the backend names after its type.
+/// The camera a preview starts: a saved profile's camera by its name; it starts with the profile's settings.
 @immutable
 class PreviewCameraChoice {
-  /// A camera of the saved profile, by its name in par_launch.cameras; it starts with the profile's settings.
-  const PreviewCameraChoice.profileCamera({required String this.profileName, required this.cameraName})
-      : cameraType = '',
-        serial = '';
+  const PreviewCameraChoice({required this.profileName, required this.cameraName});
 
-  /// A unit of cameraType that no profile names yet, with par_setup.yaml's settings; serial empty opens the unit
-  /// the driver finds first.
-  const PreviewCameraChoice.unit({required this.cameraType, this.serial = ''})
-      : profileName = null,
-        cameraName = '';
+  final String profileName;
 
-  /// Null for a unit.
-  final String? profileName;
-
-  /// Empty for a unit.
+  /// Its name in par_launch.cameras, which its topics are named after.
   final String cameraName;
 
-  /// Empty for a profile camera.
-  final String cameraType;
-  final String serial;
-
-  /// The name the camera runs under: its profile name, or for a unit its type.
-  String get runningCameraName {
-    if (profileName != null) {
-      return cameraName;
-    }
-    return cameraType;
-  }
-
   /// The camera's image, the feed the focus is measured on.
-  String get imageTopicName => '$camerasNamespace/$runningCameraName/image_raw';
+  String get imageTopicName => '$camerasNamespace/$cameraName/image_raw';
 
   Map<String, dynamic> toStartJson() {
-    if (profileName != null) {
-      return {'profile_name': profileName, 'camera_name': cameraName};
-    }
-    return {'camera_type': cameraType, 'serial': serial};
+    return {'profile_name': profileName, 'camera_name': cameraName};
   }
 
   @override
   bool operator ==(Object other) {
-    return other is PreviewCameraChoice &&
-        other.profileName == profileName &&
-        other.cameraName == cameraName &&
-        other.cameraType == cameraType &&
-        other.serial == serial;
+    return other is PreviewCameraChoice && other.profileName == profileName && other.cameraName == cameraName;
   }
 
   @override
-  int get hashCode => Object.hash(profileName, cameraName, cameraType, serial);
+  int get hashCode => Object.hash(profileName, cameraName);
 }
 
 extension CameraPreviewApi on SetupWizardBackendClient {
@@ -142,14 +112,8 @@ extension CameraPreviewApi on SetupWizardBackendClient {
     );
   }
 
-  /// Forgets setting changes the backend keeps for a new profile, so a new wizard does not inherit those of an
-  /// abandoned one.
-  Future<void> discardNewProfileSettings() async {
-    await sendJson('DELETE', '/api/camera-preview/new-profile-settings', null);
-  }
-
   /// Writes the settings changed on the running camera into the profile it was started with. Returns what was
-  /// written; throws with the backend's reason, e.g. when the camera runs without a saved profile.
+  /// written; throws with the backend's reason, e.g. when no camera runs.
   Future<CameraSettingsSaveResult> saveCameraPreviewSettingsToProfile() async {
     final http.Response response =
         await _sendCameraPreviewJson('POST', '/api/camera-preview/settings/save-to-profile', {});
@@ -200,10 +164,10 @@ class CameraSettingsReport {
 
   final List<NodeSetting> cameraSettings;
 
-  /// The running camera the settings belong to, under its running name (PreviewCameraChoice.runningCameraName).
+  /// The running camera the settings belong to, by its name in the profile.
   final String cameraName;
 
-  /// The saved profile the camera was started with; null when it runs without one (e.g. a new profile).
+  /// The profile the camera runs with; null when it stopped while the settings were read.
   final String? profileName;
 
   /// Settings changed on the running driver and not yet written into the profile.

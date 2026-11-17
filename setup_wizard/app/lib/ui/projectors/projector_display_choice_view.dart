@@ -2,8 +2,8 @@
 //
 // The connected displays as cards (name, display id, real resolution, desktop scaling, refresh rate, position on the
 // desktop, connector, serial; "–" where a display reports nothing); clicking one chooses it as the projector. A
-// display the desktop scales gets a warning below the cards, since the projected image is then resampled. Shared by
-// the new-profile wizard's Projector step and a profile's Projectors area.
+// display the desktop scales gets a warning below the cards, since the projected image is then resampled. Used by a
+// profile's Projectors area.
 
 import 'package:flutter/material.dart';
 

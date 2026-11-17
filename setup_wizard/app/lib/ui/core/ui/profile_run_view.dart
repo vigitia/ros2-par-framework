@@ -6,7 +6,7 @@
 // the switched-on sensor nodes and that app). While it runs, the button stops it again. The state is asked for every few
 // seconds, so the button also shows a run that was started earlier, and a run that ends on its own is noticed. Only
 // one profile runs at a time. What would not fit on the button (a run that ended on its own, a failed start or stop)
-// is shown as a snack bar.
+// is shown as a snack bar. A profile without a camera cannot run, so its button is disabled and says why.
 
 import 'package:flutter/material.dart';
 
@@ -63,10 +63,32 @@ class _ProfileRunViewState extends State<ProfileRunView> {
   String _storedAppName = projectorAppNone;
   bool _isLoadingAppMenu = false;
 
+  /// Whether the profile has a camera; null until read. Read once: the button is built anew whenever the Overview
+  /// is shown, e.g. after a camera was added in the Cameras area.
+  bool? _hasProfileCamera;
+
   @override
   void initState() {
     super.initState();
+    _loadHasProfileCamera();
     _pollRunStateWhileShown();
+  }
+
+  Future<void> _loadHasProfileCamera() async {
+    bool? hasProfileCamera;
+    try {
+      final ProfileSummary profileSummary = await widget.backendClient.fetchProfileSummary(widget.profileName);
+      hasProfileCamera = profileSummary.cameras.isNotEmpty;
+    } catch (error) {
+      // Unknown: the button stays usable, and a start without camera is refused by the backend with the reason
+      hasProfileCamera = null;
+    }
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _hasProfileCamera = hasProfileCamera;
+    });
   }
 
   /// Asks for the run state until the view is gone; one request at a time, so a slow answer is never overtaken.
@@ -270,8 +292,12 @@ class _ProfileRunViewState extends State<ProfileRunView> {
     if (pollErrorText != null) {
       tooltipText = WizardStrings.getRunStateReadErrorText(pollErrorText: pollErrorText);
     }
-    // Pressable only once the state is known, and not twice in a row
-    if (_isChangingRun || _isLoadingAppMenu || runState == null) {
+    final bool isMissingCamera = _hasProfileCamera == false && !isRunning;
+    if (isMissingCamera) {
+      tooltipText = WizardStrings.runNeedsCameraTooltip;
+    }
+    // Pressable only once the state is known, with a camera to start, and not twice in a row
+    if (_isChangingRun || _isLoadingAppMenu || runState == null || isMissingCamera) {
       onPressed = null;
       backgroundColor = colorScheme.surfaceContainerHighest;
       foregroundColor = colorScheme.onSurfaceVariant;

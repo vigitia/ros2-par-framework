@@ -26,7 +26,8 @@ from par_framework_core.launch_helpers import (FILE_NAME_PART_PATTERN, FOLDER_PA
                                                get_camera_namespace,
                                                get_installed_par_setup_path,
                                                get_path_in_config_folder, get_profile_file_path,
-                                               PAR_LAUNCH_APP_INPUTS_KEY, ProfileCamera,
+                                               PAR_LAUNCH_APP_INPUTS_KEY,
+                                               PAR_LAUNCH_CAMERAS_KEY, ProfileCamera,
                                                PROFILE_FILE_EXTENSION, read_launch_section,
                                                read_profile_cameras)
 from pydantic import BaseModel
@@ -46,6 +47,10 @@ DELETED_NODE_SECTIONS_FILE_NAME = 'node_sections.yaml'
 # What reading a profile raises when it is broken (written by hand): a missing or malformed key,
 # an unreadable file, invalid YAML
 PROFILE_READ_ERROR_TYPES = (RuntimeError, KeyError, OSError, yaml.YAMLError)
+
+# Why a profile without cameras cannot run; a launch refuses it too
+# (launch_helpers.read_profile_cameras)
+NO_CAMERA_TO_RUN_TEXT = 'The profile has no camera yet: add one in the Cameras area first'
 
 # par.launch.py's switch for RViz with rviz_bridge. The Apps area lists RViz as an app under this
 # name (apps_api.py), stored as this switch instead of in par_launch.apps.
@@ -131,13 +136,47 @@ def read_profile_launch_section(profile_name: str) -> dict:
 
 def read_profile_cameras_or_raise(profile_name: str) -> list[ProfileCamera]:
     """Return the profile's cameras (ProfileCamera), the main one first; 409 with the reason."""
-    profile_launch_context = create_profile_launch_context(profile_name)
     try:
-        return read_profile_cameras(profile_launch_context)
+        return read_profile_cameras_allowing_none(profile_name)
     except PROFILE_READ_ERROR_TYPES as error:
         raise HTTPException(status_code=409,
                             detail=f'Cannot read the cameras of {profile_name}: {error}'
                             ) from error
+
+
+def read_profile_cameras_allowing_none(profile_name: str) -> list[ProfileCamera]:
+    """
+    Return the profile's cameras, the main one first; [] when the profile names none yet.
+
+    A new profile starts with an empty par_launch.cameras and gets its cameras in the Cameras
+    area. A launch refuses such a profile (launch_helpers.read_profile_cameras), so the wizard
+    reads that case itself and leaves every other one, broken files included, to launch_helpers.
+    Raises PROFILE_READ_ERROR_TYPES like read_profile_cameras.
+    """
+    profile_launch_parameters = read_profile_own_launch_parameters(profile_name)
+    if profile_launch_parameters.get(PAR_LAUNCH_CAMERAS_KEY) == {}:
+        return []
+    return read_profile_cameras(create_profile_launch_context(profile_name))
+
+
+def read_profile_own_launch_parameters(profile_name: str) -> dict:
+    """
+    Return the par_launch parameters the profile's own file sets, without par_setup.yaml's.
+
+    {} when it sets none or its par_launch section is not a mapping; a broken file is left to the
+    readers that go through launch_helpers. Raises OSError or yaml.YAMLError when unreadable.
+    """
+    with open(get_profile_file_path(profile_name)) as profile_file:
+        profile_document = yaml.safe_load(profile_file) or {}
+    if not isinstance(profile_document, dict):
+        return {}
+    launch_section = profile_document.get(PAR_LAUNCH_NODE_NAME.lstrip('/')) or {}
+    if not isinstance(launch_section, dict):
+        return {}
+    profile_launch_parameters = launch_section.get(ROS_PARAMETERS_KEY) or {}
+    if not isinstance(profile_launch_parameters, dict):
+        return {}
+    return profile_launch_parameters
 
 
 def find_profile_camera(profile_cameras: list[ProfileCamera], camera_name: str) -> ProfileCamera:

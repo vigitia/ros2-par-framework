@@ -38,12 +38,12 @@ def launch_setup(context):
             (f'{namespace}/rgb/image_raw', f'{namespace}/image_raw'),
             (f'{namespace}/rgb/camera_info', f'{namespace}/camera_info'),
             (f'{namespace}/depth_to_rgb/image_raw', f'{namespace}/depth_registered/image_raw'),
-            # Infrared transformed onto the colour image's grid by the driver (its ir/image_raw
-            # is on the depth grid). Each remapping applies to the driver's original name only,
-            # so the next line does not move this one again
+            # Infrared transformed onto the colour image's grid by the driver (its depth_ir is on
+            # the depth grid). image_transport applies these rules twice, so no target here may be
+            # another rule's source, or a topic is moved on to that rule's target
             (f'{namespace}/ir_to_rgb/image_raw', f'{namespace}/ir/image_raw'),
             # The depth sensor's own infrared and depth, e.g. for hand_landmarks with use_ir
-            (f'{namespace}/ir/image_raw', f'{namespace}/depth_sensor/ir/image_raw'),
+            (f'{namespace}/depth_ir/image_raw', f'{namespace}/depth_sensor/ir/image_raw'),
             (f'{namespace}/depth/image_raw', f'{namespace}/depth_sensor/depth/image_raw'),
             (f'{namespace}/depth/camera_info', f'{namespace}/depth_sensor/camera_info'),
         ],

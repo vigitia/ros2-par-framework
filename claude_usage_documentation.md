@@ -5386,3 +5386,62 @@ Sensor nodes areas, whose add dialogs need the installed parts in the same list.
 ### Why / alternatives
 - fiducials_detector got a dedicated bool switch; a window size of 0 would now be rejected as
   invalid, so the override had to switch the mode itself rather than the size.
+
+## 2026-11-17: setup wizard backend: profiles without cameras
+
+**What changed:**
+- `POST /api/profiles` takes only the profile's name and display name and writes `par_launch.cameras: {}`
+  (`profiles_api.py`); the cameras, the projector and the setting changes of the removed step-by-step wizard are
+  gone from the request, together with the new-profile settings carry-over in `camera_launch_session.py` and
+  `DELETE /api/camera-preview/new-profile-settings`.
+- `profile_files.read_profile_cameras_allowing_none` returns `[]` for a profile whose own file names an empty
+  camera list; `read_profile_cameras_or_raise` and the profile summary use it. Removing the last camera is allowed.
+- Setup geometry, the sensor-node debug run and `POST /api/run/start` handle a profile without cameras (no
+  projection mapping; 409 with `NO_CAMERA_TO_RUN_TEXT`).
+- The camera summary has `has_projection_mapping` (the camera's mapping file exists), for the Cameras area's marks.
+
+**Why:** A new profile is created from its name alone and gets its cameras in the Cameras area (Vitus' request).
+
+**Decisions and rejected alternatives:**
+- *The wizard tolerates the empty list; `launch_helpers.read_profile_cameras` keeps refusing it.* A launch must not
+  start a profile without cameras, and an empty `cameras: {}` in the profile keeps par_setup.yaml's default camera
+  from being taken over unnoticed. Rejected: returning `[]` from launch_helpers (every launch file would need its own
+  check before using the main camera); omitting the key (the default camera would silently be used).
+- *The empty case is read from the profile's own file*, the file launch_helpers takes the cameras from when it
+  names them, so every other case (broken files included) still goes through launch_helpers.
+- *The profile-less unit preview stays in the backend* (`create_unit_preview_camera`), although the app no longer
+  starts one: removing it touches the intrinsics and preview code and is a cleanup of its own.
+
+## 2026-11-17: Kinect remapping without a chain
+
+### What changed
+- `camera_kinect.launch.py`: the depth sensor's raw infrared is remapped from the driver's new name
+  `depth_ir/image_raw` to `depth_sensor/ir/image_raw`; the comment states that no target may be
+  another rule's source.
+
+### Why / alternatives
+- image_transport applies a node's remap rules twice, so `ir_to_rgb -> ir` followed by
+  `ir -> depth_sensor/ir` moved the infrared on the colour grid to `depth_sensor/ir/image_raw`, and
+  nothing arrived on `ir/image_raw`. The driver fork now uses a raw infrared name that no rule
+  targets (see its documentation); the launch file alone could not break the chain because the
+  neutral name was also the driver's name.
+
+## 2026-11-17: setup wizard backend: dead code removed
+
+**What changed:**
+- The camera preview without a profile is gone: `create_unit_preview_camera`, `PreviewCamera.is_profile_camera`,
+  the start request's `camera_type`/`serial` (`profile_name` and `camera_name` are required now), and the
+  "no profile" branches in `camera_launch_session.py` (every camera launch passes `profile:=`),
+  `intrinsics_api.py` and `camera_preview_api.py` (settings save without a profile).
+- Response fields nothing reads: `principal_point_x_px`/`_y_px` and `distortion_coefficients` of the intrinsics
+  calibration progress, `image_width_px`/`image_height_px` of the camera's intrinsics state, `commit_text` of a
+  catalog repository (and the `git rev-parse` that filled it).
+
+**Why:** Vitus asked to check the wizard for dead code and remove it. Only the removed step-by-step new-profile
+wizard started a camera without a profile; every screen now previews a camera of a saved profile.
+
+**Decisions and rejected alternatives:**
+- *Response fields used inside the backend stay* (e.g. `node_section_name`, the catalog's package lists): they are
+  part of results the backend works with, not only of answers.
+- Rejected: keeping the profile-less preview for a later "preview a unit before adding it" in the Add camera
+  dialog: nothing plans it yet, and it can come back with that feature.

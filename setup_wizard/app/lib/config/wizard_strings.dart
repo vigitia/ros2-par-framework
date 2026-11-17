@@ -25,7 +25,6 @@ abstract final class WizardStrings {
   static const String calibrateAgainButtonLabel = 'Calibrate again';
   static const String measuringText = 'Measuring …';
   static const String waitingForFirstFrameText = 'Waiting for the first frame …';
-  static const String savingText = 'Saving …';
   static const String warningIconSemanticLabel = 'Warning';
 
   // Backend errors
@@ -78,8 +77,8 @@ abstract final class WizardStrings {
     return '$sourceProfileName copy';
   }
 
-  static String getCopyProfileNameTakenText({required String newProfileName}) {
-    return 'A profile "$newProfileName" exists already. Choose another name.';
+  static String getProfileNameTakenText({required String profileName}) {
+    return 'A profile "$profileName" exists already. Choose another name.';
   }
 
   static const String copyButtonLabel = 'Copy';
@@ -105,6 +104,11 @@ abstract final class WizardStrings {
   }
 
   static const String newProfileMenuLabel = 'New profile';
+  static const String newProfileDialogTitle = 'New profile';
+  static const String newProfileDialogText =
+      'A profile is one hardware setup: its cameras, projector, calibrations and apps. After creating it, its '
+      'Overview lists what is still to do.';
+  static const String createButtonLabel = 'Create';
   static String getCopyProfileMenuLabel({required String copyableProfileName}) {
     return 'Copy $copyableProfileName …';
   }
@@ -119,6 +123,23 @@ abstract final class WizardStrings {
     return '$cameraName: lens calibration (intrinsics)';
   }
 
+  static const String setFocusBeforeLensCalibrationText =
+      'Set focus and exposure first (Image & settings): changing the focus later makes the lens calibration wrong.';
+  static String getCameraPoseTitle({required String cameraName}) {
+    return '$cameraName: camera pose';
+  }
+
+  static const String addCameraToDoTitle = 'Add a camera';
+  static const String addCameraToDoText =
+      'Install its camera type if needed, give it a name, then calibrate it. The profile cannot run without a camera.';
+  static const String chooseProjectorToDoTitle = 'Choose the projector';
+  static const String chooseProjectorToDoText =
+      'Which display the projector is connected to. The projector calibration projects onto it.';
+  static const String chooseButtonLabel = 'Choose';
+  static const String chooseProjectorFirstText = 'Choose the projector first (Projectors).';
+  static const String chooseAppsToDoTitle = 'Choose the apps';
+  static const String chooseAppsToDoText = 'The apps this profile offers when it runs.';
+  static const String openAppsButtonLabel = 'Open Apps';
   static const String cameraPoseMissingText =
       'Its camera pose is missing: without it, the wizard does not know where the camera is above the table.';
   static const String cameraPoseFileUnusableText =
@@ -147,10 +168,8 @@ abstract final class WizardStrings {
     return 'Cannot read the setup\'s calibration: $setupGeometryErrorText';
   }
 
-  static const String notInDrawingHeading = 'Not in the drawing yet';
-  static const String calibrationHeading = 'Calibration';
-  static const String allCalibrationsDoneText = 'All calibrations are done.';
-  static const String nothingMissingText = 'Nothing else is missing.';
+  static const String toDoHeading = 'To do';
+  static const String everythingSetUpText = 'Everything is set up.';
   static String getGeometryErrorText({required String geometryErrorText}) {
     return 'Cannot read $geometryErrorText';
   }
@@ -188,6 +207,7 @@ abstract final class WizardStrings {
   static const String stopProfileErrorText = 'Could not stop the profile.';
   static const String runButtonLabel = 'Run';
   static const String runButtonTooltip = 'Choose the app on the projector and start this profile.';
+  static const String runNeedsCameraTooltip = 'Add a camera first: the profile has none to start.';
   static String getStopOtherProfileButtonLabel({required String? profileName}) {
     return 'Stop $profileName';
   }
@@ -198,95 +218,14 @@ abstract final class WizardStrings {
 
   static const String stopThisProfileTooltip = 'This profile is running. Stop it.';
 
-  // New profile wizard
-  static const String hardwareStepTitle = 'Hardware';
-  static const String cameraSetupStepTitle = 'Camera setup & focus';
-  static const String projectorStepTitle = 'Projector';
-  static const String intrinsicsStepTitle = 'Intrinsics';
-  static const String cameraPoseStepTitle = 'Camera pose';
-  static const String projectorCalibrationStepTitle = 'Projector calibration';
-  static const String addCameraFirstText = 'Add a camera in the Hardware step first.';
+  // New profile and copy: the name dialog
   static String getCreateProfileErrorText({required String? createProfileErrorText}) {
     return 'Could not create the profile: $createProfileErrorText';
   }
 
-  static const String newProfileScreenTitle = 'New profile';
-  static String getCameraProgressText({required int cameraInstanceIndex, required int cameraCount}) {
-    return 'Camera ${cameraInstanceIndex + 1} of $cameraCount';
-  }
-
-  static String getSameCameraUnitText({required String cameraType}) {
-    return 'Every $cameraType shows the same camera for now: choosing which unit belongs to which '
-        'camera comes later.';
-  }
-
-  static const String noCameraForImageText =
-      'No camera was chosen in the Hardware step, so there is no camera image to set up.';
-  static const String noCameraToCalibrateText =
-      'No camera was chosen in the Hardware step, so there is nothing to calibrate.';
-  static const String finishButtonLabel = 'Finish';
-  static String getSaveProfileNextButtonLabel({required String nextPageLabelText}) {
-    return 'Save profile, next: $nextPageLabelText';
-  }
-
-  static String getNextPageButtonLabel({required String nextPageLabelText}) {
-    return 'Next: $nextPageLabelText';
-  }
-
-  static const String profileSavedStepsLockedText =
-      'The profile is saved, so the steps before cannot be changed here any more.';
   static const String profileNameMissingText = 'Enter a profile name.';
-  static String getProfileExistsText({required String internalProfileName}) {
-    return 'The profile "$internalProfileName" exists already, perhaps from a setup that was not finished. '
-        'To continue it, open it from the Profiles menu (top right) and calibrate in its Cameras area. To start '
-        'over, open it there and delete it. Or choose another name.';
-  }
-
-  static const String camerasHeading = 'Cameras';
-  static const String addCamerasHintText = 'Add as many of each as the setup has, or none.';
   static const String profileNameLabel = 'Profile name';
   static const String profileNameHint = 'Lab';
-  static String getHardwareLoadErrorText({required String? backendErrorText}) {
-    return 'Could not load the cameras and profiles: $backendErrorText';
-  }
-
-  static const String noCameraDriverInstalledText = 'No camera driver is installed.';
-  static String getCamerasNotInstalledText({required Iterable<String> notInstalledCameraNames}) {
-    return 'Not installed: ${notInstalledCameraNames.join(', ')}';
-  }
-
-  static String getCameraWithSerialText({required String cameraText, required String serial}) {
-    return '$cameraText (serial $serial)';
-  }
-
-  static String getCamerasInSetupText({required Iterable<String> cameraTexts}) {
-    return 'In this setup: ${cameraTexts.join(', ')}';
-  }
-
-  static String getRemoveOneCameraTooltip({required String cameraType}) {
-    return 'Remove one $cameraType';
-  }
-
-  static String getAddCameraOfTypeTooltip({required String cameraType}) {
-    return 'Add a $cameraType';
-  }
-
-  static const String cameraImageStepText =
-      'First adjust the image settings (e.g. exposure, gain, brightness) until the scene is clearly visible, then '
-      'set the focus. How the focus is set depends on the camera: a setting in the list, a ring on the lens, or a '
-      'control on the device itself. If the camera focuses automatically, switch that off once the image is '
-      'sharp, so the focus stays where it is. A camera with a fixed focus needs no focusing.';
-  static String getCameraSettingsStepTitle({required String cameraName}) {
-    return 'Camera settings: $cameraName';
-  }
-
-  static const String profileWithoutNameText = 'The profile has no name yet: go back to the Hardware step.';
-  static const String measureCameraPoseIntroText = 'Measure where this camera sits above the table.';
-  static const String calibrateProjectorIntroText =
-      'Calibrate the projector against this camera, so projected content lands where the camera '
-      'sees it. This runs at the table, with the projector on.';
-  static const String calibrateLensIntroText = 'Calibrate the lens of this camera, if it needs it.';
-  static const String chooseProjectorDisplayText = 'Which display is the projector? Click its card.';
 
   // Cameras
   static String getAddCameraErrorText({required String backendErrorText}) {
@@ -305,7 +244,9 @@ abstract final class WizardStrings {
   }
 
   static const String addCameraButtonLabel = 'Add camera';
-  static const String noCameraInProfileText = 'The profile has no camera. Add one with "Add camera".';
+  static const String noCameraInProfileText =
+      'The profile has no camera yet. Add one with "Add camera": choose its type (installed first if needed), '
+      'then give it a name.';
   static String getCameraUnitSerialText({required String unitText, required String serial}) {
     return '$unitText, serial $serial';
   }
@@ -314,8 +255,9 @@ abstract final class WizardStrings {
     return '$unitText · main camera (the sensor nodes use it)';
   }
 
-  static const String lastCameraRemoveTooltip = 'A profile needs a camera to run: add another one first.';
   static const String removeCameraTooltip = 'Remove this camera and its calibrations from the profile.';
+  static const String cameraSectionDoneTooltip = 'Done';
+  static const String cameraSectionMissingTooltip = 'Still to do';
   static const String cameraImageSettingsTabLabel = 'Image & settings';
   static const String cameraIntrinsicsTabLabel = 'Intrinsics';
   static const String cameraPoseTabLabel = 'Camera pose';
@@ -369,12 +311,12 @@ abstract final class WizardStrings {
   }
 
   static const String cameraNameLabel = 'Camera name';
-  static String getCameraPreviewErrorText({required String runningCameraName, required String previewErrorText}) {
-    return 'No preview of $runningCameraName: $previewErrorText';
+  static String getCameraPreviewErrorText({required String cameraName, required String previewErrorText}) {
+    return 'No preview of $cameraName: $previewErrorText';
   }
 
-  static String getCameraPreviewStartingText({required String runningCameraName}) {
-    return 'Starting $runningCameraName …';
+  static String getCameraPreviewStartingText({required String cameraName}) {
+    return 'Starting $cameraName …';
   }
 
   static const String lensCalibrationNotNeededText =
@@ -391,8 +333,6 @@ abstract final class WizardStrings {
   }
 
   static const String nothingToSaveText = 'Nothing to save.';
-  static const String cameraSettingsNewProfileText =
-      'Changes apply to the running camera at once and are saved with the new profile when you finish.';
   static String getCameraSettingsSavedRightAwayText({required String profileName}) {
     return 'Changes apply to the running camera at once and are saved in $profileName right away.';
   }
@@ -410,8 +350,8 @@ abstract final class WizardStrings {
   }
 
   static const String saveNowButtonLabel = 'Save now';
-  static String getCameraSettingsTitle({required String runningCameraName}) {
-    return 'Settings: $runningCameraName';
+  static String getCameraSettingsTitle({required String cameraName}) {
+    return 'Settings: $cameraName';
   }
 
   static const String waitingForCameraSettingsText = 'Waiting for the camera to report its settings …';

@@ -120,8 +120,6 @@ class CatalogRepository(BaseModel):
     directory_name: str
     url: str
     branch: str | None = None
-    # The commit the offers were read from (short hash); None until downloaded
-    commit_text: str | None = None
     # The ROS packages in the repository, from its package.xml files
     package_names: list[str] = []
     # The <version> of each of its packages, by package name
@@ -315,8 +313,6 @@ def read_catalog_repository(node_list_entry: NodeListEntry) -> CatalogRepository
         catalog_repository.error_text = 'not downloaded yet: refresh the catalog'
         return catalog_repository
     try:
-        catalog_repository.commit_text = _run_git(['rev-parse', '--short', 'HEAD'], cache_path,
-                                                  GIT_LOCAL_TIMEOUT_S).strip()
         file_paths = _run_git(['ls-tree', '-r', '--name-only', 'HEAD'], cache_path,
                               GIT_LOCAL_TIMEOUT_S).splitlines()
         package_names = set()

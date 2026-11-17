@@ -171,23 +171,12 @@ class SetupWizardBackendClient {
     await sendJson('PUT', '/api/profiles/last-selected', {'profile_name': profileName});
   }
 
-  /// Creates `config/profiles/<profileName>.yaml` with its cameras (in their order, the first is the main camera),
-  /// the projector's display and the setting changes made in the new-profile wizard, each camera's under its name.
+  /// Creates `config/profiles/<profileName>.yaml` without cameras and projector; they are added in the hub's areas.
   /// Throws with the backend's reason, e.g. when the name is taken.
-  Future<void> createProfile({
-    required String profileName,
-    required String profileDisplayName,
-    required List<ProfileCameraUnit> cameras,
-    required int? projectorDisplayId,
-  }) async {
+  Future<void> createProfile({required String profileName, required String profileDisplayName}) async {
     await sendJson('POST', '/api/profiles', {
       'profile_name': profileName,
       'profile_display_name': profileDisplayName,
-      'cameras': [
-        for (final ProfileCameraUnit camera in cameras)
-          {'camera_name': camera.cameraName, 'camera_type': camera.cameraType, 'serial': camera.serial},
-      ],
-      'projector_display_id': projectorDisplayId,
     });
   }
 
@@ -334,6 +323,7 @@ class CameraCalibrationSummary {
     required this.isMainCamera,
     required this.intrinsicsState,
     required this.poseState,
+    required this.hasProjectionMapping,
   });
 
   factory CameraCalibrationSummary.fromJson(Map<String, dynamic> cameraJson) {
@@ -344,6 +334,7 @@ class CameraCalibrationSummary {
       isMainCamera: cameraJson['is_main_camera'] as bool,
       intrinsicsState: IntrinsicsCalibrationState.fromBackendName(cameraJson['intrinsics_state'] as String),
       poseState: CameraPoseState.fromBackendName(cameraJson['pose_state'] as String),
+      hasProjectionMapping: cameraJson['has_projection_mapping'] as bool,
     );
   }
 
@@ -361,6 +352,9 @@ class CameraCalibrationSummary {
 
   final IntrinsicsCalibrationState intrinsicsState;
   final CameraPoseState poseState;
+
+  /// True when the projector is calibrated against this camera.
+  final bool hasProjectionMapping;
 }
 
 /// Whether a camera unit has its lens calibration (backend profiles_api.INTRINSICS_STATE_*).

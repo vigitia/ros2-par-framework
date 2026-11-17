@@ -2,12 +2,11 @@
 """
 Camera launch session of the setup wizard backend: the one camera launch the backend runs.
 
-A camera launch is `ros2 launch par_framework_core <launch file> camera:=<camera> ...` (plus
-`profile:=<name>` for a saved profile) in its own process group: the preview's par.launch.py with
-camera_only:=true, a calibration launch that starts the camera itself, or a sensor node run. Its
-camera is a profile's camera by its name, or a unit no profile names yet as <type>[:<serial>],
-named after its type; its streams are in /cameras/<camera name>/. Whatever launch it is, its
-frames, settings, stop and watchdog work alike for the APIs built on it (previews, focus,
+A camera launch is `ros2 launch par_framework_core <launch file> camera:=<camera>
+profile:=<name> ...` in its own process group: the preview's par.launch.py with camera_only:=true,
+a calibration launch that starts the camera itself, or a sensor node run. Its camera is a saved
+profile's camera by its name; its streams are in /cameras/<camera name>/. Whatever launch it is,
+its frames, settings, stop and watchdog work alike for the APIs built on it (previews, focus,
 intrinsics, extrinsics, sensor node runs, settings reads).
 
 Only one camera launch at a time, and none while this backend runs a profile (run_api.py) or
@@ -36,9 +35,7 @@ from backend_shared_helpers import get_ros2_executable_path, read_log_lines, rea
 from camera_types import read_installed_camera_entry
 from fastapi import HTTPException
 from node_parameters import get_node_parameter_client
-from par_framework_core.launch_helpers import (CAMERA_ENTRY_SERIAL_KEY,
-                                               CAMERA_SERIAL_SOURCE_NONE, CAMERAS_NAMESPACE,
-                                               FILE_NAME_PART_PATTERN, get_camera_namespace)
+from par_framework_core.launch_helpers import CAMERAS_NAMESPACE, get_camera_namespace
 from process_groups import LAUNCH_STOP_SIGNALS, stop_process_group
 from profile_files import (check_profile_exists, find_profile_camera,
                            read_profile_cameras_or_raise)
@@ -62,11 +59,9 @@ WATCHDOG_CHECK_INTERVAL_S = 1.0
 
 # The camera a preview or a calibration launch shows: camera_name names its namespace,
 # camera_type its entry, serial its unit ('' when none is named), camera_argument is the launch's
-# camera:= ('' starts every camera of the profile, e.g. a sensor node run, which shows the first),
-# is_profile_camera tells a profile's camera from a unit started under its type
+# camera:= ('' starts every camera of the profile, e.g. a sensor node run, which shows the first)
 PreviewCamera = collections.namedtuple(
-    'PreviewCamera',
-    ['camera_name', 'camera_type', 'serial', 'camera_argument', 'is_profile_camera'])
+    'PreviewCamera', ['camera_name', 'camera_type', 'serial', 'camera_argument'])
 
 
 class CameraLaunchSession:
@@ -98,16 +93,12 @@ class CameraLaunchSession:
         # time.monotonic() of the last start or frame request, read by the watchdog; set through
         # record_preview_request
         self.last_preview_request_monotonic_s = 0.0
-        # The saved profile the camera was started with; None for par_setup.yaml alone
+        # The profile the camera was started with; None while none runs
         self.profile_name = None
         # Settings changed on this preview's driver and not yet written into a profile, with the
         # values the driver accepted, and the driver node they belong to
         self.unsaved_setting_value_by_name = {}
         self.unsaved_settings_node_name = None
-        # Changes made without a saved profile (in the new-profile wizard), kept after their camera
-        # stopped until the profile is created, per unit:
-        # {(camera type, serial): {driver node name: {setting: value}}}
-        self.new_profile_setting_values_by_unit = {}
 
     def record_preview_request(self, preview_id=None):
         """
@@ -189,24 +180,7 @@ def create_profile_preview_camera(profile_name, camera_name):
     profile_camera = find_profile_camera(read_profile_cameras_or_raise(profile_name), camera_name)
     return PreviewCamera(camera_name=profile_camera.camera_name,
                          camera_type=profile_camera.camera_type, serial=profile_camera.serial,
-                         camera_argument=profile_camera.camera_name, is_profile_camera=True)
-
-
-def create_unit_preview_camera(camera_type, serial):
-    """Return a unit of an installed camera type, named after its type, as a PreviewCamera."""
-    camera_entry = read_installed_camera_entry(camera_type)
-    camera_argument = camera_type
-    if serial:
-        # Comes from the network and ends up in a command line and a file name
-        if not FILE_NAME_PART_PATTERN.fullmatch(serial):
-            raise HTTPException(status_code=422,
-                                detail='A serial number has only letters, digits, _ and -')
-        if camera_entry[CAMERA_ENTRY_SERIAL_KEY] == CAMERA_SERIAL_SOURCE_NONE:
-            raise HTTPException(status_code=422,
-                                detail=f'Cameras of type {camera_type} have no serial numbers')
-        camera_argument = f'{camera_type}:{serial}'
-    return PreviewCamera(camera_name=camera_type, camera_type=camera_type, serial=serial,
-                         camera_argument=camera_argument, is_profile_camera=False)
+                         camera_argument=profile_camera.camera_name)
 
 
 def get_preview_topic_name(session, stream_name):
@@ -222,7 +196,7 @@ def start_camera_launch(preview_camera, profile_name, launch_file_name, launch_a
     Start a launch file of par_framework_core that starts the camera, as the preview's camera.
 
     Stops the camera of an earlier launch first. launch_arguments: ['name:=value', ...]; camera:=
-    is added from preview_camera, profile:= for a saved profile. Returns the new preview id. 409
+    is added from preview_camera, profile:= from profile_name. Returns the new preview id. 409
     while this backend runs a profile.
 
     may_keep_same_launch: when exactly this launch still runs, keep it and only hand out a new
@@ -231,8 +205,7 @@ def start_camera_launch(preview_camera, profile_name, launch_file_name, launch_a
     ignored. Calibration launches pass False: each run starts afresh.
     """
     read_installed_camera_entry(preview_camera.camera_type)
-    if profile_name is not None:
-        check_profile_exists(profile_name)
+    check_profile_exists(profile_name)
     ros2_executable_path = get_ros2_executable_path()
     session = get_camera_launch_session()
     # Held until the camera runs, so a profile run cannot start between the check and the start
@@ -264,8 +237,7 @@ def _create_camera_launch_command(preview_camera, profile_name, ros2_executable_
                              launch_file_name, *launch_arguments]
     if preview_camera.camera_argument:
         camera_launch_command.append(f'camera:={preview_camera.camera_argument}')
-    if profile_name is not None:
-        camera_launch_command.append(f'profile:={profile_name}')
+    camera_launch_command.append(f'profile:={profile_name}')
     return camera_launch_command
 
 
@@ -355,36 +327,6 @@ def get_driver_parameter_client(session):
     return driver_node_name, get_node_parameter_client(session, driver_node_name)
 
 
-def take_new_profile_setting_values():
-    """
-    Return the settings changed without a profile, {(camera type, serial): {driver node: {...}}}.
-
-    Includes the running preview's changes. Forgets them all, also those of units the new profile
-    does not have. The driver nodes are those of the units' previews, named after their types
-    (/cameras/<type>/<driver node>).
-    """
-    session = get_camera_launch_session()
-    with session.session_lock:
-        _keep_unsaved_settings_for_new_profile(session)
-        if session.profile_name is None:
-            session.unsaved_setting_value_by_name = {}
-        setting_values_by_unit = session.new_profile_setting_values_by_unit
-        session.new_profile_setting_values_by_unit = {}
-    return setting_values_by_unit
-
-
-def _keep_unsaved_settings_for_new_profile(session):
-    """Copy a profile-less preview's changes into the kept ones. Hold the session lock."""
-    if session.profile_name is not None or not session.unsaved_setting_value_by_name:
-        return
-    unit_key = (session.preview_camera.camera_type, session.preview_camera.serial)
-    setting_values_by_node_name = session.new_profile_setting_values_by_unit.setdefault(
-        unit_key, {})
-    kept_setting_value_by_name = setting_values_by_node_name.setdefault(
-        session.unsaved_settings_node_name, {})
-    kept_setting_value_by_name.update(session.unsaved_setting_value_by_name)
-
-
 def _stop_camera_process(session: CameraLaunchSession, only_preview_id=None) -> None:
     """
     End the camera's launch: SIGINT like Ctrl+C, then SIGTERM, then SIGKILL.
@@ -419,7 +361,6 @@ def _detach_camera_process(session: CameraLaunchSession):
             session.preview_ros_node.get_camera_image_publishers())
     session.camera_process = None
     session.camera_launch_command = None
-    _keep_unsaved_settings_for_new_profile(session)
     session.preview_camera = None
     session.profile_name = None
     session.unsaved_setting_value_by_name = {}

@@ -305,7 +305,7 @@ class _ExtrinsicsCalibrationViewState extends State<ExtrinsicsCalibrationView> {
     final Widget imageArea = CameraPreviewView(
       key: _cameraPreviewViewKey,
       backendClient: widget.backendClient,
-      previewCamera: PreviewCameraChoice.profileCamera(profileName: widget.profileName, cameraName: widget.cameraName),
+      previewCamera: PreviewCameraChoice(profileName: widget.profileName, cameraName: widget.cameraName),
     );
     final Widget controlsArea = _buildControlsArea();
     return LayoutBuilder(builder: (BuildContext context, BoxConstraints constraints) {

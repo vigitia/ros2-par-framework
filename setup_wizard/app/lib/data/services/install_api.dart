@@ -238,16 +238,6 @@ class InstallPlan {
   final List<PlannedInstallItem> rosPackages;
 
   bool get isEmpty => repositories.isEmpty && rosPackages.isEmpty;
-
-  /// The planned repository with that directory name; null when the plan does not add it.
-  PlannedInstallItem? findRepository(String directoryName) {
-    for (final PlannedInstallItem repository in repositories) {
-      if (repository.name == directoryName) {
-        return repository;
-      }
-    }
-    return null;
-  }
 }
 
 class InstallState {

@@ -44,7 +44,8 @@ from par_framework_core.launch_helpers import (get_app_input_camera_names,
                                                PAR_APP_ENTRY_INPUTS_KEY, PROJECTOR_APP_NONE,
                                                read_offered_par_app_names, read_par_app_entry,
                                                read_sensor_node_entry, RENDERING_MANAGER_APP_NAME)
-from profile_files import (PAR_LAUNCH_NODE_NAME, read_profile_cameras_or_raise,
+from profile_files import (NO_CAMERA_TO_RUN_TEXT, PAR_LAUNCH_NODE_NAME,
+                           read_profile_cameras_or_raise,
                            read_profile_launch_section, write_node_settings_into_profile)
 from pydantic import BaseModel
 from rclpy.exceptions import InvalidTopicNameException
@@ -389,12 +390,15 @@ def _get_app_requirements(launch_section, profile_camera_names):
 
 
 def _start_run(profile_name):
-    main_camera = read_profile_cameras_or_raise(profile_name)[0]
+    profile_cameras = read_profile_cameras_or_raise(profile_name)
+    if not profile_cameras:
+        raise HTTPException(status_code=409, detail=NO_CAMERA_TO_RUN_TEXT)
+    main_camera = profile_cameras[0]
     # No camera:=, so every camera of the profile starts. The preview session is named after the
     # main camera; the app shows each camera's image by its topic
     preview_camera = PreviewCamera(
         camera_name=main_camera.camera_name, camera_type=main_camera.camera_type,
-        serial=main_camera.serial, camera_argument='', is_profile_camera=True)
+        serial=main_camera.serial, camera_argument='')
     return start_camera_launch(preview_camera, profile_name, SENSOR_NODES_LAUNCH_FILE_NAME,
                                RUN_LAUNCH_ARGUMENTS)
 

@@ -477,3 +477,69 @@ repositories; a separate Install area was rejected by him.
 **Found on the way:** the release build reused an old trimmed icon font (`build/flutter_assets`), so icons added
 since were blank, among them "Add repository"'s. A build with `--no-tree-shake-icons` writes the full font; `flutter
 clean` once resets the stale build cache. A fresh clone is not affected.
+
+## 2026-11-17 — Setup wizard: new profile without the step-by-step wizard
+
+**What changed:**
+- "New profile" in the profile menu opens a name dialog (`ui/profiles/profile_name_dialog.dart`, which the copy uses
+  too; it replaces `copy_profile_dialog.dart` and holds the friendly-to-internal name helpers). The profile is
+  created without cameras and projector, selected, and the hub shows its Overview.
+- The Overview's missing calibrations became one "To do" list (`_MissingSetupStep`): add a camera, choose the
+  projector, per camera lens calibration (with the hint to set focus and exposure first) and camera pose, the
+  projector calibration on the main camera, the apps, the optional projector position. Each row has a button into
+  its area; the projector calibration without a chosen projector says to choose it first and has no button.
+- Cameras area: each section button shows done (check) or still to do (empty circle) where the step is tracked
+  (lens: calibrated or factory; pose: measured; projector: a mapping exists, needed only on the main camera). A
+  camera just added opens on Image & settings. Opened from the To do list's "Add camera", the area starts with the
+  Add camera dialog. Remove works for the last camera too. The projector section without a projector says to choose
+  it first; the lens section shows the focus hint while the lens is uncalibrated.
+- Run is disabled with a tooltip while the profile has no camera.
+- Removed: `ui/new_profile/` (stepper, hardware, camera image, projector, intrinsics and extrinsics steps), its
+  strings, `createProfile`'s camera and projector arguments, `discardNewProfileSettings`.
+- Renamed: `_MissingCalibrationStep` → `_MissingSetupStep`, `_buildSetupRows` → `_buildSetupDrawingAndToDoRows`,
+  `choice` → `addCameraChoice` (cameras_screen.dart).
+
+**Why:** Vitus' request: a new profile should land on its Overview at once and say what to do, instead of leading
+through fixed steps.
+
+**Decisions and rejected alternatives:**
+- *Focus as a hint on the lens calibration to-do* (Vitus) instead of an own to-do ticked when settings are saved,
+  which would need a stored "focus done" flag per camera.
+- *The app choice is a to-do, sensor nodes are not* (Vitus).
+- *Done/to-do marks on the section buttons* (Vitus) instead of also opening the next missing section by itself after
+  a calibration is saved. A just-added camera opens Image & settings rather than its first uncalibrated section,
+  since focus and exposure come before the lens calibration.
+- *One To do list* instead of the former two headings ("Not in the drawing yet", "Calibration"): adding a camera and
+  choosing the projector or apps are not calibrations, and one ordered list says what comes next.
+- *Marks refresh when another section is chosen* (`Simplification:` none in code; noted here): a calibration saved
+  inside a section shows as done once the user switches sections or reopens the area.
+
+## 2026-11-17 — Setup wizard: profile menu keeps a gap to the window's right edge
+
+**What changed:** the profile menu (`profile_selector_view.dart`) is a `PopupMenuButton` instead of a `MenuAnchor`;
+each entry is a `PopupMenuItem` whose value is the action, run in `onSelected` after the menu has closed.
+
+**Why:** Vitus' report: the opened menu still touched the window's right edge. `MenuAnchor` moves a menu that would
+leave the window to the edge of the window minus `MediaQuery.padding`, read in its overlay, so its `alignmentOffset`
+is undone and a `MediaQuery` around the anchor does not reach it; its `reservedPadding` only limits the menu's size.
+`PopupMenuButton` keeps every menu 8 px from the window's edges.
+
+**Decisions and rejected alternatives:**
+- *Actions as menu values, run in `onSelected`*, instead of `PopupMenuItem.onTap`: `onSelected` runs after the
+  menu's route is gone, so the name and delete dialogs it opens are not closed with it.
+- Rejected: a negative `alignmentOffset` sized to the menu (the menu's width depends on the profile names);
+  mirroring the anchor with right-to-left text direction (the entries would need flipping back).
+
+## 2026-11-17 — Setup wizard: dead code removed
+
+**What changed:** `PreviewCameraChoice` is a profile camera only (one constructor with `profileName` and
+`cameraName`; `.unit`, `cameraType`, `serial` and `runningCameraName` are gone, the strings take `cameraName`).
+`CameraSettingsView` saves into `previewCamera.profileName` instead of a profile read from the backend's answer,
+which removes its "running without a profile" branch and string. `PlannedInstall.findRepository` is removed.
+
+**Why:** Vitus asked to check the wizard for dead code and remove it; nothing starts a preview without a profile
+since the step-by-step new-profile wizard is gone, and nothing called `findRepository`.
+
+**Decisions and rejected alternatives:**
+- *The settings report's `profileName` stays nullable* and is still compared with the shown camera's: the backend
+  answers for whatever camera runs, also none, so a report of another or a stopped camera is still recognised.
