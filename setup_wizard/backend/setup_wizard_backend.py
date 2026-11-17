@@ -21,6 +21,7 @@ import displays_api
 import extrinsics_api
 from fastapi import FastAPI
 import focus_api
+import install_api
 import intrinsics_api
 import node_settings_api
 import profiles_api
@@ -60,6 +61,7 @@ setup_wizard_backend_app.include_router(sensor_nodes_api.sensor_nodes_router)
 setup_wizard_backend_app.include_router(run_api.run_router)
 setup_wizard_backend_app.include_router(setup_geometry_api.setup_geometry_router)
 setup_wizard_backend_app.include_router(node_settings_api.node_settings_router)
+setup_wizard_backend_app.include_router(install_api.install_router)
 
 
 @setup_wizard_backend_app.get('/api/status')

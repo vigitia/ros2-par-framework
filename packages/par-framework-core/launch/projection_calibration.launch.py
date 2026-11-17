@@ -52,7 +52,7 @@ DEPTH_REGISTERED_STREAM_NAME = 'depth_registered/image_raw'
 # fiducials_detector for (small, moving, found by tracking): detection runs with its general
 # settings, whatever the profile sets. The values are those of par_setup.yaml
 FIDUCIALS_DETECTOR_GENERAL_DETECTION_PARAMETERS = {
-    'tracking_window_size_px': 0,
+    'tracking_mode': False,
     'adaptive_thresh_win_size_min_px': 3,
     'adaptive_thresh_win_size_max_px': 23,
     'bit_sample_px_per_cell': 4,

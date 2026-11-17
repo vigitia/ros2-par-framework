@@ -272,16 +272,10 @@ def main(args=None):
     except (KeyboardInterrupt, ExternalShutdownException):
         pass
     except Exception:
-        # rclpy's signal handler shuts the context down while spin is running. Depending on
-        # timing a callback or the executor then fails with an RCLError ("context is invalid")
-        # instead of ExternalShutdownException. Errors after the shutdown are just that race;
-        # errors while the context is still valid are real and re-raised.
         if rclpy.ok():
             raise
     finally:
         node.destroy_node()
-        # The signal handler may have shut the context down already, and a second
-        # rclpy.shutdown() raises
         rclpy.try_shutdown()
 
 

@@ -31,8 +31,12 @@ TODO: In the future a proper wizard/installer will take care of this
 
 ```bash
 ./scripts/local_build.sh           # clone the core nodes, install dependencies, build
+./scripts/start_setup_wizard.sh    # or: build what is missing and open the setup wizard (setup_wizard/README.md)
 ```
-`local_build.sh` is safe to re-run — that is also how you pull node updates. It installs only what every setup needs
+`local_build.sh` is safe to re-run — that is also how you pull node updates. Missing build tools (rosdep with
+`rosdep init`/`update`, colcon, Python's venv, cargo where a node needs it) are installed on the way; it asks for your
+sudo password for that and for the nodes' apt packages. `--non-interactive` never asks: it prints the one
+`sudo ...` command to run instead and exits with code 3 (the setup wizard uses it). It installs only what every setup needs
 (`config/nodes.list`). Cameras, sensor processing nodes and apps are chosen per installation: add their lines from
 `config/node_catalog.list` to `config/store_installed.list` (released camera drivers: their rosdep key to
 `config/store_ros_packages.list`) and re-run it. For everything: `cp config/node_catalog.list config/store_installed.list`.

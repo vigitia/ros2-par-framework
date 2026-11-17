@@ -30,6 +30,19 @@ assets from there.
 
 ## Run
 
+One command does all of it, also on a fresh clone with nothing built:
+
+```bash
+./scripts/start_setup_wizard.sh
+```
+
+It checks ROS 2 and the GitHub SSH key, builds the workspace (`local_build.sh`) and the app when they are missing,
+starts the backend (log: `log/setup_wizard_backend.log`) unless one already runs, and then the app. Closing the app
+stops the backend it started. Flutter itself is the one thing to install by hand; its Linux build tools are installed
+on the way.
+
+By hand:
+
 1. Start the backend, in bash from the repository root (ROS's setup scripts only source in bash):
 
    ```bash

@@ -5200,3 +5200,126 @@ because `rosdep --ignore-src` tries to resolve a missing workspace package as a 
 - *Same format and parser for every list* instead of a new YAML format, so the shell scripts need no new parser.
 - *Store list entries never override the core list,* so a store install cannot move a core repository to another
   branch.
+
+## 2026-11-17: local_build.sh installs its build tools; --non-interactive
+
+**What changed:** Step 2 of `scripts/local_build.sh` now installs missing build tools before the nodes' apt
+dependencies: `git`, `python3-rosdep`, `python3-colcon-common-extensions`, `python3-venv` (only while `.venv` is
+missing and Python lacks `ensurepip`), and `cargo` (only in a full build with a `src/*/Cargo.toml`). It also runs
+`sudo rosdep init` when rosdep's sources folder is empty, and `rosdep update` when its cache is missing. They are
+installed with one `sudo apt-get install` line. New option `--non-interactive`: nothing that needs root is run.
+Instead, rosdep lists the missing packages with `--simulate`; tools and rosdep packages are merged into one line
+`needs sudo: sudo apt-get install -y ... [&& sudo rosdep init]`, and the script exits with code 3. A ROS
+installation that is missing points to the ROS install guide. An unknown option fails with the usage text. README
+updated.
+
+**Why:** Step 2 of the plan "Fresh Install from the Setup Wizard". Vitus wants build tools installed automatically, with
+only ROS installed by hand. The wizard's backend has no root rights and no terminal, so it needs a mode that reports
+the root command instead of waiting for a password prompt. This follows the earlier decision that the store shows the
+`sudo` command.
+
+**Decisions:**
+- *One merged command line*, so the user runs one command per round instead of one per tool or package. When rosdep
+  itself is missing or not initialised, it cannot list the nodes' packages yet, so a second round may follow.
+- *The same check in both modes*: the interactive mode runs the line itself, so a terminal user and the wizard get the
+  same tools.
+- *Exit code 3 plus a prefixed line* instead of a structured output format: the backend only needs one value, and the
+  log stays readable for people.
+- Rejected: `pkexec` or running the backend as root (decided earlier for the wizard); installing ROS itself
+  (distribution-specific apt sources).
+
+## 2026-11-17: scripts/start_setup_wizard.sh
+
+**What changed:** A new script starts the setup wizard, also on a fresh clone. In order, it:
+- checks that ROS 2 is installed (otherwise it points to the install guide);
+- warns when the node lists contain `git@github.com:` URLs but GitHub rejects this machine's SSH key, with the
+  commands that add one;
+- runs `local_build.sh` when the backend's packages (`par_framework_core`, `par_geometry`) or its Python packages in
+  `.venv` are missing;
+- builds the Flutter app when its bundle is missing, installing Flutter's Linux build tools (clang, cmake,
+  ninja-build, pkg-config, libgtk-3-dev) first;
+- starts the backend with a sourced environment, unless one already answers on its status URL; the backend's output
+  goes to `log/setup_wizard_backend.log`;
+- waits until the backend answers, then runs the app. Closing the app, or Ctrl+C, stops the backend the script
+  started: SIGINT first, so it stops its own launches, SIGTERM after 10 s, and SIGKILL after another 10 s, with a
+  warning that launches it started may still run. Now and then the backend ignores SIGINT and SIGTERM alike while it
+  keeps answering requests, so uvicorn's signal handler never runs. This was seen in 3 of about 20 test starts, and
+  the cause was not found: rclpy is initialised without signal handlers, and neither a single request, an idle time,
+  nor a catalog refresh reproduced it alone. A backend left running would hold the port and block the next start,
+  so the script kills it.
+
+Both READMEs mention the script.
+
+**Why:** Step 3 of the plan "Fresh Install from the Setup Wizard". Starting the wizard took a build, two sourced
+terminals and a separate app start. A fresh machine should need only ROS and one command.
+
+**Decisions:**
+- *Flutter is checked, not installed.* It has no apt package; the official installs are a download or a snap, so the
+  script names the guide. Its Linux build tools come from apt and are installed. This is the one prerequisite
+  besides ROS.
+- *A running backend is reused* instead of starting a second one, which would fail on the busy port.
+- *The SSH check only warns*: a store list with HTTPS URLs, or repositories already cloned, still work. The check
+  disappears once no list has SSH URLs (the repositories become public).
+- *The status check uses Python's urllib*, because a fresh Ubuntu has no curl.
+- *SIGKILL as the last step* (changed the same day after the test above): leaving a stuck backend running was
+  rejected, because the next start would fail on the busy port.
+
+
+## 2026-11-17: `temporal_mean_frame_count` removed from `par_setup.yaml`
+
+**What changed:** the `fiducials_detector_node` section no longer lists `temporal_mean_frame_count`.
+
+**Why:** the fiducials detector no longer has the detection on the mean of several frames (see that package's
+documentation). A parameter the node does not declare is silently ignored, so the entry would only mislead.
+
+## 2026-11-17: Node catalog in the setup wizard backend
+
+**What changed:**
+- `launch_helpers`: the YAML parsing of an ament index entry and the key checks of the three entry kinds are now
+  functions of their own: `parse_ament_index_entry_text`, `check_camera_entry`, `check_par_app_entry` and
+  `check_sensor_node_entry`. The `read_*_entry` functions call them, so their behaviour is unchanged.
+- New `setup_wizard/backend/node_catalog.py` (logic only):
+  - reads `config/node_catalog.list` with the same rules as `scripts/common.sh`, refusing directory names that are
+    no plain folder name and values starting with `-`;
+  - keeps a blob-less clone without checkout per repository in `$XDG_CACHE_HOME/par_setup_wizard/catalog/`
+    (default `~/.cache`), refreshed with a shallow fetch of the listed branch;
+  - finds every `resource/par_framework_{apps,cameras,sensor_nodes}/<name>` and `package.xml` in the commit
+    (`git ls-tree`), reads only those (`git show`), and checks the entries with the functions above;
+  - computes an install plan: chosen offers → their repositories, the packages they require, and transitively the
+    `package.xml` dependencies. A package another catalog repository provides adds that repository; an installed
+    one adds nothing. A camera's other required packages become rosdep keys; other dependencies are left to rosdep.
+  - Git runs without a terminal (`GIT_TERMINAL_PROMPT=0`, ssh `BatchMode`), with timeouts.
+- New `setup_wizard/backend/install_api.py`:
+  - `POST/GET /api/catalog/refresh` downloads in a background thread, four repositories at a time, with a status and
+    git's error per repository;
+  - `GET /api/catalog` returns every offer with its installed state, plus the installed camera types no catalog
+    repository offers (e.g. core's), so their released drivers can be chosen;
+  - `POST /api/install/plan` returns the plan with "needed by" names per repository and rosdep key.
+  - The router is registered in `setup_wizard_backend.py`.
+
+**Why:** Step 4 of the plan "Fresh Install from the Setup Wizard". The wizard must show what can be installed before
+anything is cloned. Vitus decided that what a repository offers is read from the repository itself.
+
+**Decisions:**
+- *A blob-less clone per repository* instead of the GitHub contents API: it works with any git host and the same SSH
+  key as cloning, needs no extra tool or login, and downloads only the commit's file list plus the few files read.
+  Rejected: a full clone into `src/` just to read it, which would make the choice meaningless.
+- *One validation for installed and remote entries*, by splitting the readers, instead of a second, looser parser in
+  the backend that could accept entries the framework later refuses.
+- *Dependencies from `package.xml` plus the index entries' requirement keys* (`required_launch_switches`,
+  `required_sensor_nodes`, a camera's `required_packages` and `package`). Framework nodes are not released packages,
+  so rosdep cannot resolve them; the catalog maps them to repositories.
+- *In-memory catalog, read from the clones on the first request after a restart*, so the wizard shows the last state
+  without the network.
+
+## 2026-11-17: fiducials_detector tracking switched by `tracking_mode`
+
+### What changed
+- `par_setup.yaml`: `tracking_mode: false` plus `tracking_window_size_px: 200`, instead of
+  `tracking_window_size_px: 0` meaning "off".
+- `projection_calibration.launch.py`: forces `tracking_mode: False` instead of a window size of 0,
+  so a profile that enables tracking does not leak into projection calibration.
+
+### Why / alternatives
+- fiducials_detector got a dedicated bool switch; a window size of 0 would now be rejected as
+  invalid, so the override had to switch the mode itself rather than the size.

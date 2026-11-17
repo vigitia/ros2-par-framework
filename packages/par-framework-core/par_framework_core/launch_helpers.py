@@ -576,6 +576,18 @@ def read_camera_entry(camera_type):
                                     get_camera_type_names(), 'templates/par_camera/')
     error_start_text = (f'[launch_helpers]: the camera entry of {camera_type} '
                         f'(share/ament_index/resource_index/{CAMERA_RESOURCE_TYPE}/{camera_type})')
+    return check_camera_entry(entry, error_start_text)
+
+
+# Co-authored by Claude Code: split from read_camera_entry, so the setup wizard checks entries of
+# repositories that are not installed yet the same way
+def check_camera_entry(entry, error_start_text):
+    """
+    Return a camera type's entry (a mapping) checked, a dict with every key of the format.
+
+    Raises RuntimeError starting with error_start_text when a key is unknown, missing or of the
+    wrong type.
+    """
     other_keys = (CAMERA_ENTRY_BODY_FRAME_KEY, CAMERA_ENTRY_STREAMS_KEY,
                   CAMERA_ENTRY_INTRINSICS_KEY)
     required_keys = CAMERA_ENTRY_TEXT_KEYS + CAMERA_ENTRY_NAME_KEYS + other_keys
@@ -936,7 +948,19 @@ def read_par_app_entry(app_package_name):
                         f'{app_package_name})')
     entry = _read_ament_index_entry(PAR_APP_RESOURCE_TYPE, app_package_name, 'PAR app',
                                     get_par_app_package_names(), 'templates/par_app/')
+    return check_par_app_entry(entry, error_start_text)
 
+
+# Co-authored by Claude Code: split from read_par_app_entry, so the setup wizard checks entries of
+# repositories that are not installed yet the same way
+def check_par_app_entry(entry, error_start_text):
+    """
+    Return a PAR app's entry (a mapping) checked, a dict with every key of the format.
+
+    executable or launch_file is set, the other one is None; the lists are empty when left out.
+    Raises RuntimeError starting with error_start_text when a key is unknown, missing or of the
+    wrong type.
+    """
     known_keys = (PAR_APP_ENTRY_TEXT_KEYS + PAR_APP_ENTRY_START_KEYS + PAR_APP_ENTRY_LIST_KEYS
                   + (PAR_APP_ENTRY_INPUTS_KEY,))
     unknown_keys = sorted(set(entry) - set(known_keys))
@@ -1106,6 +1130,18 @@ def _read_ament_index_entry(resource_type, package_name, entry_kind_text, instal
                            f'run ./scripts/local_build.sh')
     error_start_text = (f'[launch_helpers]: the {entry_kind_text} entry of {package_name} '
                         f'(share/ament_index/resource_index/{resource_type}/{package_name})')
+    return parse_ament_index_entry_text(entry_text, error_start_text, blueprint_path)
+
+
+# Co-authored by Claude Code: split from _read_ament_index_entry, so the setup wizard checks
+# entries read from a repository that is not installed yet the same way
+def parse_ament_index_entry_text(entry_text, error_start_text, blueprint_path):
+    """
+    Return an ament index entry's text loaded as a YAML mapping.
+
+    error_start_text names the entry in the error, e.g. "the camera entry of brio (...)". Raises
+    RuntimeError naming the fix when the text is no YAML mapping; the caller checks the keys.
+    """
     # The entry comes from another repo: every key is checked by the caller, so a typo fails at
     # start instead of e.g. silently not starting a node
     try:
@@ -1143,6 +1179,18 @@ def read_sensor_node_entry(sensor_node_package_name):
     error_start_text = (f'[launch_helpers]: the sensor node entry of {sensor_node_package_name} '
                         f'(share/ament_index/resource_index/{SENSOR_NODE_RESOURCE_TYPE}/'
                         f'{sensor_node_package_name})')
+    return check_sensor_node_entry(entry, error_start_text)
+
+
+# Co-authored by Claude Code: split from read_sensor_node_entry, so the setup wizard checks
+# entries of repositories that are not installed yet the same way
+def check_sensor_node_entry(entry, error_start_text):
+    """
+    Return a sensor processing node's entry (a mapping) checked, with every key of the format.
+
+    required_sensor_nodes is empty when left out. Raises RuntimeError starting with
+    error_start_text when a key is unknown, missing or of the wrong type.
+    """
     known_keys = SENSOR_NODE_ENTRY_TEXT_KEYS + SENSOR_NODE_ENTRY_LIST_KEYS
     unknown_keys = sorted(set(entry) - set(known_keys))
     if unknown_keys:
