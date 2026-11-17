@@ -22,7 +22,7 @@
     camera_resolution_y: 1080
     camera_fps: 60
     exposure_time_ms: 10.0
-    # (0-255, node default 0).
+    # (0-255).
     gain: 64
     # Publish image_rect_color, needs calibration.
     undistort_frame: false

@@ -5,7 +5,7 @@ from geometry_msgs.msg import Point
 import numpy as np
 from par_framework_interfaces.msg import (FiducialsList, HandLandmarksList, ObjectList, PageList,
                                           ProjectionCorners, ProjectionMapping)
-from par_geometry import (homography_from_msg, pixels_to_table, projector_to_table,
+from par_geometry import (get_homography_from_mapping_msg, pixels_to_table, projector_to_table,
                           quaternion_to_rotation_matrix)
 import rclpy
 from rclpy.executors import ExternalShutdownException
@@ -168,17 +168,19 @@ class RvizBridgeNode(Node):
     # Co-authored by Claude Code: the projector's optical centre and its light cone
     def publish_projector_outline(self):
         """Draw where the calibrated projector image lies on the table, and the projector."""
-        mapping = self.projection_mapping
-        if mapping is None:
+        projection_mapping_msg = self.projection_mapping
+        if projection_mapping_msg is None:
             return
-        width_px = mapping.projector_width
-        height_px = mapping.projector_height
+        width_px = projection_mapping_msg.projector_width
+        height_px = projection_mapping_msg.projector_height
         image_corners_px = [(0, 0), (width_px, 0), (width_px, height_px), (0, height_px)]
         # The projector's corners back onto the table: no camera needed, only the mapping
-        table_corners_m = projector_to_table(homography_from_msg(mapping), image_corners_px)
+        table_to_projector_homography = get_homography_from_mapping_msg(projection_mapping_msg)
+        table_corners_m = projector_to_table(table_to_projector_homography, image_corners_px)
         corner_points = [Point(x=x, y=y, z=PROJECTOR_OUTLINE_HEIGHT_M)
                          for x, y in table_corners_m]
-        header = Header(stamp=self.get_clock().now().to_msg(), frame_id=mapping.header.frame_id)
+        header = Header(stamp=self.get_clock().now().to_msg(),
+                        frame_id=projection_mapping_msg.header.frame_id)
         outline_marker = Marker(header=header, ns='projector_outline', id=0,
                                 type=Marker.LINE_STRIP, color=PROJECTOR_COLOR,
                                 points=corner_points + corner_points[:1])
@@ -192,10 +194,10 @@ class RvizBridgeNode(Node):
         cone_marker = Marker(header=header, ns='projector_cone', id=0, type=Marker.LINE_LIST,
                              color=PROJECTOR_COLOR)
         cone_marker.scale.x = LINE_WIDTH_M
-        if mapping.projector_center_valid:
-            center_marker.pose.position = mapping.projector_center
+        if projection_mapping_msg.projector_center_valid:
+            center_marker.pose.position = projection_mapping_msg.projector_center
             for corner_point in corner_points:
-                cone_marker.points.append(mapping.projector_center)
+                cone_marker.points.append(projection_mapping_msg.projector_center)
                 cone_marker.points.append(corner_point)
         else:
             # Without a calibrated centre, one shown for an earlier mapping must go

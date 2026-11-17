@@ -5,7 +5,8 @@ Coordinate conversions of the PAR framework, free of ROS plumbing.
 camera pixels --pixels_to_table--> table (metres, z = 0 of world) --table_to_projector-->
 projector pixels, and back with projector_to_table and table_to_pixels. Above the table: a depth
 image --depth_to_table--> table frame points --project_to_table--> the table points lit by the
-same projector pixels, given the projector's optical centre (found with intersect_rays).
+same projector pixels, given the projector's optical centre (found with
+compute_closest_point_to_rays).
 """
 
 import cv2
@@ -21,44 +22,47 @@ def quaternion_to_rotation_matrix(x, y, z, w):
     ])
 
 
-def pixels_to_table(pixels, camera_matrix, distortion_coefficients, rotation, translation_m):
+def pixels_to_table(camera_pixels, camera_matrix, distortion_coefficients,
+                    rotation_optical_in_table, translation_optical_in_table_m):
     """
     Project pixels of the raw camera image onto the plane z = 0 of the table frame.
 
-    rotation and translation_m are the pose of the optical frame in the table frame. Returns the
-    hits as an Nx3 array in metres, dropping pixels whose ray misses the table.
+    rotation_optical_in_table and translation_optical_in_table_m are the pose of the optical
+    frame in the table frame. Returns the hits as an Nx3 array in metres, dropping pixels whose
+    ray misses the table.
     """
-    points = np.asarray(pixels, np.float64).reshape(-1, 1, 2)
+    distorted_pixels = np.asarray(camera_pixels, np.float64).reshape(-1, 1, 2)
     # Distortion removed: each pixel becomes the direction (x, y, 1) of its ray in the optical
     # frame
-    normalized_points = cv2.undistortPoints(points, camera_matrix,
+    normalized_points = cv2.undistortPoints(distorted_pixels, camera_matrix,
                                             distortion_coefficients).reshape(-1, 2)
     optical_rays = np.column_stack([normalized_points, np.ones(len(normalized_points))])
-    table_rays = optical_rays @ rotation.T
-    # Every ray starts at the camera: translation_m.z + ray_scale * ray.z = 0
+    table_rays = optical_rays @ rotation_optical_in_table.T
+    # Every ray starts at the camera: camera height + ray_scale * ray.z = 0
     with np.errstate(divide='ignore'):
-        ray_scales = -translation_m[2] / table_rays[:, 2]
-    table_hits_m = translation_m + ray_scales[:, None] * table_rays
+        ray_scales = -translation_optical_in_table_m[2] / table_rays[:, 2]
+    table_hits_m = translation_optical_in_table_m + ray_scales[:, None] * table_rays
     # ray_scale <= 0: the ray points away from the table; not finite: it runs parallel to it
-    hits_table = np.isfinite(ray_scales) & (ray_scales > 0)
-    return table_hits_m[hits_table]
+    is_ray_hitting_table = np.isfinite(ray_scales) & (ray_scales > 0)
+    return table_hits_m[is_ray_hitting_table]
 
 
-def table_to_pixels(points_m, camera_matrix, distortion_coefficients, rotation, translation_m):
+def table_to_pixels(points_m, camera_matrix, distortion_coefficients,
+                    rotation_optical_in_table, translation_optical_in_table_m):
     """
     Map Nx2 table points (x, y in metres, z = 0) to pixels of the raw camera image.
 
     The inverse of pixels_to_table.
 
-    rotation and translation_m are the pose of the optical frame in the table frame, as for
-    pixels_to_table. Returns an Nx2 array with the camera's distortion applied. Points behind the
-    camera are not dropped; they give meaningless pixels.
+    rotation_optical_in_table and translation_optical_in_table_m are the pose of the optical
+    frame in the table frame, as for pixels_to_table. Returns an Nx2 array with the camera's
+    distortion applied. Points behind the camera are not dropped; they give meaningless pixels.
     """
     points_m = np.asarray(points_m, np.float64).reshape(-1, 2)
     table_points_m = np.column_stack([points_m, np.zeros(len(points_m))])
     # Pose of the table frame in the optical frame: the inverse of the optical frame's pose
-    rotation_table_to_optical = rotation.T
-    translation_table_to_optical_m = -rotation.T @ translation_m
+    rotation_table_to_optical = rotation_optical_in_table.T
+    translation_table_to_optical_m = -rotation_optical_in_table.T @ translation_optical_in_table_m
     rotation_vector, _ = cv2.Rodrigues(rotation_table_to_optical)
     pixels, _ = cv2.projectPoints(table_points_m, rotation_vector, translation_table_to_optical_m,
                                   camera_matrix, distortion_coefficients)
@@ -74,19 +78,19 @@ def apply_homography(homography, points):
     return cv2.perspectiveTransform(points, homography).reshape(-1, 2)
 
 
-def homography_from_msg(msg):
+def get_homography_from_mapping_msg(projection_mapping_msg):
     """Return the table-to-projector homography of a ProjectionMapping message as 3x3 array."""
-    return np.reshape(msg.homography, (3, 3))
+    return np.reshape(projection_mapping_msg.homography, (3, 3))
 
 
-def table_to_projector(homography, points_m):
+def table_to_projector(table_to_projector_homography, points_m):
     """Map Nx2 table points (x, y in metres) to projector pixels with the homography."""
-    return apply_homography(homography, points_m)
+    return apply_homography(table_to_projector_homography, points_m)
 
 
-def projector_to_table(homography, pixels):
-    """Map Nx2 projector pixels to table points (x, y in metres), the inverse of homography."""
-    return apply_homography(np.linalg.inv(homography), pixels)
+def projector_to_table(table_to_projector_homography, projector_pixels):
+    """Map Nx2 projector pixels to table points (x, y in metres), the inverse of the homography."""
+    return apply_homography(np.linalg.inv(table_to_projector_homography), projector_pixels)
 
 
 def compute_pixel_rays(camera_matrix, distortion_coefficients, width_px, height_px, stride_px=1):
@@ -107,17 +111,18 @@ def compute_pixel_rays(camera_matrix, distortion_coefficients, width_px, height_
     return np.concatenate([normalized_points, np.ones(grid_shape + (1,))], axis=2)
 
 
-def depth_to_table(depth_m, rays, rotation, translation_m):
+def depth_to_table(depth_m, rays, rotation_optical_in_table, translation_optical_in_table_m):
     """
     Return the points of a depth image as an Nx3 array in the table frame, in metres.
 
     depth_m is the depth along the optical axis, sampled like rays (see compute_pixel_rays);
-    rotation and translation_m are the pose of the optical frame in the table frame. Pixels
+    rotation_optical_in_table and translation_optical_in_table_m are the pose of the optical
+    frame in the table frame. Pixels
     without depth (0 or not finite) are dropped.
     """
     has_depth = np.isfinite(depth_m) & (depth_m > 0)
     optical_points_m = rays[has_depth] * depth_m[has_depth][:, None]
-    return optical_points_m @ rotation.T + translation_m
+    return optical_points_m @ rotation_optical_in_table.T + translation_optical_in_table_m
 
 
 def project_to_table(points_m, center_m):
@@ -141,7 +146,7 @@ def project_to_table(points_m, center_m):
     return table_points_m[:, :2]
 
 
-def intersect_rays(origins, directions):
+def compute_closest_point_to_rays(origins, directions):
     """
     Return the point closest to all rays and the RMS distance of the rays from it.
 
@@ -153,13 +158,14 @@ def intersect_rays(origins, directions):
     directions = directions / np.linalg.norm(directions, axis=1, keepdims=True)
     # (I - d d^T) removes the part along the ray: what is left is the offset perpendicular to it.
     # The sum of the squared perpendicular offsets is smallest where sum(P) c = sum(P o)
-    perpendicular = np.eye(3) - directions[:, :, None] * directions[:, None, :]
-    perpendicular_sum = perpendicular.sum(axis=0)
+    perpendicular_projection_matrices = np.eye(3) - directions[:, :, None] * directions[:, None, :]
+    perpendicular_sum = perpendicular_projection_matrices.sum(axis=0)
     if len(origins) < 2 or np.linalg.matrix_rank(perpendicular_sum) < 3:
         return None, np.inf
-    projected_origins_sum = (perpendicular @ origins[:, :, None]).sum(axis=0).ravel()
+    projected_origins = perpendicular_projection_matrices @ origins[:, :, None]
+    projected_origins_sum = projected_origins.sum(axis=0).ravel()
     closest_point = np.linalg.solve(perpendicular_sum, projected_origins_sum)
-    offsets = (perpendicular @ (closest_point - origins)[:, :, None])[:, :, 0]
+    offsets = (perpendicular_projection_matrices @ (closest_point - origins)[:, :, None])[:, :, 0]
     squared_distances = np.sum(offsets ** 2, axis=1)
     rms_distance = float(np.sqrt(np.mean(squared_distances)))
     return closest_point, rms_distance

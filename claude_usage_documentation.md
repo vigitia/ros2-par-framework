@@ -5124,3 +5124,48 @@ profile in place or creating a new one and redoing every calibration.
   comments).
 - *Copy the file byte for byte, header included.* Rejected: the header would then name the original's
   `profile:=`, which misleads anyone reading the file by hand.
+
+## 2026-11-14: par_geometry README
+
+**What:** `packages/par_geometry/README.md` documents the module: the three coordinate systems, where each input comes
+from (`camera_info`, TF, `/projection_mapping`), every function with its units and which points it drops, an example
+from a detected pixel to projector pixels, its limits and which packages use which functions.
+
+**Why:** the module had only docstrings. The conventions that break callers silently (pose of the optical frame in the
+table frame, not the inverse; raw-image pixels; dropped points) were spread over several docstrings and CLAUDE.md.
+
+**Alternatives considered:** a longer module docstring (not shown on the repository page, and the usage table would
+go stale inside the code); a section in the core README (the package is reused on its own, so its documentation
+belongs with it).
+
+## 2026-11-14: par_geometry names say what they mean
+
+**What:** in `par_geometry`, `homography_from_msg` is now `get_homography_from_mapping_msg` and `intersect_rays` is
+`compute_closest_point_to_rays`. The pose parameters `rotation`/`translation_m` are now
+`rotation_optical_in_table`/`translation_optical_in_table_m`, the homography parameter of `table_to_projector` and
+`projector_to_table` is `table_to_projector_homography`, and the pixel parameters are `camera_pixels` and
+`projector_pixels`. Callers in rviz_bridge, demo_app, training_images_collector, projection_mask,
+projection_calibrator and rendering_manager_bridge are updated; the README uses the new names.
+
+**Why:** the pose direction (camera in table, not table in camera) is the convention most likely to be broken
+silently, and the old names did not state it. `intersect_rays` suggested an exact intersection, while it returns the
+least-squares closest point. No caller passes the parameters by keyword, so only the two function renames reach other
+repositories.
+
+**Alternatives considered:** keeping the old function names as aliases (the framework is in alpha; aliases would
+keep two names for one function); renaming `apply_homography`'s parameters too (it maps through any homography, so
+the generic names are correct there).
+
+## 2026-11-15: Setup wizard README
+
+**What changed:** New `setup_wizard/README.md`: what the app and the backend are, requirements, how to build the
+Linux app (`flutter build linux --release`), where the bundle lands, how to start backend and app, and
+`flutter run -d linux` for development.
+
+**Why:** The build and start steps were documented nowhere; the app's own README was a one-line Flutter stub and
+the backend's start command lived only in its module docstring.
+
+**Decisions:**
+- *One README in `setup_wizard/` instead of filling `app/README.md`,* because running the app always needs the
+  backend too, so both belong in one place.
+- *Steps not repeated in the main README,* which already points to `setup_wizard/`; a second copy would drift.
