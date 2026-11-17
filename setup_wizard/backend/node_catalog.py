@@ -29,6 +29,29 @@ from pydantic import BaseModel
 # The repository this backend belongs to: setup_wizard/backend/ -> two folders up
 REPOSITORY_ROOT_PATH = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 NODE_CATALOG_LIST_PATH = os.path.join(REPOSITORY_ROOT_PATH, 'config', 'node_catalog.list')
+# Repositories the user added to the catalog by URL in the wizard (gitignored, nodes.list format)
+USER_CATALOG_LIST_PATH = os.path.join(REPOSITORY_ROOT_PATH, 'config', 'user_catalog.list')
+USER_CATALOG_LIST_HEADER_TEXT = (
+    '# Repositories added to the catalog in the setup wizard, next to config/node_catalog.list\n'
+    '# (gitignored; format of nodes.list: <directory> <git-url> [branch])\n')
+# What the wizard accepts as a repository URL: a URL git understands (https://, ssh://, git://,
+# file://) or the scp-like form user@host:path that GitHub's SSH URLs use
+REPOSITORY_URL_PATTERN = re.compile(r'(?:(?:https?|ssh|git|file)://\S+|[\w.-]+@[\w.-]+:\S+)')
+# The lists scripts/local_build.sh installs from (scripts/common.sh): the tracked core lists and
+# the gitignored store lists of what this installation added
+CORE_NODES_LIST_PATH = os.path.join(REPOSITORY_ROOT_PATH, 'config', 'nodes.list')
+STORE_NODES_LIST_PATH = os.path.join(REPOSITORY_ROOT_PATH, 'config', 'store_installed.list')
+CORE_ROS_PACKAGES_LIST_PATH = os.path.join(REPOSITORY_ROOT_PATH, 'config', 'ros_packages.list')
+STORE_ROS_PACKAGES_LIST_PATH = os.path.join(REPOSITORY_ROOT_PATH, 'config',
+                                            'store_ros_packages.list')
+STORE_NODES_LIST_HEADER_TEXT = (
+    '# Node repositories this installation added to config/nodes.list (gitignored; written by\n'
+    '# the setup wizard, format of nodes.list: <directory> <git-url> [branch])\n')
+STORE_ROS_PACKAGES_LIST_HEADER_TEXT = (
+    '# Released packages this installation uses besides config/ros_packages.list (gitignored;\n'
+    '# written by the setup wizard, format of ros_packages.list: one rosdep key per line)\n')
+# One rosdep key, the same rule as read_ros_packages_list in scripts/common.sh
+ROS_PACKAGE_KEY_PATTERN = re.compile(r'[A-Za-z0-9_.-]+')
 NODES_SOURCE_FOLDER_PATH = os.path.join(REPOSITORY_ROOT_PATH, 'src')
 # The user's cache folder (XDG base directory spec): $XDG_CACHE_HOME, by default ~/.cache
 CATALOG_CACHE_FOLDER_PATH = os.path.join(
@@ -87,6 +110,10 @@ class CatalogOffer(BaseModel):
     required_package_names: list[str] = []
     # Packages it needs that a released package (rosdep key) may provide, e.g. a camera driver
     ros_package_candidate_names: list[str] = []
+    # The package whose package.xml version is shown as the offer's version: the app's or sensor
+    # node's own package; for a camera its driver, the first of its required packages, else the
+    # package of its launch file. Empty when there is none
+    version_package_name: str = ''
 
 
 class CatalogRepository(BaseModel):
@@ -97,6 +124,8 @@ class CatalogRepository(BaseModel):
     commit_text: str | None = None
     # The ROS packages in the repository, from its package.xml files
     package_names: list[str] = []
+    # The <version> of each of its packages, by package name
+    package_version_by_name: dict[str, str] = {}
     # Packages its package.xml files depend on, without its own
     dependency_package_names: list[str] = []
     offers: list[CatalogOffer] = []
@@ -104,6 +133,8 @@ class CatalogRepository(BaseModel):
     entry_error_texts: list[str] = []
     # Why the repository could not be read at all, e.g. git's message; None when it could
     error_text: str | None = None
+    # True for a repository the user added (config/user_catalog.list), which the user can remove
+    is_user_added: bool = False
 
 
 class PlannedRepository(BaseModel):
@@ -152,6 +183,90 @@ def read_node_list_file(node_list_path: str) -> list[NodeListEntry]:
                     raise ValueError(f'{error_start_text}: {value!r} must not start with "-"')
             node_list_entries.append(NodeListEntry(directory_name, url, branch))
     return node_list_entries
+
+
+def read_catalog_list_entries() -> list[NodeListEntry]:
+    """
+    Return the catalog's repositories: config/node_catalog.list, then config/user_catalog.list
+    when it exists. Raises OSError or ValueError when a list cannot be read or names a directory
+    twice.
+    """
+    catalog_list_entries = read_node_list_file(NODE_CATALOG_LIST_PATH)
+    if os.path.isfile(USER_CATALOG_LIST_PATH):
+        catalog_list_entries += read_node_list_file(USER_CATALOG_LIST_PATH)
+    listed_directory_names = set()
+    for node_list_entry in catalog_list_entries:
+        if node_list_entry.directory_name in listed_directory_names:
+            raise ValueError(f'{node_list_entry.directory_name} is listed twice in '
+                             f'{NODE_CATALOG_LIST_PATH} and {USER_CATALOG_LIST_PATH}')
+        listed_directory_names.add(node_list_entry.directory_name)
+    return catalog_list_entries
+
+
+def read_user_catalog_directory_names() -> set[str]:
+    """Return the directories of config/user_catalog.list; empty when it does not exist."""
+    if not os.path.isfile(USER_CATALOG_LIST_PATH):
+        return set()
+    directory_names = set()
+    for node_list_entry in read_node_list_file(USER_CATALOG_LIST_PATH):
+        directory_names.add(node_list_entry.directory_name)
+    return directory_names
+
+
+def add_user_catalog_repository(url: str, branch: str | None) -> NodeListEntry:
+    """
+    Add a repository to config/user_catalog.list, its directory named after the URL's last part
+    (e.g. my_app for https://github.com/someone/my_app.git). Returns the new entry.
+
+    Raises ValueError for a URL or branch git must not get, or a directory name that core, the
+    catalog or the user list has already; OSError when the list cannot be written.
+    """
+    url = url.strip()
+    if not REPOSITORY_URL_PATTERN.fullmatch(url) or not NODE_LIST_VALUE_PATTERN.fullmatch(url):
+        raise ValueError(f'{url!r} is no repository URL, e.g. '
+                         f'https://github.com/<owner>/<repo>.git or '
+                         f'git@github.com:<owner>/<repo>.git')
+    if branch is not None:
+        branch = branch.strip() or None
+    if branch is not None and not NODE_LIST_VALUE_PATTERN.fullmatch(branch):
+        raise ValueError(f'{branch!r} is no branch name')
+    # The last part of the path, after '/' or the ':' of user@host:path
+    url_last_part = re.split(r'[/:]', url.rstrip('/'))[-1]
+    if url_last_part.endswith('.git'):
+        url_last_part = url_last_part[:-len('.git')]
+    directory_name = re.sub(r'[^A-Za-z0-9_.-]', '_', url_last_part).lstrip('.-')
+    if not NODE_LIST_DIRECTORY_NAME_PATTERN.fullmatch(directory_name):
+        raise ValueError(f'No folder name can be made from {url!r}')
+    taken_directory_names = set()
+    for node_list_entry in read_node_list_file(CORE_NODES_LIST_PATH) + read_catalog_list_entries():
+        taken_directory_names.add(node_list_entry.directory_name)
+    if directory_name in taken_directory_names:
+        raise ValueError(f'A repository named {directory_name} is listed already')
+    line_words = [directory_name, url]
+    if branch is not None:
+        line_words.append(branch)
+    _append_lines_to_list_file(USER_CATALOG_LIST_PATH, USER_CATALOG_LIST_HEADER_TEXT,
+                               [' '.join(line_words)])
+    return NodeListEntry(directory_name, url, branch)
+
+
+def remove_user_catalog_repository(directory_name: str) -> None:
+    """
+    Remove a repository from config/user_catalog.list, keeping the other lines and comments.
+    An installed copy stays installed. Raises KeyError when the list does not have it.
+    """
+    if directory_name not in read_user_catalog_directory_names():
+        raise KeyError(directory_name)
+    with open(USER_CATALOG_LIST_PATH) as list_file:
+        line_texts = list_file.readlines()
+    kept_line_texts = []
+    for line_text in line_texts:
+        words = line_text.split('#', 1)[0].split()
+        if words and words[0] == directory_name:
+            continue
+        kept_line_texts.append(line_text)
+    with open(USER_CATALOG_LIST_PATH, 'w') as list_file:
+        list_file.writelines(kept_line_texts)
 
 
 def get_catalog_cache_path(directory_name: str) -> str:
@@ -209,9 +324,10 @@ def read_catalog_repository(node_list_entry: NodeListEntry) -> CatalogRepository
         for file_path in file_paths:
             if PACKAGE_MANIFEST_PATH_PATTERN.search(file_path):
                 manifest_text = _read_committed_file_text(cache_path, file_path)
-                package_name, package_dependency_names = _parse_package_manifest(manifest_text,
-                                                                                 file_path)
+                package_name, package_version, package_dependency_names = (
+                    parse_package_manifest(manifest_text, file_path))
                 package_names.add(package_name)
+                catalog_repository.package_version_by_name[package_name] = package_version
                 dependency_package_names.update(package_dependency_names)
         catalog_repository.package_names = sorted(package_names)
         catalog_repository.dependency_package_names = sorted(dependency_package_names
@@ -299,6 +415,79 @@ def compute_install_plan(chosen_offers: list[CatalogOffer],
                                            key=lambda planned: planned.ros_package_name))
 
 
+def add_install_plan_to_store_lists(install_plan: InstallPlan) -> None:
+    """
+    Add the plan's repositories and released packages to the store lists, which
+    scripts/local_build.sh installs next to the core lists. Creates a missing store list.
+
+    What a core or store list has already is not added again, so a plan can be added twice, e.g.
+    when an install is continued. Raises OSError when a list cannot be read or written, ValueError
+    when one is malformed or a package name is no rosdep key.
+    """
+    listed_directory_names = set()
+    for list_path in (CORE_NODES_LIST_PATH, STORE_NODES_LIST_PATH):
+        if os.path.isfile(list_path):
+            for node_list_entry in read_node_list_file(list_path):
+                listed_directory_names.add(node_list_entry.directory_name)
+    new_node_list_lines = []
+    for planned_repository in install_plan.repositories:
+        if planned_repository.directory_name in listed_directory_names:
+            continue
+        line_words = [planned_repository.directory_name, planned_repository.url]
+        if planned_repository.branch is not None:
+            line_words.append(planned_repository.branch)
+        new_node_list_lines.append(' '.join(line_words))
+
+    listed_ros_package_names = set()
+    for list_path in (CORE_ROS_PACKAGES_LIST_PATH, STORE_ROS_PACKAGES_LIST_PATH):
+        if os.path.isfile(list_path):
+            listed_ros_package_names.update(_read_ros_packages_list_file(list_path))
+    new_ros_package_lines = []
+    for planned_ros_package in install_plan.ros_packages:
+        ros_package_name = planned_ros_package.ros_package_name
+        if not ROS_PACKAGE_KEY_PATTERN.fullmatch(ros_package_name):
+            raise ValueError(f'{ros_package_name!r} is no rosdep key')
+        if ros_package_name not in listed_ros_package_names:
+            new_ros_package_lines.append(ros_package_name)
+
+    _append_lines_to_list_file(STORE_NODES_LIST_PATH, STORE_NODES_LIST_HEADER_TEXT,
+                               new_node_list_lines)
+    _append_lines_to_list_file(STORE_ROS_PACKAGES_LIST_PATH, STORE_ROS_PACKAGES_LIST_HEADER_TEXT,
+                               new_ros_package_lines)
+
+
+def _read_ros_packages_list_file(list_path: str) -> list[str]:
+    """Return the rosdep keys of a ros_packages.list-format file; ValueError if malformed."""
+    ros_package_names = []
+    with open(list_path) as list_file:
+        for line_number, line_text in enumerate(list_file, start=1):
+            words = line_text.split('#', 1)[0].split()
+            if not words:
+                continue
+            if len(words) > 1 or not ROS_PACKAGE_KEY_PATTERN.fullmatch(words[0]):
+                raise ValueError(f'{list_path} line {line_number}: expected one rosdep key')
+            ros_package_names.append(words[0])
+    return ros_package_names
+
+
+def _append_lines_to_list_file(list_path: str, header_text: str, new_lines: list[str]) -> None:
+    """Append lines to a list file; a missing file is created with header_text first."""
+    if not new_lines:
+        return
+    is_new_file = not os.path.isfile(list_path)
+    with open(list_path, 'a+') as list_file:
+        if is_new_file:
+            list_file.write(header_text)
+        else:
+            # A last line without a line break would merge with the first new one
+            list_file.seek(0)
+            existing_text = list_file.read()
+            if existing_text and not existing_text.endswith('\n'):
+                list_file.write('\n')
+        for new_line in new_lines:
+            list_file.write(new_line + '\n')
+
+
 def _read_catalog_offer(cache_path: str, entry_file_path: str, resource_type: str,
                         entry_name: str, repository_name: str) -> CatalogOffer:
     """Return the offer of one ament index entry; RuntimeError when it is malformed."""
@@ -312,12 +501,14 @@ def _read_catalog_offer(cache_path: str, entry_file_path: str, resource_type: st
             parse_ament_index_entry_text(entry_text, error_start_text, 'templates/par_app/'),
             error_start_text)
         offer.required_package_names = checked_entry['required_launch_switches']
+        offer.version_package_name = entry_name
     elif offer_kind == OFFER_KIND_SENSOR_NODE:
         checked_entry = check_sensor_node_entry(
             parse_ament_index_entry_text(entry_text, error_start_text,
                                          'templates/sensor_processing_node_entry.yaml'),
             error_start_text)
         offer.required_package_names = checked_entry['required_sensor_nodes']
+        offer.version_package_name = entry_name
     else:
         checked_entry = check_camera_entry(
             parse_ament_index_entry_text(entry_text, error_start_text, 'templates/par_camera/'),
@@ -327,13 +518,27 @@ def _read_catalog_offer(cache_path: str, entry_file_path: str, resource_type: st
         camera_required_package_names = checked_entry[CAMERA_ENTRY_REQUIRED_PACKAGES_KEY]
         offer.required_package_names = camera_required_package_names + [checked_entry['package']]
         offer.ros_package_candidate_names = list(camera_required_package_names)
+        offer.version_package_name = get_camera_version_package_name(
+            camera_required_package_names, checked_entry['package'])
     offer.display_name = checked_entry['display_name']
     offer.description = checked_entry['description']
     return offer
 
 
-def _parse_package_manifest(manifest_text: str, manifest_path: str) -> tuple[str, set[str]]:
-    """Return a package.xml's package name and the packages it depends on; ValueError if broken."""
+def get_camera_version_package_name(required_package_names: list[str],
+                                    launch_package_name: str) -> str:
+    """Return the package whose version a camera type shows: its driver, else its launch file's."""
+    if required_package_names:
+        return required_package_names[0]
+    return launch_package_name
+
+
+def parse_package_manifest(manifest_text: str,
+                           manifest_path: str) -> tuple[str, str, set[str]]:
+    """
+    Return a package.xml's package name, its version (empty without <version>) and the packages
+    it depends on; ValueError when it is broken.
+    """
     try:
         manifest_root = ElementTree.fromstring(manifest_text)
     except ElementTree.ParseError as error:
@@ -341,13 +546,14 @@ def _parse_package_manifest(manifest_text: str, manifest_path: str) -> tuple[str
     package_name = (manifest_root.findtext('name') or '').strip()
     if not package_name:
         raise ValueError(f'{manifest_path} has no <name>')
+    package_version = (manifest_root.findtext('version') or '').strip()
     dependency_package_names = set()
     for tag_name in PACKAGE_DEPENDENCY_TAG_NAMES:
         for dependency_element in manifest_root.findall(tag_name):
             dependency_package_name = (dependency_element.text or '').strip()
             if dependency_package_name:
                 dependency_package_names.add(dependency_package_name)
-    return package_name, dependency_package_names
+    return package_name, package_version, dependency_package_names
 
 
 def _read_committed_file_text(cache_path: str, file_path: str) -> str:

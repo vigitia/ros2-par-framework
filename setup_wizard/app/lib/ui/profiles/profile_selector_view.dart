@@ -8,6 +8,11 @@
 import 'package:flutter/material.dart';
 import '../../config/wizard_strings.dart';
 
+/// Space between the menu and the window's edge, and around the entries inside it.
+const double profileMenuOuterMarginLogicalPx = 8;
+const double profileMenuInnerPaddingLogicalPx = 8;
+const double profileMenuEntryHorizontalPaddingLogicalPx = 16;
+
 class ProfileSelectorView extends StatelessWidget {
   const ProfileSelectorView({
     super.key,
@@ -28,6 +33,18 @@ class ProfileSelectorView extends StatelessWidget {
   final ValueChanged<String> onCopyProfileClicked;
   final ValueChanged<String> onDeleteProfileClicked;
 
+  /// A menu entry with side padding, so its icon and text are not flush with the menu's edge.
+  Widget _buildMenuEntry({required Widget leadingIcon, required VoidCallback onPressed, required Widget child}) {
+    return MenuItemButton(
+      leadingIcon: leadingIcon,
+      onPressed: onPressed,
+      style: MenuItemButton.styleFrom(
+        padding: const EdgeInsets.symmetric(horizontal: profileMenuEntryHorizontalPaddingLogicalPx),
+      ),
+      child: child,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final List<Widget> menuEntries = [];
@@ -37,23 +54,23 @@ class ProfileSelectorView extends StatelessWidget {
       if (profileName == shownProfileName) {
         leadingIcon = const Icon(Icons.check);
       }
-      menuEntries.add(MenuItemButton(
+      menuEntries.add(_buildMenuEntry(
         leadingIcon: leadingIcon,
         onPressed: () => onProfileSelected(profileName),
         child: Text(profileName),
       ));
     }
     if (menuEntries.isNotEmpty) {
-      menuEntries.add(const Divider(height: 1));
+      menuEntries.add(const Divider(height: profileMenuInnerPaddingLogicalPx * 2));
     }
-    menuEntries.add(MenuItemButton(
+    menuEntries.add(_buildMenuEntry(
       leadingIcon: const Icon(Icons.add),
       onPressed: onNewProfileClicked,
       child: const Text(WizardStrings.newProfileMenuLabel),
     ));
     final String? copyableProfileName = shownProfileName;
     if (copyableProfileName != null) {
-      menuEntries.add(MenuItemButton(
+      menuEntries.add(_buildMenuEntry(
         leadingIcon: const Icon(Icons.copy),
         onPressed: () => onCopyProfileClicked(copyableProfileName),
         child: Text(WizardStrings.getCopyProfileMenuLabel(copyableProfileName: copyableProfileName)),
@@ -63,7 +80,7 @@ class ProfileSelectorView extends StatelessWidget {
     if (deletableProfileName != null) {
       final Color deleteColor = Theme.of(context).colorScheme.error;
       menuEntries.add(
-        MenuItemButton(
+        _buildMenuEntry(
           leadingIcon: Icon(Icons.delete_outline, color: deleteColor),
           onPressed: () => onDeleteProfileClicked(deletableProfileName),
           child: Text(
@@ -76,6 +93,11 @@ class ProfileSelectorView extends StatelessWidget {
 
     return MenuAnchor(
       menuChildren: menuEntries,
+      // Below the button and off the window's right edge (the menu is moved left to fit the window)
+      alignmentOffset: const Offset(-profileMenuOuterMarginLogicalPx, profileMenuOuterMarginLogicalPx),
+      style: const MenuStyle(
+        padding: WidgetStatePropertyAll(EdgeInsets.symmetric(vertical: profileMenuInnerPaddingLogicalPx)),
+      ),
       builder: (BuildContext context, MenuController menuController, Widget? child) {
         return IconButton(
           tooltip: WizardStrings.profilesMenuTooltip,

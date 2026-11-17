@@ -407,3 +407,73 @@ Run menu) counted. Vitus chose to show the nodes of every offered app, so they c
 **Decisions and rejected alternatives:**
 - App names per camera instead of one list of cameras: two apps may need the same node on the same camera, and the
   tooltip names both.
+
+## 2026-11-17 — Setup wizard: installing apps, cameras and sensor nodes from their areas
+
+**What changed:**
+- New `lib/ui/install/offer_catalog_view.dart` (`OfferCatalogView`): the installed and available offers of one kind
+  from the backend's catalog (`install_api.py`), grouped "Installed" / "Available", one row each with name,
+  description and, right-aligned, the package.xml version ("0.1.0 installed", "0.2.0 available", or both when they
+  differ). Clicking an available offer shows what installing adds (repositories and ROS packages, "for …"), then
+  Install follows the build: progress and last output lines; the sudo command with Copy and Continue (the same start
+  again); failure with Try again; "restarts …" while the backend is gone (120 s, then a hint to the log); Installed
+  and Done. "Check for new versions" downloads the catalog again (also by itself on a first start with nothing
+  downloaded); "Add repository" adds the user's own repository by git URL and optional branch. Repositories that
+  cannot be read, or user repositories offering nothing, are listed at the end, the user's own with Remove.
+- New `lib/ui/install/offer_picker_dialog.dart`: the view as a dialog; an installed offer, or one installed in it,
+  closes it with that offer.
+- "Add app", "Add sensor node" and "Add camera" open that dialog instead of a menu of installed ones. Installed
+  offers the profile has (or with a broken entry, or sensor nodes without a camera in the profile) show why and
+  cannot be chosen. After the choice the area reloads its list (an install restarts the backend) and adds it as
+  before; for a camera the chosen type goes to `AddCameraDialog` (`cameraTypeToAdd`), which continues with the unit
+  and the name.
+- Without a profile, Cameras, Sensor nodes and Apps are enabled and show `OfferCatalogView` as their page, without
+  choosing; only Projectors and the Run button stay disabled. The no-profile hint says to install there first.
+- `install_api.dart`: catalog, refresh, plan, install start/state, user repositories (add/remove).
+- The "No app / sensor node installed" hints point to the Add buttons.
+
+**Why:** Vitus wants to see and install what is available where it is used, with versions, and to add own
+repositories; a separate Install area was rejected by him.
+
+**Decisions and rejected alternatives (Vitus chose in a dialog):**
+- *Installing through the Add buttons* instead of a fixed "All apps" tab or one combined list: the profile tabs stay
+  as they are, and installing is one step before adding.
+- *Areas usable without a profile, list only*, instead of creating a profile first: a fresh installation needs its
+  cameras before the new-profile wizard can choose one.
+- *User repositories in each list, stored in the gitignored `config/user_catalog.list`* instead of one entry in the
+  profile menu: the user adds them where they are looked for; what a repository offers appears in every matching
+  area.
+- One offer per install (the row clicked) instead of tick boxes for several: the add flows add one thing at a time,
+  and what an offer needs comes along anyway.
+- The sudo command is shown to copy, not run from the app: running it would need a password prompt in the app
+  (planned for later with `pkexec`).
+- A camera shows its driver's version (first `required_packages`, else its launch file's package): for the
+  framework's own camera types the launch package is `par_framework_core`, the same for every camera.
+- Released packages (e.g. `v4l2_camera` from apt) show no available version: the catalog does not know them, and
+  asking apt would mean mapping rosdep keys to apt names. Most framework packages are still `0.0.0`, so versions only
+  tell something once repositories bump them.
+
+## 2026-11-17 — Setup wizard: profile menu spacing, app icon
+
+**What changed:**
+- Profile menu (`profile_selector_view.dart`): the menu sits 8 px below the button and off the window's right edge
+  (`alignmentOffset`), has 8 px above and below its entries (`MenuStyle.padding`) and 16 px at the sides of each
+  entry (one `_buildMenuEntry` helper); the divider has room around it. The hub's app bar keeps the menu button
+  8 px off the window's edge (`actionsPadding`).
+- App icon: `assets/app_icon.svg`, a projector shining light onto a table. `scripts/start_setup_wizard.sh` writes
+  `~/.local/share/applications/com.github.vigitia.par_setup_wizard.desktop` (`$XDG_DATA_HOME`) pointing to it, when
+  missing or out of date (e.g. after the repository moved), with `NoDisplay=true`.
+
+**Why:** Vitus' request: the menu touched the window's edge, and the app had no icon.
+
+**Decisions and rejected alternatives:**
+- *The icon through a .desktop file named after the app ID* instead of `gtk_window_set_icon` in the runner: Wayland
+  desktops (GNOME) ignore a window's own icon and look it up by the app ID; the .desktop file works on X11 too.
+- *`NoDisplay=true`* instead of a launcher in the application menu: the entry would start the app without its
+  backend; starting stays with the start script.
+- The icon is an SVG referenced by its path instead of copied into the icon theme folders: one file, no sizes to
+  render.
+
+**Found on the way:** the release build reused an old trimmed icon font (`build/flutter_assets`), so icons added
+since were blank, among them "Add repository"'s. A build with `--no-tree-shake-icons` writes the full font; `flutter
+clean` once resets the stale build cache. A fresh clone is not affected.

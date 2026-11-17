@@ -92,7 +92,8 @@ abstract final class WizardStrings {
   }
 
   static const String noProfileYetText =
-      'There is no profile yet. Create one with New profile in the menu at the top right.';
+      'There is no profile yet. Install the cameras, sensor nodes and apps you need in their areas, then create a '
+      'profile with New profile in the menu at the top right.';
   static const String overviewNavigationLabel = 'Overview';
   static const String projectorsNavigationLabel = 'Projectors';
   static const String camerasNavigationLabel = 'Cameras';
@@ -709,8 +710,7 @@ abstract final class WizardStrings {
 
   static const String noSensorNodeInProfileText = 'The profile starts no sensor node. Add one with "Add sensor node".';
   static const String noSensorNodeInstalledText =
-      'No sensor processing node is installed. Add their repos from config/node_catalog.list to '
-      'config/store_installed.list and run ./scripts/local_build.sh.';
+      'No sensor processing node is installed. Add sensor node lists the available ones.';
   static const String addSensorNodeButtonLabel = 'Add sensor node';
   static const String stopDebuggingTooltip = 'Stop the cameras and the sensor nodes.';
   static const String stopDebuggingButtonLabel = 'Stop debugging';
@@ -814,8 +814,7 @@ abstract final class WizardStrings {
   static const String noAppInProfileText =
       'The profile offers no app. Add one with "Add app"; the Run menu then offers it.';
   static const String noAppInstalledText =
-      'No app is installed. Add their repos from config/node_catalog.list to config/store_installed.list '
-      'and run ./scripts/local_build.sh.';
+      'No app is installed. Add app lists the available ones.';
   static const String addAppButtonLabel = 'Add app';
   static const String appNotInstalledText = 'Not installed (any more): disable it, or install it again.';
   static const String disableAppOfferTooltip = 'The profile no longer offers this app in the Run menu.';
@@ -839,4 +838,94 @@ abstract final class WizardStrings {
   static const String chooseCameraHint = 'Choose a camera';
   static const String appInputWithoutCameraText =
       'An input without a camera stops the profile from starting this app on the projector.';
+
+  // Install area
+  static const String doneButtonLabel = 'Done';
+  static const String refreshCatalogButtonLabel = 'Check for new versions';
+  static const String catalogRefreshingText = 'Downloading the catalog …';
+  static const String addRepositoryButtonLabel = 'Add repository';
+  static const String installedOffersTitle = 'Installed';
+  static const String availableOffersTitle = 'Available';
+  static const String noOffersInGroupText = 'None.';
+  static const String repositoryOffersNothingText =
+      'Offers nothing the wizard can install: it has no app, camera or sensor node entry '
+      '(resource/par_framework_apps, _cameras or _sensor_nodes).';
+  static const String addRepositoryDialogTitle = 'Add repository';
+  static const String addRepositoryDialogText =
+      'A git repository with an app, camera or sensor node for the framework. What it offers appears in the matching '
+      'area once it is downloaded.';
+  static const String repositoryUrlLabel = 'Git URL';
+  static const String repositoryUrlHint = 'https://github.com/<owner>/<repository>.git';
+  static const String repositoryBranchLabel = 'Branch (optional)';
+  static const String repositoryBranchHint = 'Empty: the repository\'s default branch';
+  static const String chooseAppDialogTitle = 'Add app';
+  static const String chooseCameraTypeDialogTitle = 'Add camera';
+  static const String chooseSensorNodeDialogTitle = 'Add sensor node';
+  static const String offerInProfileText = 'In this profile';
+  static const String sensorNodeNeedsCameraText = 'Add a camera to the profile first: sensor nodes run on a camera.';
+  static const String catalogProblemsTitle = 'Not available';
+  static const String catalogProblemsText =
+      'These could not be read. Their offers are missing above. Check the internet connection, then check for new '
+      'versions again.';
+  static const String installPlanTitle = 'Installing adds:';
+  static const String installPlanEmptyText = 'Nothing new to download; the installation is built again.';
+  static const String installButtonLabel = 'Install';
+  static const String installViewTitle = 'Install';
+  static const String installRunningText =
+      'Downloading and building. This can take several minutes, the first time much longer.';
+  static const String installNeedsSudoText =
+      'Some system packages need administrator rights to install. Run this command in a terminal and enter your '
+      'password there, then click Continue.';
+  static const String copyCommandButtonLabel = 'Copy command';
+  static const String commandCopiedText = 'Command copied.';
+  static const String continueInstallButtonLabel = 'Continue';
+  static const String backendRestartingText =
+      'Built. The setup service restarts to load what was installed …';
+  static const String backendRestartTimedOutText =
+      'The setup service did not start again. Its output is in log/setup_wizard_backend.log; start it again with '
+      './scripts/start_setup_wizard.sh.';
+  static const String installDoneText = 'Installed. The new apps, cameras and sensor nodes are ready to use.';
+  static const String installOutputTitle = 'Last output';
+
+  static String getInstallOfferTitle({required String offerName}) {
+    return 'Install $offerName';
+  }
+
+  static String getAddRepositoryErrorText({required String backendErrorText}) {
+    return 'The repository could not be added. $backendErrorText';
+  }
+
+  /// The offer's versions: one when both are the same or only one is known, both when they differ; empty without
+  /// any.
+  static String getOfferVersionText({required String? installedVersion, required String? availableVersion}) {
+    final bool isInstalledVersionKnown = installedVersion != null && installedVersion.isNotEmpty;
+    final bool isAvailableVersionKnown = availableVersion != null && availableVersion.isNotEmpty;
+    if (isInstalledVersionKnown && isAvailableVersionKnown && installedVersion != availableVersion) {
+      return 'Version $installedVersion installed, $availableVersion available';
+    }
+    if (isInstalledVersionKnown) {
+      return 'Version $installedVersion installed';
+    }
+    if (isAvailableVersionKnown) {
+      return 'Version $availableVersion available';
+    }
+    return '';
+  }
+
+  static String getPlannedRepositoryText({
+    required String repositoryName,
+    required List<String> neededByNames,
+    required bool isPresent,
+  }) {
+    final String presenceText = isPresent ? ', already downloaded' : '';
+    return '• $repositoryName (for ${neededByNames.join(', ')}$presenceText)';
+  }
+
+  static String getPlannedRosPackageText({required String rosPackageName, required List<String> neededByNames}) {
+    return '• ROS package $rosPackageName (for ${neededByNames.join(', ')})';
+  }
+
+  static String getInstallFailedText({required int? exitCode}) {
+    return 'The install failed (exit code ${exitCode ?? 'unknown'}). The last output below names the cause.';
+  }
 }

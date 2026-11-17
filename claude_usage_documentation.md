@@ -5312,6 +5312,69 @@ anything is cloned. Vitus decided that what a repository offers is read from the
 - *In-memory catalog, read from the clones on the first request after a restart*, so the wizard shows the last state
   without the network.
 
+## 2026-11-17: Install job in the setup wizard backend
+
+**What changed:**
+- `node_catalog.add_install_plan_to_store_lists`: appends a plan's repositories to `config/store_installed.list`
+  and its rosdep keys to `config/store_ros_packages.list`, creating a missing list with a header comment. What a
+  core or store list has already is skipped, so adding the same plan twice changes nothing. Keys are checked with
+  the rule of `scripts/common.sh` before they are written.
+- `install_api.py`:
+  - `POST /api/install/start` (same body as `/api/install/plan`) writes the store lists and runs
+    `scripts/local_build.sh --non-interactive` in its own process group, its output in
+    `$TMPDIR/par_setup_wizard_install.log`. It refuses while an install or a profile run is active. Git runs without
+    a terminal, as for the catalog.
+  - `GET /api/install/state`: phases `idle`, `running`, `needs_sudo` (with the command from the build's
+    `needs sudo: ` line, exit code 3), `failed` (exit code), `restarting`, `installed`, each with the log tail.
+  - After a successful build the backend stops a profile run (one started during the build would outlive the
+    restart unnoticed), shuts uvicorn down as after Ctrl+C (the lifespans stop the camera launch and ROS) and
+    `main()` replaces the process with `os.execve`: bash sources ROS and `install/setup.bash`, then starts the
+    backend again. The new backend reports `installed` (environment variable `PAR_SETUP_WIZARD_INSTALL_DONE`).
+- `setup_wizard_backend.main()` runs a `uvicorn.Server` it hands to `install_api`, instead of `uvicorn.run`.
+
+**Why:** Step 5 of the plan "Fresh Install from the Setup Wizard". The backend reads the ament index only once, at
+its start, so a newly built app or camera appears only after a restart.
+
+**Decisions:**
+- *Continuing after the sudo command is the same start request again* instead of a separate endpoint: the lists
+  already hold the entries, so the second run only builds.
+- *A full build* instead of `--packages-select` with the new packages: a new repository may need others built first,
+  and `local_build.sh` syncs every repository anyway. colcon and cargo skip most work for unchanged packages.
+- *`os.execve` in the same process* instead of exiting and having the start script start a new backend: the process
+  ID stays, so `start_setup_wizard.sh` still stops the backend it started, and a backend started by hand restarts
+  too. The listening socket is closed by uvicorn's shutdown before the exec (and Python's sockets are not
+  inherited), so the new backend can bind the port.
+- *Shutting uvicorn down through `Server.should_exit`* instead of sending the backend SIGINT: it is the same path as
+  Ctrl+C, and it avoids the signal path that the backend sometimes ignores (cause still open).
+
+## 2026-11-17: Catalog versions, user repositories and installed-only offers
+
+**What changed:**
+- `node_catalog.py`: `parse_package_manifest` (was private) also returns `<version>`; each catalog repository
+  keeps `package_version_by_name`; each offer names its `version_package_name` (an app's or sensor node's own
+  package, a camera's driver: first `required_packages`, else its launch file's package).
+  `read_catalog_list_entries` reads `config/node_catalog.list` plus the gitignored `config/user_catalog.list`
+  (a directory listed twice is an error); `add_user_catalog_repository` validates a git URL (https/ssh/git/file URL
+  or `user@host:path`) and branch, names the directory after the URL's last part and refuses names core or the
+  catalog have; `remove_user_catalog_repository` drops its line. Repositories carry `is_user_added`.
+- `install_api.py`: offers carry `installed_version` (from the installed `share/<pkg>/package.xml`) and
+  `available_version` (catalog clone). `POST /api/catalog/repositories` adds a user repository and starts a refresh
+  (409 while one runs, 422 with the reason for a bad URL); `DELETE /api/catalog/repositories/{dir}` removes one the
+  user added (404 otherwise). The catalog now also lists installed apps and sensor nodes no repository offers
+  (e.g. RViz, core's `fiducials_detector`), so the wizard's add dialogs can show everything from one list.
+- `.gitignore`: `/config/user_catalog.list`.
+
+**Why:** Vitus' requests: versions per offer, own repositories by URL, and installing from the Apps, Cameras and
+Sensor nodes areas, whose add dialogs need the installed parts in the same list.
+
+**Decisions:**
+- *A separate user list* instead of writing into the tracked `node_catalog.list`: a user's repositories are
+  per installation and must not show up as changes to commit.
+- *Directory name from the URL* instead of asking for one: one field less, and a collision is refused with the name.
+- *Refresh all repositories after adding one* instead of downloading only the new one: it reuses the existing
+  background refresh and its per-repository errors; the download takes seconds.
+- *Removing only user repositories*, and leaving an installed copy installed: uninstalling is not built yet.
+
 ## 2026-11-17: fiducials_detector tracking switched by `tracking_mode`
 
 ### What changed

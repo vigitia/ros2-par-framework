@@ -20,7 +20,9 @@ import '../cameras/camera_preview_view.dart';
 import '../../data/services/node_settings_api.dart';
 import '../core/ui/node_settings_editor_view.dart';
 import '../core/ui/profile_run_view.dart';
+import '../../data/services/install_api.dart';
 import '../../data/services/sensor_nodes_api.dart';
+import '../install/offer_picker_dialog.dart';
 import '../core/ui/top_aligned_page_content.dart';
 import '../../data/services/setup_wizard_backend_client.dart';
 import '../../config/wizard_strings.dart';
@@ -313,7 +315,8 @@ class _SensorNodesScreenState extends State<SensorNodesScreen> {
             tabTitles: tabTitles,
             shownTabTitle: shownTabTitle,
             addButtonText: WizardStrings.addSensorNodeButtonLabel,
-            addMenuEntries: _buildAddMenuEntries(sensorNodeList),
+            addMenuEntries: const [],
+            onAddPressed: _isSavingSelection ? null : () => _chooseAndAddSensorNode(sensorNodeList),
             noTabsText: noTabsText,
             buildTabContent: (int tabIndex, bool isShownTab) =>
                 _buildSensorNodeTab(enabledSensorNodes[tabIndex], isShownTab),
@@ -352,24 +355,43 @@ class _SensorNodesScreenState extends State<SensorNodesScreen> {
     );
   }
 
-  /// An added node runs on the main camera; its tab chooses further ones.
-  List<Widget> _buildAddMenuEntries(SensorNodeList sensorNodeList) {
-    final List<Widget> addMenuEntries = [];
+  /// Lists installed and available sensor nodes (OfferPickerDialog); an available one is installed first. The chosen
+  /// node runs on the main camera; its tab chooses further ones.
+  Future<void> _chooseAndAddSensorNode(SensorNodeList sensorNodeList) async {
+    final Map<String, String> blockedTextByPackage = {};
     for (final SensorNodeSummary sensorNode in sensorNodeList.sensorNodes) {
       if (_getNodeCameraNames(sensorNode.packageName).isNotEmpty) {
-        continue;
+        blockedTextByPackage[sensorNode.packageName] = WizardStrings.offerInProfileText;
+      } else if (sensorNode.entryErrorText.isNotEmpty) {
+        // A broken entry cannot be started
+        blockedTextByPackage[sensorNode.packageName] = sensorNode.entryErrorText;
+      } else if (sensorNodeList.cameraNames.isEmpty) {
+        // Nothing to run it on
+        blockedTextByPackage[sensorNode.packageName] = WizardStrings.sensorNodeNeedsCameraText;
       }
-      // A broken entry cannot be started, and a profile without a camera has nothing to run it on
-      VoidCallback? onPressed;
-      final bool canBeAdded =
-          sensorNode.entryErrorText.isEmpty && sensorNodeList.cameraNames.isNotEmpty && !_isSavingSelection;
-      if (canBeAdded) {
-        final String mainCameraName = sensorNodeList.cameraNames.first;
-        onPressed = () => _setSensorNodeCameras(sensorNode.packageName, [mainCameraName]);
-      }
-      addMenuEntries.add(MenuItemButton(onPressed: onPressed, child: Text(sensorNode.displayName)));
     }
-    return addMenuEntries;
+    final CatalogOffer? chosenOffer = await showOfferPickerDialog(
+      context: context,
+      backendClient: widget.backendClient,
+      offerKind: offerKindSensorNode,
+      dialogTitle: WizardStrings.chooseSensorNodeDialogTitle,
+      blockedTextByOfferName: blockedTextByPackage,
+    );
+    if (chosenOffer == null || !mounted) {
+      return;
+    }
+    // A node installed just now is not in the list read before
+    await _loadSensorNodeList();
+    final List<String> profileCameraNames = _sensorNodeList?.cameraNames ?? <String>[];
+    if (!mounted || profileCameraNames.isEmpty) {
+      if (mounted) {
+        setState(() {
+          _selectionErrorText = WizardStrings.sensorNodeNeedsCameraText;
+        });
+      }
+      return;
+    }
+    await _setSensorNodeCameras(chosenOffer.name, [profileCameraNames.first]);
   }
 
   /// The cameras the node runs on: the profile's selection and where apps of the profile need it, in the order of

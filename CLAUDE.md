@@ -169,3 +169,7 @@ mask downscaled). Apps apply `/projector/mask` themselves.
 Shell scripts source `scripts/common.sh` (`step`/`ok`/`warn`/`die`, `ROS_DISTRO`) and run under `set -euo pipefail`,
 so pipelines whose left side may legitimately exit non-zero need explicit handling. Every failure message names the
 command that fixes it: `local_build.sh` must work for someone at a fresh computer.
+
+Python lines may be up to **99 characters** in every package of the framework (`ament_flake8`'s default, which each
+package's `test_flake8` checks). Use that width: never wrap or reformat code to a shorter limit (79, 88), and don't
+run a formatter that does.

@@ -4,7 +4,9 @@
 // in the profile's order (the first is the main camera, which the framework nodes use). A camera's tab offers, on
 // request, its images and settings (changed on the running camera), its lens calibration, camera pose or projector
 // calibration (CameraSectionView, which also keeps the projector black where needed), and Remove, which moves the
-// camera's calibrations away after a confirmation. "Add camera" adds a named camera (AddCameraDialog). Every camera
+// camera's calibrations away after a confirmation. "Add camera" lists the installed and available camera types
+// (OfferPickerDialog; an available one is installed first), then adds a named camera of the chosen type
+// (AddCameraDialog, from its unit step). Every camera
 // can be shown and calibrated on its own; a run of the profile starts all of them. Opened with a requested camera
 // section (a camera clicked in the Overview's drawing, or a missing calibration step started there), the area brings
 // that camera's tab to the front and opens the section at once.
@@ -15,6 +17,8 @@ import 'add_camera_dialog.dart';
 import '../core/ui/addable_tabs_view.dart';
 import 'camera_section_view.dart';
 import '../../data/services/cameras_api.dart';
+import '../../data/services/install_api.dart';
+import '../install/offer_picker_dialog.dart';
 import '../core/ui/profile_run_view.dart';
 import '../core/ui/profile_summary_loading.dart';
 import '../../data/services/setup_wizard_backend_client.dart';
@@ -63,15 +67,58 @@ class _CamerasScreenState extends State<CamerasScreen> with ProfileSummaryLoadin
     return loadProfileSummary(widget.backendClient, widget.profileName, isSpinnerShown: isSpinnerShown);
   }
 
+  /// Lists the installed and available camera types; returns the chosen one, installed first when it was not. A type
+  /// without serial numbers that the profile has already, or whose entry is broken, cannot be chosen.
+  Future<String?> _chooseCameraType(List<ProfileCameraUnit> profileCameraUnits) async {
+    final Map<String, String> blockedTextByCameraType = {};
+    try {
+      for (final CameraType cameraType in await widget.backendClient.fetchCameraTypes()) {
+        final String? entryErrorText = cameraType.entryErrorText;
+        bool isTypeInProfile = false;
+        for (final ProfileCameraUnit profileCameraUnit in profileCameraUnits) {
+          if (profileCameraUnit.cameraType == cameraType.cameraType) {
+            isTypeInProfile = true;
+          }
+        }
+        if (entryErrorText != null) {
+          blockedTextByCameraType[cameraType.cameraType] = entryErrorText;
+        } else if (isTypeInProfile && !cameraType.hasSerials) {
+          blockedTextByCameraType[cameraType.cameraType] = WizardStrings.offerInProfileText;
+        }
+      }
+    } catch (error) {
+      _showMessage(describeBackendErrorForUser(error));
+      return null;
+    }
+    if (!mounted) {
+      return null;
+    }
+    final CatalogOffer? chosenOffer = await showOfferPickerDialog(
+      context: context,
+      backendClient: widget.backendClient,
+      offerKind: offerKindCamera,
+      dialogTitle: WizardStrings.chooseCameraTypeDialogTitle,
+      blockedTextByOfferName: blockedTextByCameraType,
+    );
+    return chosenOffer?.name;
+  }
+
   Future<void> _addCamera(List<CameraCalibrationSummary> profileCameras) async {
     final List<ProfileCameraUnit> profileCameraUnits = [
       for (final CameraCalibrationSummary camera in profileCameras)
         (cameraName: camera.cameraName, cameraType: camera.cameraType, serial: camera.serial),
     ];
+    final String? chosenCameraType = await _chooseCameraType(profileCameraUnits);
+    if (chosenCameraType == null || !mounted) {
+      return;
+    }
     final AddCameraChoice? choice = await showDialog<AddCameraChoice>(
       context: context,
-      builder: (BuildContext dialogContext) =>
-          AddCameraDialog(backendClient: widget.backendClient, profileCameras: profileCameraUnits),
+      builder: (BuildContext dialogContext) => AddCameraDialog(
+        backendClient: widget.backendClient,
+        profileCameras: profileCameraUnits,
+        cameraTypeToAdd: chosenCameraType,
+      ),
     );
     if (choice == null) {
       return;

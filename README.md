@@ -361,3 +361,10 @@ own data instead of a service per point:
 placed on the same plane, so projection accuracy does not depend on an exact camera pose; the metric scale (and so
 what RViz shows) does. The homography only covers the plane: a point above the table (a hand) lands offset by
 parallax, unless the projector centre is calibrated and `project_to_table` is used first.
+
+
+## WIP: Types of Nodes in the Framework:
+- Core
+- Cameras
+- Sensor Processing Nodes
+- Apps

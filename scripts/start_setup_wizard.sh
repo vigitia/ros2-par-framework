@@ -5,7 +5,8 @@
 #   1. checks that ROS 2 is installed and that GitHub accepts this machine's SSH key (for git@ URLs)
 #   2. builds the workspace with local_build.sh when the backend's packages are not built yet
 #   3. builds the wizard app when its bundle is missing (installs Flutter's Linux build tools)
-#   4. starts the backend unless one already answers, then the app; closing the app stops the
+#   4. registers the app's icon with the desktop (a hidden .desktop file in ~/.local/share/applications)
+#   5. starts the backend unless one already answers, then the app; closing the app stops the
 #      backend this script started
 #   ./scripts/start_setup_wizard.sh
 
@@ -23,6 +24,13 @@ SETUP_WIZARD_BACKEND_START_TIMEOUT_S=60
 SETUP_WIZARD_BACKEND_STOP_TIMEOUT_S=10
 # apt packages Flutter needs to build a Linux app (flutter doctor, "Linux toolchain")
 FLUTTER_LINUX_TOOLCHAIN_APT_PACKAGE_NAMES=(clang cmake ninja-build pkg-config libgtk-3-dev)
+
+# The app's ID (APPLICATION_ID in setup_wizard/app/linux/CMakeLists.txt). Wayland desktops such as GNOME find a
+# window's icon only through a .desktop file of that name, not from the window itself.
+SETUP_WIZARD_APPLICATION_ID="com.github.vigitia.par_setup_wizard"
+SETUP_WIZARD_APP_ICON_PATH="${SETUP_WIZARD_APP_FOLDER_PATH}/assets/app_icon.svg"
+# The user's application folder (XDG base directory spec): $XDG_DATA_HOME, by default ~/.local/share
+SETUP_WIZARD_DESKTOP_ENTRY_PATH="${XDG_DATA_HOME:-${HOME}/.local/share}/applications/${SETUP_WIZARD_APPLICATION_ID}.desktop"
 
 ros_setup="/opt/ros/${ROS_DISTRO}/setup.bash"
 
@@ -111,6 +119,27 @@ stop_setup_wizard_backend() {
     hint "a camera preview or run it started may still be running: pgrep -af 'ros2 launch'"
 }
 
+# Co-authored by Claude Code
+# Write the .desktop file that gives the app's window its icon, when it is missing or names other paths (e.g.
+# after the repository moved). NoDisplay keeps it out of the application menu: it starts only the app, without
+# the backend, so the start stays with this script.
+write_setup_wizard_desktop_entry() {
+    local desktop_entry_text
+    desktop_entry_text="[Desktop Entry]
+Type=Application
+Name=PAR setup wizard
+Exec=${SETUP_WIZARD_APP_EXECUTABLE_PATH}
+Icon=${SETUP_WIZARD_APP_ICON_PATH}
+StartupWMClass=${SETUP_WIZARD_APPLICATION_ID}
+NoDisplay=true"
+    if [[ -f "$SETUP_WIZARD_DESKTOP_ENTRY_PATH" && "$(cat "$SETUP_WIZARD_DESKTOP_ENTRY_PATH")" == "$desktop_entry_text" ]]; then
+        return
+    fi
+    mkdir -p "$(dirname "$SETUP_WIZARD_DESKTOP_ENTRY_PATH")"
+    printf '%s\n' "$desktop_entry_text" > "$SETUP_WIZARD_DESKTOP_ENTRY_PATH"
+    ok "app icon registered (${SETUP_WIZARD_DESKTOP_ENTRY_PATH})"
+}
+
 # 1. Prerequisites
 step "Checking prerequisites"
 if [[ ! -f "$ros_setup" ]]; then
@@ -135,7 +164,10 @@ else
     build_setup_wizard_app
 fi
 
-# 4. Backend and app
+# 4. App icon
+write_setup_wizard_desktop_entry
+
+# 5. Backend and app
 step "Starting the setup wizard"
 setup_wizard_backend_pid=""
 if is_setup_wizard_backend_answering; then

@@ -1,7 +1,7 @@
 // Written by Claude Code
 //
 // Hub area "Apps" of a profile: one tab per app the profile offers (par_launch.apps), "Add app" for the installed
-// ones it does not offer yet. A tab shows what the app is and which sensor nodes it needs (they show under Sensor
+// ones it does not offer yet, and the ones that can be installed (an available one is installed first). A tab shows what the app is and which sensor nodes it needs (they show under Sensor
 // nodes while the profile offers it), Disable, which camera each input of the app reads
 // (par_launch.app_inputs, chosen here when the profile has several cameras), and the settings of the nodes its
 // ament index entry names (settings_node_names), read once from the app and saved into the profile without running it
@@ -13,6 +13,8 @@ import 'package:flutter/material.dart';
 
 import '../core/ui/addable_tabs_view.dart';
 import '../../data/services/apps_api.dart';
+import '../../data/services/install_api.dart';
+import '../install/offer_picker_dialog.dart';
 import '../../data/services/node_settings_api.dart';
 import '../core/ui/node_settings_editor_view.dart';
 import '../core/ui/profile_run_view.dart';
@@ -192,26 +194,49 @@ class _AppsScreenState extends State<AppsScreen> with ProfileSummaryLoading<Apps
       tabTitles: tabTitles,
       shownTabTitle: shownTabTitle,
       addButtonText: WizardStrings.addAppButtonLabel,
-      addMenuEntries: _buildAddMenuEntries(installedApps, enabledAppNames),
+      addMenuEntries: const [],
+      onAddPressed: _isSavingEnabledApps ? null : () => _chooseAndAddApp(enabledAppNames),
       noTabsText: noTabsText,
       buildTabContent: (int tabIndex, bool isShownTab) => _buildAppTab(enabledAppNames[tabIndex], enabledAppNames),
     );
   }
 
-  List<Widget> _buildAddMenuEntries(List<InstalledApp> installedApps, List<String> enabledAppNames) {
-    final List<Widget> addMenuEntries = [];
-    for (final InstalledApp installedApp in installedApps) {
-      if (enabledAppNames.contains(installedApp.appName)) {
-        continue;
-      }
-      // A broken entry cannot be started
-      VoidCallback? onPressed;
-      if (installedApp.entryErrorText == null && !_isSavingEnabledApps) {
-        onPressed = () => _saveEnabledApps([...enabledAppNames, installedApp.appName], addedAppName: installedApp.appName);
-      }
-      addMenuEntries.add(MenuItemButton(onPressed: onPressed, child: Text(installedApp.displayName)));
+  /// Lists installed and available apps (OfferPickerDialog); an available one is
+  /// installed first. The chosen app is added to the profile and comes to the front.
+  Future<void> _chooseAndAddApp(List<String> enabledAppNames) async {
+    final Map<String, String> blockedTextByAppName = {};
+    for (final String enabledAppName in enabledAppNames) {
+      blockedTextByAppName[enabledAppName] = WizardStrings.offerInProfileText;
     }
-    return addMenuEntries;
+    // A broken entry cannot be started
+    for (final InstalledApp installedApp in _installedApps ?? <InstalledApp>[]) {
+      final String? entryErrorText = installedApp.entryErrorText;
+      if (entryErrorText != null) {
+        blockedTextByAppName[installedApp.appName] = entryErrorText;
+      }
+    }
+    final CatalogOffer? chosenOffer = await showOfferPickerDialog(
+      context: context,
+      backendClient: widget.backendClient,
+      offerKind: offerKindApp,
+      dialogTitle: WizardStrings.chooseAppDialogTitle,
+      blockedTextByOfferName: blockedTextByAppName,
+    );
+    if (chosenOffer == null || !mounted) {
+      return;
+    }
+    // An app installed just now is not in the list read before
+    await _loadInstalledApps();
+    final InstalledApp? chosenApp = _findInstalledApp(chosenOffer.name);
+    if (chosenApp == null || chosenApp.entryErrorText != null) {
+      if (mounted) {
+        setState(() {
+          _enabledAppsErrorText = chosenApp?.entryErrorText ?? WizardStrings.appNotInstalledText;
+        });
+      }
+      return;
+    }
+    await _saveEnabledApps([...enabledAppNames, chosenApp.appName], addedAppName: chosenApp.appName);
   }
 
   Widget _buildAppTab(String appName, List<String> enabledAppNames) {

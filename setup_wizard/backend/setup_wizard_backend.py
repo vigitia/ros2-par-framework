@@ -71,8 +71,14 @@ def get_backend_status() -> dict:
 
 
 def main() -> None:
-    uvicorn.run(setup_wizard_backend_app, host=SETUP_WIZARD_BACKEND_HOST,
-                port=SETUP_WIZARD_BACKEND_PORT)
+    """Serve the API; after a successful install, start anew so the new packages are found."""
+    backend_server = uvicorn.Server(uvicorn.Config(setup_wizard_backend_app,
+                                                   host=SETUP_WIZARD_BACKEND_HOST,
+                                                   port=SETUP_WIZARD_BACKEND_PORT))
+    install_api.set_backend_server_for_restart(backend_server)
+    backend_server.run()
+    if install_api.is_backend_restart_requested():
+        install_api.restart_backend()
 
 
 if __name__ == '__main__':

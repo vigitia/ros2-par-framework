@@ -6,9 +6,10 @@
 // the profile's sensor processing nodes and the profile's apps; the Run button sits in the bottom right
 // corner of the Overview. The profile menu (hamburger icon, top right of the app bar) switches profiles, starts
 // the new-profile wizard, copies and deletes a profile; the hub remembers the choice for the next start. Without any profile
-// the Overview shows only a hint, and the other areas and the Run button are disabled. Each area lives in its own
+// the Overview shows only a hint, Projectors and the Run button are disabled. Each area lives in its own
 // file and gets only the backend client and the profile name, so the areas can be built independently; switching
-// profiles builds them afresh. The Overview's requests to open a camera section or the Projectors area pass through
+// profiles builds them afresh. Without a profile, Cameras, Sensor nodes and Apps list what is installed and what can
+// be installed (OfferCatalogView), so a fresh installation gets its parts before the first profile. The Overview's requests to open a camera section or the Projectors area pass through
 // the hub.
 
 import 'package:flutter/material.dart';
@@ -24,6 +25,8 @@ import '../new_profile/new_profile_hardware_step.dart';
 import '../new_profile/new_profile_wizard_screen.dart';
 import 'copy_profile_dialog.dart';
 import 'profile_overview_screen.dart';
+import '../../data/services/install_api.dart';
+import '../install/offer_catalog_view.dart';
 import '../projectors/projectors_screen.dart';
 import '../sensor_nodes/sensor_nodes_screen.dart';
 import '../../config/wizard_strings.dart';
@@ -87,8 +90,8 @@ class _ProfileHubScreenState extends State<ProfileHubScreen> {
       setState(() {
         _profileNames = profileNames;
         _shownProfileName = _chooseShownProfileName(profileNames, profileList.lastSelectedProfileName);
-        if (_shownProfileName == null) {
-          // The other areas are disabled without a profile
+        if (_shownProfileName == null && _selectedAreaIndex == projectorsAreaIndex) {
+          // Disabled without a profile
           _selectedAreaIndex = overviewAreaIndex;
         }
         _isLoadingProfileList = false;
@@ -262,9 +265,24 @@ class _ProfileHubScreenState extends State<ProfileHubScreen> {
     );
   }
 
+  /// Without a profile: the parts the three areas can install, else the Overview's hint.
+  Widget _buildNoProfileArea() {
+    final Key areaKey = ValueKey<String>('no-profile-$_selectedAreaIndex');
+    switch (_selectedAreaIndex) {
+      case camerasAreaIndex:
+        return OfferCatalogView(key: areaKey, backendClient: widget.backendClient, offerKind: offerKindCamera);
+      case sensorNodesAreaIndex:
+        return OfferCatalogView(key: areaKey, backendClient: widget.backendClient, offerKind: offerKindSensorNode);
+      case appsAreaIndex:
+        return OfferCatalogView(key: areaKey, backendClient: widget.backendClient, offerKind: offerKindApp);
+      default:
+        return _buildNoProfileOverview();
+    }
+  }
+
   Widget _buildSelectedArea(String? shownProfileName) {
     if (shownProfileName == null) {
-      return _buildNoProfileOverview();
+      return _buildNoProfileArea();
     }
     // Keyed by the profile, so switching profiles builds the area afresh with the new profile's state
     final Key areaKey = ValueKey<String>('$shownProfileName-$_selectedAreaIndex-$_storedAppChangeCount');
@@ -297,7 +315,7 @@ class _ProfileHubScreenState extends State<ProfileHubScreen> {
     }
   }
 
-  /// The areas as a horizontal bar below the app bar's title; without a profile only the Overview can be chosen.
+  /// The areas as a horizontal bar below the app bar's title; without a profile Projectors cannot be chosen.
   PreferredSizeWidget _buildAreaBar({required bool isProfileShown}) {
     // Simplification: one bar for every window width; with six short labels it fits desktop windows and phones in
     // landscape. Upgrade for phones: icons only below a width threshold.
@@ -324,20 +342,18 @@ class _ProfileHubScreenState extends State<ProfileHubScreen> {
             label: WizardStrings.projectorsNavigationLabel,
             enabled: isProfileShown,
           ),
-          NavigationDestination(
-            icon: const Icon(Icons.videocam_outlined),
+          // Without a profile they list what can be installed
+          const NavigationDestination(
+            icon: Icon(Icons.videocam_outlined),
             label: WizardStrings.camerasNavigationLabel,
-            enabled: isProfileShown,
           ),
-          NavigationDestination(
-            icon: const Icon(Icons.sensors),
+          const NavigationDestination(
+            icon: Icon(Icons.sensors),
             label: WizardStrings.sensorNodesNavigationLabel,
-            enabled: isProfileShown,
           ),
-          NavigationDestination(
-            icon: const Icon(Icons.apps),
+          const NavigationDestination(
+            icon: Icon(Icons.apps),
             label: WizardStrings.appsNavigationLabel,
-            enabled: isProfileShown,
           ),
         ],
       ),
@@ -405,7 +421,13 @@ class _ProfileHubScreenState extends State<ProfileHubScreen> {
       areaBar = _buildAreaBar(isProfileShown: shownProfileName != null);
     }
     return Scaffold(
-      appBar: AppBar(title: Text(titleText), actions: profileMenuActions, bottom: areaBar),
+      appBar: AppBar(
+        title: Text(titleText),
+        actions: profileMenuActions,
+        // Keeps the menu button off the window's right edge
+        actionsPadding: const EdgeInsets.only(right: profileMenuOuterMarginLogicalPx),
+        bottom: areaBar,
+      ),
       floatingActionButton: runButton,
       body: body,
     );
