@@ -1,8 +1,8 @@
 // Written by Claude Code
 //
 // The app's calls to the backend's sensor processing nodes (setup_wizard/backend/sensor_nodes/sensor_nodes_api.py): the
-// installed nodes and on which cameras the profile starts each, a run of the profile's cameras with their nodes, what
-// each node publishes. Settings are read and saved by node_settings_api.dart. A run is stopped like a preview
+// installed nodes and on which cameras the profile starts each, a debug run of one node (with the nodes it requires)
+// on one camera, what those nodes publish. Settings are read and saved by node_settings_api.dart. A run is stopped like a preview
 // (stopCameraPreview with the run's preview id).
 
 import 'dart:convert';
@@ -38,18 +38,32 @@ extension SensorNodesApi on SetupWizardBackendClient {
     return storedCameraNamesByPackage;
   }
 
-  /// Starts the profile's cameras with their nodes, replacing the running preview; returns the run's preview
-  /// id.
-  Future<int> startSensorNodesRun(String profileName) async {
+  /// Starts one node with the nodes it requires on one camera of the profile, nothing else, replacing the running
+  /// preview; returns the run's preview id.
+  Future<int> startSensorNodesRun({
+    required String profileName,
+    required String packageName,
+    required String cameraName,
+  }) async {
     final http.Response response = await _postSensorNodesJson('/api/sensor-nodes/run/start', {
       'profile_name': profileName,
+      'package_name': packageName,
+      'camera_name': cameraName,
     });
     return (jsonDecode(response.body) as Map<String, dynamic>)['preview_id'] as int;
   }
 
-  Future<SensorNodesRunState> fetchSensorNodesRunState(String profileName) async {
-    final Uri stateUri =
-        Uri.parse('$backendBaseUrl/api/sensor-nodes/run/state').replace(queryParameters: {'profile_name': profileName});
+  /// The state of the debug run of packageName on cameraName: whether it runs, and what its nodes publish.
+  Future<SensorNodesRunState> fetchSensorNodesRunState({
+    required String profileName,
+    required String packageName,
+    required String cameraName,
+  }) async {
+    final Uri stateUri = Uri.parse('$backendBaseUrl/api/sensor-nodes/run/state').replace(queryParameters: {
+      'profile_name': profileName,
+      'package_name': packageName,
+      'camera_name': cameraName,
+    });
     final http.Response response = await http.get(stateUri).timeout(backendRequestTimeout);
     _throwOnError(response);
     return SensorNodesRunState.fromJson(jsonDecode(response.body) as Map<String, dynamic>);

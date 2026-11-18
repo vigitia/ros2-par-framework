@@ -657,12 +657,11 @@ abstract final class WizardStrings {
   static const String noSensorNodeInstalledText =
       'No sensor processing node is installed. Add sensor node lists the available ones.';
   static const String addSensorNodeButtonLabel = 'Add sensor node';
-  static const String stopDebuggingTooltip = 'Stop the cameras and the sensor nodes.';
+  static const String stopDebuggingTooltip = 'Stop the camera and the nodes of this debug run.';
   static const String stopDebuggingButtonLabel = 'Stop debugging';
   static const String debugNodeTooltip =
-      'Start the cameras with their enabled nodes, as the profile does but without the projector app and '
-      'with debug on (each node opens its preview window on the PAR machine), and show what the node in front '
-      'publishes on the camera its tab shows.';
+      'Start only this node, with the nodes it needs, on the camera shown here, without any app and with debug on '
+      '(it opens its preview window on the PAR machine), and show what it publishes. Ends another debug run.';
   static const String debugNodeButtonLabel = 'Debug node';
   static String getRequiredSensorNodesText({required Iterable<String> requiredSensorNodes}) {
     return 'Needs ${requiredSensorNodes.join(', ')}, which starts along with it on the '

@@ -572,3 +572,20 @@ projector icon that reads as a projector.
   `highlight`, `co_present`, and an icon package (new dependency).
 - Colours as `const Color(0xFF…)` with the Material palette name in the comment, since `Colors.green.shade400` is not
   a compile-time constant.
+
+## 2026-11-18: "Debug node" debugs only the node in front
+
+**What changed:** In the Sensor nodes area (`lib/ui/sensor_nodes/sensor_nodes_screen.dart`), "Debug node" starts the
+node of the tab in front on the camera its tab shows, with the nodes it requires and nothing else (backend:
+`sensor_nodes_api.py`). The screen remembers the run's node and camera: only that tab, on that camera, shows the live
+image, the outputs and a start error; there the button reads "Stop debugging". On another tab or camera it reads
+"Debug node" and replaces the run. Saving settings restarts the run as before; disabling the debugged node on its
+camera stops it. The area now tracks its tab in front (`onShownTabChanged`), as the Apps area does.
+
+**Why:** Vitus asked that debugging a sensor node starts only that node with its camera and required nodes.
+
+**Decisions and rejected alternatives:**
+- The run follows an explicit click, not the tab: switching tabs while a run goes does not restart cameras. Rejected:
+  restarting the run on every tab or camera switch (a camera restart takes seconds per click).
+- Changing the profile's selection no longer restarts the run, since the run does not depend on it; only removing the
+  debugged node from its camera ends it.

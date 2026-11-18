@@ -7,10 +7,11 @@
 // which comes along with it), with several cameras a chip per camera choosing where it runs and a switch choosing the
 // camera whose settings and debug view the tab shows, and its settings on that camera
 // (/cameras/<camera>/<package>_node). The settings are read once from the node and saved into the profile without a
-// run (NodeSettingsEditorView). The floating "Debug node" button starts the profile's cameras with their nodes,
-// without the apps (but with the nodes they need) and with their debug parameter on, so each node opens its own preview window on the PAR
-// machine; the tab in front then shows the chosen camera's image and its node's outputs there (image outputs as
-// frames, the others as their latest message), and saving settings meanwhile starts the run again with them.
+// run (NodeSettingsEditorView). The floating "Debug node" button starts only the node in front on the camera its tab
+// shows, with the nodes it requires, without any app and with the debug parameter on, so the node opens its own
+// preview window on the PAR machine; its tab then shows that camera's image and the node's outputs there (image
+// outputs as frames, the others as their latest message), and saving settings meanwhile starts the run again with
+// them. Debugging another node or camera replaces the run.
 
 import 'package:flutter/material.dart';
 
@@ -71,8 +72,13 @@ class _SensorNodesScreenState extends State<SensorNodesScreen> {
   /// Per node, the camera whose settings and debug view its tab shows, once one was chosen.
   final Map<String, String> _shownCameraNameByPackage = {};
 
-  /// The running try's preview id; null while none runs.
+  /// The running debug run's preview id; null while none runs.
   int? _runPreviewId;
+
+  /// The node and camera of the last debug run started, also after it failed to start or ended, so their tab shows
+  /// why; null before the first start.
+  String? _runPackageName;
+  String? _runCameraName;
 
   /// Increased with every start, so the image views of an earlier run are built anew and the run state requests of
   /// an earlier run stop and their answers are dropped.
@@ -159,19 +165,30 @@ class _SensorNodesScreenState extends State<SensorNodesScreen> {
       }
       return;
     }
-    // A running run still has the old nodes; start it again with the new ones
-    if (_runPreviewId != null) {
-      await _startRun();
+    // The debugged node no longer runs on its camera in the profile: its tab is gone, so its run ends too
+    final String? runPackageName = _runPackageName;
+    final String? runCameraName = _runCameraName;
+    if (_runPreviewId != null && runPackageName != null && runCameraName != null) {
+      if (!_getNodeCameraNames(runPackageName).contains(runCameraName)) {
+        _stopRun();
+      }
     }
   }
 
-  Future<void> _startRun() async {
+  /// Starts packageName with the nodes it requires on cameraName, nothing else, replacing a running debug run.
+  Future<void> _startRun(String packageName, String cameraName) async {
     setState(() {
       _isStartingRun = true;
       _runErrorText = null;
+      _runPackageName = packageName;
+      _runCameraName = cameraName;
     });
     try {
-      final int runPreviewId = await widget.backendClient.startSensorNodesRun(widget.profileName);
+      final int runPreviewId = await widget.backendClient.startSensorNodesRun(
+        profileName: widget.profileName,
+        packageName: packageName,
+        cameraName: cameraName,
+      );
       _setRunningPreviewId(runPreviewId);
     } catch (error) {
       if (mounted) {
@@ -208,10 +225,19 @@ class _SensorNodesScreenState extends State<SensorNodesScreen> {
   /// Asks for the run's state, one request at a time, until the run ends, is stopped or replaced by a new start, or
   /// the screen is gone. A failed request is shown and the next one tries again.
   Future<void> _pollRunState(int runStartCount) async {
+    final String? runPackageName = _runPackageName;
+    final String? runCameraName = _runCameraName;
+    if (runPackageName == null || runCameraName == null) {
+      return;
+    }
     while (_isCurrentRun(runStartCount)) {
       bool isLaunchRunning = true;
       try {
-        final SensorNodesRunState runState = await widget.backendClient.fetchSensorNodesRunState(widget.profileName);
+        final SensorNodesRunState runState = await widget.backendClient.fetchSensorNodesRunState(
+          profileName: widget.profileName,
+          packageName: runPackageName,
+          cameraName: runCameraName,
+        );
         if (!_isCurrentRun(runStartCount)) {
           return;
         }
@@ -298,7 +324,7 @@ class _SensorNodesScreenState extends State<SensorNodesScreen> {
     }
     Widget? debugButton;
     if (enabledSensorNodes.isNotEmpty) {
-      debugButton = _buildDebugButton();
+      debugButton = _buildDebugButton(_getShownSensorNode(enabledSensorNodes));
     }
     // A Scaffold of its own, so the button floats in this area's bottom right corner
     return Scaffold(
@@ -319,6 +345,8 @@ class _SensorNodesScreenState extends State<SensorNodesScreen> {
             addButtonText: WizardStrings.addSensorNodeButtonLabel,
             addMenuEntries: const [],
             onAddPressed: _isSavingSelection ? null : () => _chooseAndAddSensorNode(sensorNodeList),
+            onShownTabChanged: (int tabIndex) =>
+                setState(() => _shownTabPackageName = enabledSensorNodes[tabIndex].packageName),
             noTabsText: noTabsText,
             buildTabContent: (int tabIndex, bool isShownTab) =>
                 _buildSensorNodeTab(enabledSensorNodes[tabIndex], isShownTab),
@@ -328,10 +356,26 @@ class _SensorNodesScreenState extends State<SensorNodesScreen> {
     );
   }
 
-  /// Starts the cameras with their enabled nodes, or stops that run.
-  Widget _buildDebugButton() {
+  /// The node whose tab is in front: the one last shown while it is still enabled, else the first tab.
+  SensorNodeSummary _getShownSensorNode(List<SensorNodeSummary> enabledSensorNodes) {
+    for (final SensorNodeSummary enabledSensorNode in enabledSensorNodes) {
+      if (enabledSensorNode.packageName == _shownTabPackageName) {
+        return enabledSensorNode;
+      }
+    }
+    return enabledSensorNodes.first;
+  }
+
+  /// Whether the running debug run is the one of packageName on cameraName.
+  bool _isDebugging(String packageName, String cameraName) {
+    return _runPreviewId != null && _runPackageName == packageName && _runCameraName == cameraName;
+  }
+
+  /// Stops the debug run of the node in front on its shown camera, or starts that one, replacing any other run.
+  Widget _buildDebugButton(SensorNodeSummary shownSensorNode) {
     final ColorScheme colorScheme = Theme.of(context).colorScheme;
-    if (_runPreviewId != null) {
+    final String shownCameraName = _getShownCameraName(shownSensorNode.packageName);
+    if (_isDebugging(shownSensorNode.packageName, shownCameraName)) {
       return FloatingActionButton.extended(
         heroTag: sensorNodesDebugButtonHeroTag,
         onPressed: _stopRun,
@@ -343,7 +387,7 @@ class _SensorNodesScreenState extends State<SensorNodesScreen> {
       );
     }
     Widget icon = const Icon(WizardIcons.debugNodeButtonIcon);
-    VoidCallback? onPressed = _startRun;
+    VoidCallback? onPressed = () => _startRun(shownSensorNode.packageName, shownCameraName);
     if (_isStartingRun) {
       onPressed = null;
       icon = const SizedBox.square(dimension: 20, child: CircularProgressIndicator(strokeWidth: 2));
@@ -581,17 +625,24 @@ class _SensorNodesScreenState extends State<SensorNodesScreen> {
     ]);
   }
 
-  /// A running debug run starts again, so the nodes read the saved settings.
+  /// A running debug run starts again, so its nodes read the saved settings.
   void _restartRunningDebugRun() {
-    if (_runPreviewId != null) {
-      _startRun();
+    final String? runPackageName = _runPackageName;
+    final String? runCameraName = _runCameraName;
+    if (_runPreviewId != null && runPackageName != null && runCameraName != null) {
+      _startRun(runPackageName, runCameraName);
     }
   }
 
-  /// The live view while debugging: the camera's image and this node's outputs on it; nothing while no run goes.
+  /// The live view while this node is debugged on cameraName: the camera's image and the node's outputs on it;
+  /// nothing while no run of this node on this camera goes, except why the last one could not start.
   List<Widget> _buildDebugRows(SensorNodeSummary sensorNode, String cameraName) {
     final ColorScheme colorScheme = Theme.of(context).colorScheme;
     final List<Widget> debugRows = [];
+    final bool isLastRunOfThisNode = _runPackageName == sensorNode.packageName && _runCameraName == cameraName;
+    if (!isLastRunOfThisNode) {
+      return debugRows;
+    }
     if (_runPreviewId == null) {
       final String? runErrorText = _runErrorText;
       if (runErrorText != null) {
@@ -620,7 +671,7 @@ class _SensorNodesScreenState extends State<SensorNodesScreen> {
           child: CameraFeedImage(
             key: ValueKey<String>('camera_${cameraName}_$_runStartCount'),
             backendClient: widget.backendClient,
-            // The run starts every camera of the profile; this one is the node's run shown in the tab
+            // The debug run's one camera
             feedTopicName: PreviewCameraChoice(
               profileName: widget.profileName,
               cameraName: cameraName,
@@ -650,7 +701,7 @@ class _SensorNodesScreenState extends State<SensorNodesScreen> {
       debugRows.add(const SizedBox(height: 8));
       debugRows.add(
         FilledButton(
-          onPressed: _isStartingRun ? null : _startRun,
+          onPressed: _isStartingRun ? null : () => _startRun(sensorNode.packageName, cameraName),
           child: const Text(WizardStrings.startAgainButtonLabel),
         ),
       );

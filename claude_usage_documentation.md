@@ -5502,3 +5502,27 @@ area's endpoint and its logic sit together.
 - Rejected: making `backend` itself a package with relative imports: the entry point runs as a script and the
   self-restart starts it by path, which would have to change to `python -m`.
 - `node_settings_api` went to `shared/`, since the Apps and Sensor nodes areas both use it.
+
+## 2026-11-18: sensor node debug run starts only the debugged node
+
+**What changed:** `POST /api/sensor-nodes/run/start` (`setup_wizard/backend/sensor_nodes/sensor_nodes_api.py`) takes
+the node (`package_name`) and the profile camera (`camera_name`) to debug. It starts `par.launch.py` with
+`camera:=<camera>`, `<node>:=true`, every other installed sensor node `:=false`, `projector_app:=none`, `rviz:=false`
+and `debug:=true`. So only that camera, the node and the nodes it requires (`add_required_sensor_nodes`) run, plus
+the camera's projection calibration server. `GET /api/sensor-nodes/run/state` takes the same two names and lists
+those nodes only. Both check the names they get from the network: 404 for an unknown profile, node or camera.
+
+**Why:** Vitus asked that debugging a sensor node starts only that node with its camera and the nodes it needs. Before,
+the run started every camera of the profile with all its sensor nodes and the nodes every offered app requires, so a
+node's debug window came up among unrelated ones and the machine carried load that had nothing to do with the node.
+
+**Decisions and rejected alternatives:**
+- No change to `par.launch.py`: its existing arguments express the run (the `<node>:=true|false` switches,
+  `camera:=<name>`); the requirement resolution (`get_sensor_node_names_by_camera`) adds the required nodes even when
+  their switch is `false`. Rejected: a new `debug_node:=` argument (a second way to say the same thing).
+- `projector_app:=none` instead of the former `start_projector_app:=false`: the latter deliberately adds the sensor
+  nodes of every offered app.
+- The projection calibration server of the camera stays: it only publishes the camera's stored calibration, which a
+  node needs for table or projector coordinates.
+- `debug:=true` still reaches the required nodes too, so they open their preview windows as well (par.launch.py sets it
+  for every node it starts). Left as is; a per-node debug override would need a launch change.
