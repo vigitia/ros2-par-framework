@@ -11,6 +11,7 @@ import 'package:flutter/material.dart';
 import '../../data/services/cameras_api.dart';
 import '../../data/services/setup_wizard_backend_client.dart';
 import '../../config/wizard_strings.dart';
+import '../../config/wizard_icons.dart';
 
 /// What the user chose to add: the camera's name, its type and, for types with serial numbers, the unit's serial
 /// (empty: the driver opens the unit it finds first).
@@ -218,7 +219,7 @@ class _AddCameraDialogState extends State<AddCameraDialog> {
         final bool isOffered = cameraType.hasSerials || !_isTypeInProfile(cameraType.cameraType);
         if (isOffered) {
           typeOptions.add(ListTile(
-            leading: const Icon(Icons.videocam_outlined),
+            leading: const Icon(WizardIcons.cameraTypeIcon),
             title: Text(cameraType.displayName),
             subtitle: Text(cameraType.cameraType),
             onTap: () => _chooseCameraType(cameraType.cameraType),
@@ -277,7 +278,7 @@ class _AddCameraDialogState extends State<AddCameraDialog> {
           : WizardStrings.getConnectedCameraUnitsText(cameraType: cameraType)));
       for (final String serial in addableSerials) {
         unitRows.add(ListTile(
-          leading: const Icon(Icons.usb),
+          leading: const Icon(WizardIcons.usbCameraUnitIcon),
           title: Text(serial),
           onTap: () => _chooseSerial(serial),
         ));

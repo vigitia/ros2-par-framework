@@ -7,6 +7,7 @@
 import 'package:flutter/material.dart';
 
 import '../../config/wizard_strings.dart';
+import '../../config/wizard_icons.dart';
 import '../../data/services/install_api.dart';
 import '../../data/services/setup_wizard_backend_client.dart';
 import 'offer_catalog_view.dart';
@@ -43,7 +44,7 @@ Future<CatalogOffer?> showOfferPickerDialog({
                   IconButton(
                     tooltip: WizardStrings.closeButtonLabel,
                     onPressed: () => Navigator.of(dialogContext).pop(),
-                    icon: const Icon(Icons.close),
+                    icon: const Icon(WizardIcons.closeDialogButtonIcon),
                   ),
                 ],
               ),

@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'ui/profiles/profile_hub_screen.dart';
 import 'data/services/setup_wizard_backend_client.dart';
 import 'config/wizard_strings.dart';
+import 'config/wizard_colors.dart';
 
 void main() {
   runApp(const SetupWizardApp());
@@ -15,11 +16,12 @@ void main() {
 class SetupWizardApp extends StatelessWidget {
   const SetupWizardApp({super.key});
 
+  // Co-authored by Claude Code: the theme's seed colour comes from the wizard's colour config
   @override
   Widget build(BuildContext context) {
     // Dark theme by default
     final ThemeData darkTheme = ThemeData(
-      colorScheme: ColorScheme.fromSeed(seedColor: Colors.green, brightness: Brightness.dark),
+      colorScheme: ColorScheme.fromSeed(seedColor: WizardColors.themeSeedColor, brightness: Brightness.dark),
     );
     return MaterialApp(
       title: WizardStrings.appTitle,

@@ -1,7 +1,8 @@
 // Written by Claude Code
 //
-// "Run" for a profile, as the floating action button of the profile's Overview: a menu opens above it to choose the
-// app on the projector among the profile's apps (or none); the choice is stored as the profile's app
+// "Run" for a profile, as the floating action button of the profile's Overview and Apps area: a menu opens above it to
+// choose the app on the projector among the profile's apps (or none), or, in the Apps area, the app of the shown tab
+// runs directly; the choice is stored as the profile's app
 // (par_launch.projector_app) and the profile starts on the PAR machine as the framework (the profile's main camera,
 // the switched-on sensor nodes and that app). While it runs, the button stops it again. The state is asked for every few
 // seconds, so the button also shows a run that was started earlier, and a run that ends on its own is noticed. Only
@@ -14,6 +15,7 @@ import '../../../data/services/apps_api.dart';
 import '../../../data/services/run_api.dart';
 import '../../../data/services/setup_wizard_backend_client.dart';
 import '../../../config/wizard_strings.dart';
+import '../../../config/wizard_icons.dart';
 
 /// Pause between two questions for the run state.
 const Duration runStatePollInterval = Duration(seconds: 3);
@@ -33,14 +35,19 @@ class ProfileRunView extends StatefulWidget {
     super.key,
     required this.backendClient,
     required this.profileName,
-    required this.onProjectorAppStored,
+    this.onProjectorAppStored,
+    this.appToRunDirectly,
   });
 
   final SetupWizardBackendClient backendClient;
   final String profileName;
 
   /// Called after the menu stored another app as the profile's app, so views showing the choice read it again.
-  final VoidCallback onProjectorAppStored;
+  final VoidCallback? onProjectorAppStored;
+
+  /// Set: the button runs this app on the projector without the menu, e.g. the app of the Apps area's shown tab. Only
+  /// for an app that uses the projector and can be started; null opens the menu.
+  final InstalledApp? appToRunDirectly;
 
   @override
   State<ProfileRunView> createState() => _ProfileRunViewState();
@@ -196,7 +203,7 @@ class _ProfileRunViewState extends State<ProfileRunView> {
       if (appName != _storedAppName) {
         await widget.backendClient.setProfileProjectorApp(profileName: widget.profileName, appName: appName);
         _storedAppName = appName;
-        widget.onProjectorAppStored();
+        widget.onProjectorAppStored?.call();
       }
       return widget.backendClient.startRun(widget.profileName);
     }, WizardStrings.startProfileErrorText);
@@ -223,7 +230,7 @@ class _ProfileRunViewState extends State<ProfileRunView> {
     // An empty box instead of the check keeps every name at the same indent
     Widget leadingIcon = const SizedBox(width: 24);
     if (appName == _storedAppName) {
-      leadingIcon = const Icon(Icons.check);
+      leadingIcon = const Icon(WizardIcons.chosenMenuEntryIcon);
     }
     VoidCallback? onPressed;
     if (canBeStarted) {
@@ -270,10 +277,16 @@ class _ProfileRunViewState extends State<ProfileRunView> {
 
     String labelText = WizardStrings.runButtonLabel;
     String tooltipText = WizardStrings.runButtonTooltip;
-    Widget icon = const Icon(Icons.play_arrow);
+    Widget icon = const Icon(WizardIcons.runButtonIcon);
     Color backgroundColor = colorScheme.primaryContainer;
     Color foregroundColor = colorScheme.onPrimaryContainer;
     VoidCallback? onPressed = _openAppMenu;
+    final InstalledApp? appToRunDirectly = widget.appToRunDirectly;
+    if (appToRunDirectly != null) {
+      labelText = WizardStrings.getRunAppButtonLabel(appDisplayName: appToRunDirectly.displayName);
+      tooltipText = WizardStrings.runAppButtonTooltip;
+      onPressed = () => _runWithApp(appToRunDirectly.appName);
+    }
     if (isOtherProfileRunning) {
       // Only one profile runs at a time, so the button stops the other one first
       labelText = WizardStrings.getStopOtherProfileButtonLabel(profileName: runState?.profileName);
@@ -283,7 +296,7 @@ class _ProfileRunViewState extends State<ProfileRunView> {
       tooltipText = WizardStrings.stopThisProfileTooltip;
     }
     if (isRunning) {
-      icon = const Icon(Icons.stop);
+      icon = const Icon(WizardIcons.stopButtonIcon);
       backgroundColor = colorScheme.error;
       foregroundColor = colorScheme.onError;
       onPressed = _stopRun;

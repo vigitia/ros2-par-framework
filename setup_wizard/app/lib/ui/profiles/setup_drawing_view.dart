@@ -22,6 +22,7 @@ import 'package:flutter/material.dart';
 import 'projector_drawing.dart';
 import '../../data/services/setup_geometry_api.dart';
 import '../../config/wizard_strings.dart';
+import '../../config/wizard_colors.dart';
 
 /// The drawing's height follows its width (same scale both ways), within these limits: at least the minimum, and at
 /// most this share of the window's height, so the steps below stay in reach.
@@ -139,7 +140,7 @@ class _SetupDrawingViewState extends State<SetupDrawingView> {
     final _SetupDrawingColors setupDrawingColors = _SetupDrawingColors(
       cameraColor: colorScheme.primary,
       // The projector's lamp light (projector_drawing.dart), so projector and light look the same everywhere
-      projectorColor: projectorLightColor,
+      projectorColor: WizardColors.projectorLightColor,
       tableColor: colorScheme.outline,
       tableFillColor: colorScheme.surfaceContainerHighest,
       highlightColor: colorScheme.onSurface,

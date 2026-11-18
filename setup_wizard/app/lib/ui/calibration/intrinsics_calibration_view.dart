@@ -19,6 +19,8 @@ import '../cameras/camera_preview_view.dart';
 import '../../data/services/intrinsics_api.dart';
 import '../../data/services/setup_wizard_backend_client.dart';
 import '../../config/wizard_strings.dart';
+import '../../config/wizard_colors.dart';
+import '../../config/wizard_icons.dart';
 
 /// Pause between two requests for the image with the detected board.
 const Duration intrinsicsFramePollInterval = Duration(milliseconds: 150);
@@ -390,18 +392,18 @@ class _IntrinsicsCalibrationViewState extends State<IntrinsicsCalibrationView> {
     final String stateText;
     switch (cameraIntrinsicsState.intrinsicsSource) {
       case IntrinsicsSource.noCameraInfo:
-        stateIcon = Icon(Icons.block, color: colorScheme.onSurfaceVariant);
+        stateIcon = Icon(WizardIcons.unavailableStateIcon, color: colorScheme.onSurfaceVariant);
         stateText = WizardStrings.cameraWithoutCameraInfoText;
       case IntrinsicsSource.uncalibrated:
-        stateIcon = Icon(Icons.cancel, color: colorScheme.error);
+        stateIcon = Icon(WizardIcons.failedStateIcon, color: colorScheme.error);
         stateText = WizardStrings.lensNeedsCalibrationText;
       case IntrinsicsSource.calibrationFile:
-        stateIcon = Icon(Icons.check_circle, color: Colors.green.shade400);
+        stateIcon = Icon(WizardIcons.doneStateIcon, color: WizardColors.doneColor);
         stateText = WizardStrings.getLensCalibratedText(
           calibrationFileModifiedIso: cameraIntrinsicsState.calibrationFileModifiedIso,
         );
       case IntrinsicsSource.camera:
-        stateIcon = Icon(Icons.check_circle_outline, color: Colors.green.shade400);
+        stateIcon = Icon(WizardIcons.doneOutlinedStateIcon, color: WizardColors.doneColor);
         stateText = WizardStrings.lensCalibrationFromCameraText;
     }
     final List<Widget> stateRows = [
@@ -409,7 +411,7 @@ class _IntrinsicsCalibrationViewState extends State<IntrinsicsCalibrationView> {
     ];
     final String? savedStatusText = _savedStatusText;
     if (savedStatusText != null) {
-      stateRows.add(Text(savedStatusText, style: TextStyle(color: Colors.green.shade400)));
+      stateRows.add(Text(savedStatusText, style: TextStyle(color: WizardColors.doneColor)));
     }
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: stateRows);
   }
@@ -548,7 +550,7 @@ class _IntrinsicsCalibrationViewState extends State<IntrinsicsCalibrationView> {
   Widget _buildCoverageBar(String barLabel, double progressFraction) {
     final ColorScheme colorScheme = Theme.of(context).colorScheme;
     final bool isCovered = progressFraction >= 1;
-    final Color barColor = isCovered ? Colors.green.shade400 : colorScheme.error;
+    final Color barColor = isCovered ? WizardColors.doneColor : colorScheme.error;
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Row(
@@ -556,7 +558,7 @@ class _IntrinsicsCalibrationViewState extends State<IntrinsicsCalibrationView> {
           SizedBox(width: 110, child: Text(barLabel)),
           Expanded(child: LinearProgressIndicator(value: progressFraction, color: barColor, minHeight: 8)),
           const SizedBox(width: 8),
-          Icon(isCovered ? Icons.check : Icons.more_horiz, size: 18, color: barColor),
+          Icon(isCovered ? WizardIcons.calibrationRegionCoveredIcon : WizardIcons.calibrationRegionMissingIcon, size: 18, color: barColor),
         ],
       ),
     );

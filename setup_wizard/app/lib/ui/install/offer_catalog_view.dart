@@ -18,6 +18,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../config/wizard_strings.dart';
+import '../../config/wizard_icons.dart';
 import '../../data/services/install_api.dart';
 import '../../data/services/setup_wizard_backend_client.dart';
 import '../core/ui/top_aligned_page_content.dart';
@@ -390,12 +391,12 @@ class _OfferCatalogViewState extends State<OfferCatalogView> {
         children: [
           OutlinedButton.icon(
             onPressed: _isCatalogRefreshing ? null : _startCatalogRefresh,
-            icon: const Icon(Icons.refresh),
+            icon: const Icon(WizardIcons.refreshListButtonIcon),
             label: const Text(WizardStrings.refreshCatalogButtonLabel),
           ),
           OutlinedButton.icon(
             onPressed: _isCatalogRefreshing ? null : _askAndAddUserRepository,
-            icon: const Icon(Icons.add_link),
+            icon: const Icon(WizardIcons.addRepositoryButtonIcon),
             label: const Text(WizardStrings.addRepositoryButtonLabel),
           ),
           if (_isCatalogRefreshing) ...[
@@ -481,7 +482,7 @@ class _OfferCatalogViewState extends State<OfferCatalogView> {
       contentPadding: EdgeInsets.zero,
       enabled: onTap != null || widget.onInstalledOfferChosen == null,
       onTap: onTap,
-      leading: Icon(offer.isInstalled ? Icons.check_circle_outline : Icons.download_outlined),
+      leading: Icon(offer.isInstalled ? WizardIcons.installedOfferIcon : WizardIcons.availableOfferIcon),
       title: Text(offer.shownName),
       subtitle: subtitleLines.isEmpty ? null : Text(subtitleLines.join('\n')),
       trailing: Text(
@@ -576,7 +577,7 @@ class _OfferCatalogViewState extends State<OfferCatalogView> {
     children.add(_buildButtonRow([
       FilledButton.icon(
         onPressed: canInstall ? _startInstall : null,
-        icon: const Icon(Icons.download),
+        icon: const Icon(WizardIcons.installButtonIcon),
         label: const Text(WizardStrings.installButtonLabel),
       ),
       TextButton(
@@ -672,7 +673,7 @@ class _OfferCatalogViewState extends State<OfferCatalogView> {
       _buildButtonRow([
         OutlinedButton.icon(
           onPressed: () => _copySudoCommand(sudoCommandText),
-          icon: const Icon(Icons.copy),
+          icon: const Icon(WizardIcons.copyCommandButtonIcon),
           label: const Text(WizardStrings.copyCommandButtonLabel),
         ),
         FilledButton(

@@ -35,8 +35,7 @@ from node_catalog import (add_install_plan_to_store_lists, add_user_catalog_repo
                           read_catalog_list_entries, read_catalog_repository,
                           read_user_catalog_directory_names, remove_user_catalog_repository,
                           REPOSITORY_ROOT_PATH, update_catalog_cache)
-from par_framework_core.launch_helpers import (get_par_app_package_names,
-                                               get_sensor_node_package_names,
+from par_framework_core.launch_helpers import (get_sensor_node_package_names,
                                                read_sensor_node_entry)
 from profile_run_state import is_profile_running, profile_run_lock
 from pydantic import BaseModel
@@ -234,7 +233,10 @@ def get_catalog() -> CatalogState:
     for camera_type in camera_types:
         if camera_type.is_installed:
             installed_camera_types.add(camera_type.camera_type)
-    installed_app_names = set(get_par_app_package_names())
+    # The Apps area's list, so apps without an index entry (RViz, the rendering manager) count too
+    installed_app_names = set()
+    for installed_app in apps_api.get_installed_app_list().installed_apps:
+        installed_app_names.add(installed_app.app_name)
     installed_sensor_node_names = set(get_sensor_node_package_names())
     available_version_by_package_name = {}
     for catalog_repository in catalog_repositories:

@@ -24,6 +24,7 @@ import '../core/ui/profile_run_view.dart';
 import '../core/ui/profile_summary_loading.dart';
 import '../../data/services/setup_wizard_backend_client.dart';
 import '../../config/wizard_strings.dart';
+import '../../config/wizard_icons.dart';
 
 class CamerasScreen extends StatefulWidget {
   const CamerasScreen({
@@ -275,7 +276,7 @@ class _CamerasScreenState extends State<CamerasScreen> with ProfileSummaryLoadin
       message: WizardStrings.removeCameraTooltip,
       child: OutlinedButton.icon(
         onPressed: () => _confirmAndRemoveCamera(camera),
-        icon: const Icon(Icons.remove_circle_outline),
+        icon: const Icon(WizardIcons.disableButtonIcon),
         label: const Text(WizardStrings.removeButtonLabel),
       ),
     );
@@ -318,13 +319,13 @@ class _CamerasScreenState extends State<CamerasScreen> with ProfileSummaryLoadin
     if (isSectionDone == true) {
       return Tooltip(
         message: WizardStrings.cameraSectionDoneTooltip,
-        child: Icon(Icons.check_circle, color: colorScheme.primary),
+        child: Icon(WizardIcons.doneStateIcon, color: colorScheme.primary),
       );
     }
     if (isSectionDone == false) {
       return Tooltip(
         message: WizardStrings.cameraSectionMissingTooltip,
-        child: Icon(Icons.radio_button_unchecked, color: colorScheme.error),
+        child: Icon(WizardIcons.toDoStateIcon, color: colorScheme.error),
       );
     }
     return Icon(sectionIconData);
@@ -338,22 +339,22 @@ class _CamerasScreenState extends State<CamerasScreen> with ProfileSummaryLoadin
       segments: [
         ButtonSegment<CameraSection>(
           value: CameraSection.imageAndSettings,
-          icon: _buildCameraSectionIcon(CameraSection.imageAndSettings, Icons.tune, camera),
+          icon: _buildCameraSectionIcon(CameraSection.imageAndSettings, WizardIcons.cameraImageAndSettingsSectionIcon, camera),
           label: const Text(WizardStrings.cameraImageSettingsTabLabel),
         ),
         ButtonSegment<CameraSection>(
           value: CameraSection.lensCalibration,
-          icon: _buildCameraSectionIcon(CameraSection.lensCalibration, Icons.center_focus_strong, camera),
+          icon: _buildCameraSectionIcon(CameraSection.lensCalibration, WizardIcons.lensCalibrationSectionIcon, camera),
           label: const Text(WizardStrings.cameraIntrinsicsTabLabel),
         ),
         ButtonSegment<CameraSection>(
           value: CameraSection.cameraPose,
-          icon: _buildCameraSectionIcon(CameraSection.cameraPose, Icons.straighten, camera),
+          icon: _buildCameraSectionIcon(CameraSection.cameraPose, WizardIcons.cameraPoseSectionIcon, camera),
           label: const Text(WizardStrings.cameraPoseTabLabel),
         ),
         ButtonSegment<CameraSection>(
           value: CameraSection.projectorCalibration,
-          icon: _buildCameraSectionIcon(CameraSection.projectorCalibration, Icons.video_label, camera),
+          icon: _buildCameraSectionIcon(CameraSection.projectorCalibration, WizardIcons.projectorCalibrationSectionIcon, camera),
           label: const Text(WizardStrings.cameraProjectorTabLabel),
         ),
       ],

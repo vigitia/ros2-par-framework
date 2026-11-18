@@ -5,8 +5,9 @@
 // nodes while the profile offers it), Disable, which camera each input of the app reads
 // (par_launch.app_inputs, chosen here when the profile has several cameras), and the settings of the nodes its
 // ament index entry names (settings_node_names), read once from the app and saved into the profile without running it
-// (NodeSettingsEditorView). Which of the profile's apps goes on the projector is chosen in the Run menu
-// (profile_run_view.dart); disabling that app leaves the projector without one. An app that does not use the
+// (NodeSettingsEditorView). Run (profile_run_view.dart) starts the profile with the shown tab's app on the projector;
+// on a tab whose app does not use the projector, or without tabs, it opens the menu to choose one. Disabling the
+// profile's projector app leaves the projector without one. An app that does not use the
 // projector (RViz) starts with every run of the profile while it has a tab here.
 
 import 'package:flutter/material.dart';
@@ -22,6 +23,7 @@ import '../core/ui/profile_summary_loading.dart';
 import '../core/ui/top_aligned_page_content.dart';
 import '../../data/services/setup_wizard_backend_client.dart';
 import '../../config/wizard_strings.dart';
+import '../../config/wizard_icons.dart';
 
 class AppsScreen extends StatefulWidget {
   const AppsScreen({super.key, required this.backendClient, required this.profileName});
@@ -41,7 +43,7 @@ class _AppsScreenState extends State<AppsScreen> with ProfileSummaryLoading<Apps
   bool _isSavingAppInputs = false;
   String? _appInputsErrorText;
 
-  /// The app whose tab comes to the front when the tabs change, e.g. one just added.
+  /// The app whose tab is in front: the one the user brought to the front, or one just added.
   String? _shownTabAppName;
 
   @override
@@ -190,15 +192,43 @@ class _AppsScreenState extends State<AppsScreen> with ProfileSummaryLoading<Apps
     if (installedApps.isEmpty) {
       noTabsText = WizardStrings.noAppInstalledText;
     }
-    return AddableTabsView(
-      tabTitles: tabTitles,
-      shownTabTitle: shownTabTitle,
-      addButtonText: WizardStrings.addAppButtonLabel,
-      addMenuEntries: const [],
-      onAddPressed: _isSavingEnabledApps ? null : () => _chooseAndAddApp(enabledAppNames),
-      noTabsText: noTabsText,
-      buildTabContent: (int tabIndex, bool isShownTab) => _buildAppTab(enabledAppNames[tabIndex], enabledAppNames),
+    // A Scaffold of its own, so the Run button floats in this area's bottom right corner
+    return Scaffold(
+      floatingActionButton: ProfileRunView(
+        backendClient: widget.backendClient,
+        profileName: widget.profileName,
+        appToRunDirectly: _findAppToRunDirectly(enabledAppNames),
+      ),
+      body: AddableTabsView(
+        tabTitles: tabTitles,
+        shownTabTitle: shownTabTitle,
+        addButtonText: WizardStrings.addAppButtonLabel,
+        addMenuEntries: const [],
+        onAddPressed: _isSavingEnabledApps ? null : () => _chooseAndAddApp(enabledAppNames),
+        onShownTabChanged: (int tabIndex) => setState(() => _shownTabAppName = enabledAppNames[tabIndex]),
+        noTabsText: noTabsText,
+        buildTabContent: (int tabIndex, bool isShownTab) => _buildAppTab(enabledAppNames[tabIndex], enabledAppNames),
+      ),
     );
+  }
+
+  /// The app of the tab in front when Run can start it directly: installed, on the projector and with a valid entry.
+  /// Null otherwise, so Run opens its menu.
+  InstalledApp? _findAppToRunDirectly(List<String> enabledAppNames) {
+    if (enabledAppNames.isEmpty) {
+      return null;
+    }
+    // The tab view keeps the tab in front while it exists and falls back to the first one otherwise
+    String appNameInFront = enabledAppNames.first;
+    final String? shownTabAppName = _shownTabAppName;
+    if (shownTabAppName != null && enabledAppNames.contains(shownTabAppName)) {
+      appNameInFront = shownTabAppName;
+    }
+    final InstalledApp? appInFront = _findInstalledApp(appNameInFront);
+    if (appInFront == null || !appInFront.usesProjector || appInFront.entryErrorText != null) {
+      return null;
+    }
+    return appInFront;
   }
 
   /// Lists installed and available apps (OfferPickerDialog); an available one is
@@ -272,7 +302,7 @@ class _AppsScreenState extends State<AppsScreen> with ProfileSummaryLoading<Apps
           message: disableTooltipText,
           child: OutlinedButton.icon(
             onPressed: onDisableClicked,
-            icon: const Icon(Icons.remove_circle_outline),
+            icon: const Icon(WizardIcons.disableButtonIcon),
             label: const Text(WizardStrings.disableButtonLabel),
           ),
         ),

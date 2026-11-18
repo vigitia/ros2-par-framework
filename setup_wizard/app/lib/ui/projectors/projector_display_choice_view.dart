@@ -10,6 +10,7 @@ import 'package:flutter/material.dart';
 import '../../data/services/displays_api.dart';
 import '../../data/services/setup_wizard_backend_client.dart';
 import '../../config/wizard_strings.dart';
+import '../../config/wizard_icons.dart';
 
 const double displayCardWidthLogicalPx = 300;
 
@@ -79,7 +80,7 @@ class _ProjectorDisplayChoiceViewState extends State<ProjectorDisplayChoiceView>
     final List<Widget> viewRows = [
       TextButton.icon(
         onPressed: onRefreshPressed,
-        icon: const Icon(Icons.refresh),
+        icon: const Icon(WizardIcons.refreshListButtonIcon),
         label: const Text(WizardStrings.refreshButtonLabel),
       ),
       const SizedBox(height: 12),
@@ -163,7 +164,7 @@ class _ProjectorDisplayChoiceViewState extends State<ProjectorDisplayChoiceView>
     ];
     if (isChosen) {
       titleRowItems.add(
-        Icon(Icons.check_circle, color: colorScheme.primary, semanticLabel: WizardStrings.projectorIconSemanticLabel),
+        Icon(WizardIcons.chosenProjectorDisplayIcon, color: colorScheme.primary, semanticLabel: WizardStrings.projectorIconSemanticLabel),
       );
     }
 
@@ -218,7 +219,7 @@ class _ProjectorDisplayChoiceViewState extends State<ProjectorDisplayChoiceView>
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(Icons.warning_amber, color: colorScheme.error),
+        Icon(WizardIcons.warningStateIcon, color: colorScheme.error),
         const SizedBox(width: 8),
         Expanded(child: Text(warningText)),
       ],

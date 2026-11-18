@@ -543,3 +543,32 @@ since the step-by-step new-profile wizard is gone, and nothing called `findRepos
 **Decisions and rejected alternatives:**
 - *The settings report's `profileName` stays nullable* and is still compared with the shown camera's: the backend
   answers for whatever camera runs, also none, so a report of another or a stopped camera is still recognised.
+
+## 2026-11-18 — Setup wizard: Run in the Apps area, colour and icon config, projector icon
+
+**What changed:**
+- The Apps area has the Run button too (its own `Scaffold`, like the Sensor nodes area's Debug button).
+  `ProfileRunView` takes an optional `appToRunDirectly`: then the button reads "Run <app>" and starts the profile with
+  that app on the projector without the menu. The Apps area passes the shown tab's app when it uses the projector and
+  its entry is valid; on RViz's tab, a broken entry or without tabs, Run opens the menu as on the Overview.
+  `onProjectorAppStored` became optional (the Apps area shows no projector-app choice to refresh).
+- New `lib/config/wizard_icons.dart` (`WizardIcons`): every icon the wizard shows, named by purpose
+  (`runButtonIcon`, `projectorsAreaIcon`, …); all screens use it instead of `Icons.*`.
+- New `lib/config/wizard_colors.dart` (`WizardColors`): theme seed, the green "done" colour, the drawn projector's
+  body, lens and light colours (`projectorLightColor` moved there from `projector_drawing.dart`). Colours from the
+  theme's colour scheme stay where they are.
+- Projectors area and the cameras' projector calibration section: `Icons.video_stable` instead of `video_label`.
+
+**Why:** Vitus asked for Run on the Apps page (run the app being looked at), one place for colours and icons, and a
+projector icon that reads as a projector.
+
+**Decisions and rejected alternatives:**
+- Icons named by purpose, not by glyph: two uses of the same glyph (Copy in two menus, Refresh as retry and as reload)
+  can change apart. Same idea as `WizardStrings`.
+- The Apps area tracks its tab in front itself (`onShownTabChanged`, the added app, else the first tab, matching what
+  `AddableTabsView` shows) and hosts its own button. Rejected: the hub tracking the Apps area's tab to configure its
+  single Run button; the area already knows its tab.
+- Projector icon: Flutter's Material icons have no projector. `video_stable` chosen by Vitus; rejected: a drawn glyph,
+  `highlight`, `co_present`, and an icon package (new dependency).
+- Colours as `const Color(0xFF…)` with the Material palette name in the comment, since `Colors.green.shade400` is not
+  a compile-time constant.

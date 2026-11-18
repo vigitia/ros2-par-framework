@@ -26,6 +26,8 @@ import '../install/offer_picker_dialog.dart';
 import '../core/ui/top_aligned_page_content.dart';
 import '../../data/services/setup_wizard_backend_client.dart';
 import '../../config/wizard_strings.dart';
+import '../../config/wizard_colors.dart';
+import '../../config/wizard_icons.dart';
 
 /// Pause between the answer to one run state request and the next request while a run goes.
 const Duration sensorNodesRunStatePollInterval = Duration(seconds: 1);
@@ -336,11 +338,11 @@ class _SensorNodesScreenState extends State<SensorNodesScreen> {
         tooltip: WizardStrings.stopDebuggingTooltip,
         backgroundColor: colorScheme.error,
         foregroundColor: colorScheme.onError,
-        icon: const Icon(Icons.stop),
+        icon: const Icon(WizardIcons.stopButtonIcon),
         label: const Text(WizardStrings.stopDebuggingButtonLabel),
       );
     }
-    Widget icon = const Icon(Icons.bug_report_outlined);
+    Widget icon = const Icon(WizardIcons.debugNodeButtonIcon);
     VoidCallback? onPressed = _startRun;
     if (_isStartingRun) {
       onPressed = null;
@@ -474,7 +476,7 @@ class _SensorNodesScreenState extends State<SensorNodesScreen> {
           message: disableTooltipText,
           child: OutlinedButton.icon(
             onPressed: onDisableClicked,
-            icon: const Icon(Icons.remove_circle_outline),
+            icon: const Icon(WizardIcons.disableButtonIcon),
             label: const Text(WizardStrings.disableButtonLabel),
           ),
         ),
@@ -686,8 +688,8 @@ class _SensorNodeOutputsView extends StatelessWidget {
       Row(
         children: [
           Icon(
-            runningSensorNode.isRunning ? Icons.play_circle : Icons.hourglass_empty,
-            color: runningSensorNode.isRunning ? Colors.green.shade400 : colorScheme.onSurfaceVariant,
+            runningSensorNode.isRunning ? WizardIcons.sensorNodeRunningIcon : WizardIcons.sensorNodeStartingIcon,
+            color: runningSensorNode.isRunning ? WizardColors.doneColor : colorScheme.onSurfaceVariant,
           ),
           const SizedBox(width: 8),
           Text(

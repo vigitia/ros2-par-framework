@@ -207,7 +207,12 @@ for requirements_file in src/*/requirements.txt packages/*/requirements.txt setu
     pip_args+=(-r "$requirements_file")
 done
 if (( ${#pip_args[@]} > 0 )); then
-    .venv/bin/python -m pip install "${pip_args[@]}"
+    # pip keeps each downloaded wheel in a temporary file until it is installed. /tmp is often a small RAM disk
+    # (tmpfs), too small for large wheels such as torch with its CUDA libraries, so pip's temporary files go to
+    # the workspace's gitignored build folder on disk instead. pip removes its files there when it is done.
+    pip_temp_folder_path="${REPO_ROOT}/build/pip_tmp"
+    mkdir -p "$pip_temp_folder_path"
+    TMPDIR="$pip_temp_folder_path" .venv/bin/python -m pip install "${pip_args[@]}"
 fi
 
 # 4. Build. Through the venv's python, so node executables run with the venv's packages.

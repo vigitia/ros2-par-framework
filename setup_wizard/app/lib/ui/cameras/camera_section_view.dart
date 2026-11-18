@@ -16,6 +16,8 @@ import '../calibration/intrinsics_calibration_view.dart';
 import '../calibration/projector_blackout_holder.dart';
 import '../../data/services/setup_wizard_backend_client.dart';
 import '../../config/wizard_strings.dart';
+import '../../config/wizard_colors.dart';
+import '../../config/wizard_icons.dart';
 
 /// What can be shown for a camera; each starts the camera itself, so only one is shown at a time.
 enum CameraSection { imageAndSettings, lensCalibration, cameraPose, projectorCalibration }
@@ -163,7 +165,7 @@ class _LensCalibrationSectionState extends State<_LensCalibrationSection> {
     }
     if (intrinsicsState == IntrinsicsCalibrationState.factory) {
       final Widget factoryCalibrationNote = Row(children: [
-        Icon(Icons.check_circle_outline, color: Colors.green.shade400),
+        Icon(WizardIcons.doneOutlinedStateIcon, color: WizardColors.doneColor),
         const SizedBox(width: 8),
         const Expanded(
           child: Text(WizardStrings.lensCalibrationNotNeededText),

@@ -5445,3 +5445,34 @@ wizard started a camera without a profile; every screen now previews a camera of
   part of results the backend works with, not only of answers.
 - Rejected: keeping the profile-less preview for a later "preview a unit before adding it" in the Add camera
   dialog: nothing plans it yet, and it can come back with that feature.
+
+## 2026-11-18: setup wizard catalog: apps without an index entry count as installed
+
+**What changed:** `install_api.get_catalog` takes the installed app names from `apps_api.get_installed_app_list()`
+instead of the ament index alone (`get_par_app_package_names`, no longer imported).
+
+**Why:** Found in a fresh-clone test: RViz was listed in the catalog but marked "not installed", without a repository
+to install it from. `_collect_offers` adds the Apps area's apps that no catalog repository offers, and that list also
+holds apps without an index entry (RViz, the rendering manager); the installed check looked only at the index. Both
+now read the same list.
+
+**Decisions and rejected alternatives:**
+- Rejected: special-casing RViz in `get_catalog`; the rendering manager has the same gap, and one shared source keeps
+  the two lists from drifting apart again.
+
+## 2026-11-18: `local_build.sh`: pip's temporary files on disk
+
+**What changed:** `local_build.sh` runs its one `pip install` with `TMPDIR` set to `build/pip_tmp` (gitignored,
+created when missing), only for that call.
+
+**Why:** pip keeps every downloaded wheel in a temporary file under `$TMPDIR` (default `/tmp`) until it is installed,
+wherever `.venv` is. Where `/tmp` is a RAM disk (tmpfs, sized after the memory, sometimes with a user quota), large
+wheels such as torch with its CUDA libraries do not fit, and pip aborts with "Disk quota exceeded" or "No space left on
+device". Found when installing object teaching from the setup wizard.
+
+**Decisions and rejected alternatives:**
+- Rejected: `pip install --no-cache-dir`: it only skips pip's cache under `~/.cache`; the download still goes through a
+  temporary file in `$TMPDIR`.
+- Rejected: exporting `TMPDIR` for the whole script: rosdep, apt and colcon have no such need, and their temporary files
+  belong in the system's place.
+- The folder is not removed afterwards: pip deletes its own files there, so it stays empty.

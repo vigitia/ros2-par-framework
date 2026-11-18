@@ -28,6 +28,7 @@ import '../install/offer_catalog_view.dart';
 import '../projectors/projectors_screen.dart';
 import '../sensor_nodes/sensor_nodes_screen.dart';
 import '../../config/wizard_strings.dart';
+import '../../config/wizard_icons.dart';
 
 /// Height of the bar with the areas below the app bar's title.
 const double areaBarHeightLogicalPx = 64;
@@ -380,25 +381,25 @@ class _ProfileHubScreenState extends State<ProfileHubScreen> {
         },
         destinations: [
           const NavigationDestination(
-            icon: Icon(Icons.dashboard_outlined),
+            icon: Icon(WizardIcons.overviewAreaIcon),
             label: WizardStrings.overviewNavigationLabel,
           ),
           NavigationDestination(
-            icon: const Icon(Icons.video_label),
+            icon: const Icon(WizardIcons.projectorsAreaIcon),
             label: WizardStrings.projectorsNavigationLabel,
             enabled: isProfileShown,
           ),
           // Without a profile they list what can be installed
           const NavigationDestination(
-            icon: Icon(Icons.videocam_outlined),
+            icon: Icon(WizardIcons.camerasAreaIcon),
             label: WizardStrings.camerasNavigationLabel,
           ),
           const NavigationDestination(
-            icon: Icon(Icons.sensors),
+            icon: Icon(WizardIcons.sensorNodesAreaIcon),
             label: WizardStrings.sensorNodesNavigationLabel,
           ),
           const NavigationDestination(
-            icon: Icon(Icons.apps),
+            icon: Icon(WizardIcons.appsAreaIcon),
             label: WizardStrings.appsNavigationLabel,
           ),
         ],
@@ -413,13 +414,13 @@ class _ProfileHubScreenState extends State<ProfileHubScreen> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(Icons.cloud_off, size: 48),
+          const Icon(WizardIcons.backendUnreachableIcon, size: 48),
           const SizedBox(height: 12),
           Text(profileListErrorText),
           const SizedBox(height: 16),
           FilledButton.icon(
             onPressed: _loadProfileList,
-            icon: const Icon(Icons.refresh),
+            icon: const Icon(WizardIcons.retryButtonIcon),
             label: const Text(WizardStrings.tryAgainButtonLabel),
           ),
         ],

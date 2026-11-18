@@ -18,6 +18,8 @@ import '../../data/services/extrinsics_api.dart';
 import 'intrinsics_calibration_view.dart';
 import '../../data/services/setup_wizard_backend_client.dart';
 import '../../config/wizard_strings.dart';
+import '../../config/wizard_colors.dart';
+import '../../config/wizard_icons.dart';
 
 /// Pause between two progress requests while a run goes.
 const Duration extrinsicsRunProgressPollInterval = Duration(milliseconds: 500);
@@ -366,9 +368,9 @@ class _ExtrinsicsCalibrationViewState extends State<ExtrinsicsCalibrationView> {
   /// A state line with an icon that differs in shape as well as colour.
   Widget _buildStateLine({required bool isGood, required String stateText}) {
     final ColorScheme colorScheme = Theme.of(context).colorScheme;
-    Icon stateIcon = Icon(Icons.cancel, color: colorScheme.error);
+    Icon stateIcon = Icon(WizardIcons.failedStateIcon, color: colorScheme.error);
     if (isGood) {
-      stateIcon = Icon(Icons.check_circle, color: Colors.green.shade400);
+      stateIcon = Icon(WizardIcons.doneStateIcon, color: WizardColors.doneColor);
     }
     return Row(children: [stateIcon, const SizedBox(width: 8), Expanded(child: Text(stateText))]);
   }
@@ -461,7 +463,7 @@ class _ExtrinsicsCalibrationViewState extends State<ExtrinsicsCalibrationView> {
       mappingRows.add(Padding(
         padding: const EdgeInsets.only(top: 8),
         child: Row(children: [
-          Icon(Icons.warning_amber, color: colorScheme.error),
+          Icon(WizardIcons.warningStateIcon, color: colorScheme.error),
           const SizedBox(width: 8),
           const Expanded(
             child: Text(WizardStrings.projectionMappingOutdatedText),
@@ -627,7 +629,7 @@ class _ExtrinsicsCalibrationViewState extends State<ExtrinsicsCalibrationView> {
     final List<Widget> finishedRows = [const SizedBox(height: 16)];
     switch (finishedRunProgress.phase) {
       case ExtrinsicsRunPhase.stored:
-        finishedRows.add(Text(WizardStrings.calibrationStoredText, style: TextStyle(color: Colors.green.shade400)));
+        finishedRows.add(Text(WizardStrings.calibrationStoredText, style: TextStyle(color: WizardColors.doneColor)));
         return finishedRows;
       case ExtrinsicsRunPhase.stopped:
         finishedRows.add(const Text(WizardStrings.calibrationStoppedText));

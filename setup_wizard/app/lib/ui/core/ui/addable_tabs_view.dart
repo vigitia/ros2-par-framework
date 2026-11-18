@@ -7,6 +7,8 @@
 
 import 'package:flutter/material.dart';
 
+import '../../../config/wizard_icons.dart';
+
 class AddableTabsView extends StatefulWidget {
   const AddableTabsView({
     super.key,
@@ -138,7 +140,7 @@ class _AddableTabsViewState extends State<AddableTabsView> with TickerProviderSt
     if (onAddPressed != null) {
       return OutlinedButton.icon(
         onPressed: onAddPressed,
-        icon: const Icon(Icons.add),
+        icon: const Icon(WizardIcons.addButtonIcon),
         label: Text(widget.addButtonText),
       );
     }
@@ -157,7 +159,7 @@ class _AddableTabsViewState extends State<AddableTabsView> with TickerProviderSt
         }
         return OutlinedButton.icon(
           onPressed: onPressed,
-          icon: const Icon(Icons.add),
+          icon: const Icon(WizardIcons.addButtonIcon),
           label: Text(widget.addButtonText),
         );
       },

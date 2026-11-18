@@ -19,6 +19,7 @@ import 'package:flutter/services.dart';
 
 import '../../../data/services/camera_preview_api.dart';
 import '../../../config/wizard_strings.dart';
+import '../../../config/wizard_icons.dart';
 
 /// A slider with more positions than this would move in steps too small to hit; it then moves freely.
 const int maximumSliderDivisionCount = 1000;
@@ -299,7 +300,7 @@ class _SettingRowViewState extends State<SettingRowView> {
     return IconButton(
       onPressed: _resetToDefault,
       tooltip: WizardStrings.getResetSettingTooltip(defaultValueText: _formatValue(nodeSetting.defaultValue)),
-      icon: const Icon(Icons.restart_alt),
+      icon: const Icon(WizardIcons.resetToDefaultButtonIcon),
     );
   }
 

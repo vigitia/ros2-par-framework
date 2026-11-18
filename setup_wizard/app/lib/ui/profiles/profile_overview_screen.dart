@@ -19,6 +19,7 @@ import 'setup_drawing_view.dart';
 import '../core/ui/profile_summary_loading.dart';
 import '../../data/services/setup_wizard_backend_client.dart';
 import '../../config/wizard_strings.dart';
+import '../../config/wizard_icons.dart';
 
 /// A step the profile still needs: what it is, why, and the button that opens where it is done.
 class _MissingSetupStep {
@@ -246,10 +247,10 @@ class _ProfileOverviewScreenState extends State<ProfileOverviewScreen>
 
   Widget _buildMissingSetupStepRow(_MissingSetupStep missingStep) {
     final ColorScheme colorScheme = Theme.of(context).colorScheme;
-    Icon stepIcon = Icon(Icons.radio_button_unchecked, color: colorScheme.error);
+    Icon stepIcon = Icon(WizardIcons.toDoStateIcon, color: colorScheme.error);
     String titleText = missingStep.titleText;
     if (missingStep.isOptional) {
-      stepIcon = Icon(Icons.info_outline, color: colorScheme.onSurfaceVariant);
+      stepIcon = Icon(WizardIcons.optionalStepStateIcon, color: colorScheme.onSurfaceVariant);
       titleText = WizardStrings.getOptionalCalibrationTitle(titleText: titleText);
     }
     Widget? subtitle;
@@ -331,7 +332,7 @@ class _ProfileOverviewScreenState extends State<ProfileOverviewScreen>
     if (missingSteps.isEmpty) {
       setupRows.add(ListTile(
         contentPadding: EdgeInsets.zero,
-        leading: Icon(Icons.check_circle_outline, color: colorScheme.primary),
+        leading: Icon(WizardIcons.doneOutlinedStateIcon, color: colorScheme.primary),
         title: const Text(WizardStrings.everythingSetUpText),
       ));
     }

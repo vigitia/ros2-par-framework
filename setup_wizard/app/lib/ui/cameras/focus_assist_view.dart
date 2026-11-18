@@ -13,6 +13,7 @@ import '../../data/services/camera_preview_api.dart';
 import '../../data/services/focus_api.dart';
 import '../../data/services/setup_wizard_backend_client.dart';
 import '../../config/wizard_strings.dart';
+import '../../config/wizard_icons.dart';
 
 /// Pause between two measurements: often enough to follow a turning lens ring without flooding the backend.
 const Duration focusMeasurementPollInterval = Duration(milliseconds: 200);
@@ -170,7 +171,7 @@ class _FocusAssistViewState extends State<FocusAssistView> {
           ),
           TextButton.icon(
             onPressed: _resetPeak,
-            icon: const Icon(Icons.restart_alt),
+            icon: const Icon(WizardIcons.resetToDefaultButtonIcon),
             label: const Text(WizardStrings.resetBestSharpnessButtonLabel),
           ),
         ],

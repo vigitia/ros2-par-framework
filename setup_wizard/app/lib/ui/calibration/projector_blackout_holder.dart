@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import '../../data/services/projector_blackout_api.dart';
 import '../../data/services/setup_wizard_backend_client.dart';
 import '../../config/wizard_strings.dart';
+import '../../config/wizard_icons.dart';
 
 /// Pause between the answer to one blackout request and the next request; the backend ends the blackout after a few
 /// seconds without a request, so this pause plus the longest request (backendRequestTimeout) must stay below that.
@@ -100,7 +101,7 @@ class _ProjectorBlackoutHolderState extends State<ProjectorBlackoutHolder> {
       padding: const EdgeInsets.only(bottom: 8),
       child: Row(
         children: [
-          Icon(Icons.dark_mode_outlined, size: 18, color: mutedColor),
+          Icon(WizardIcons.projectorBlackedOutIcon, size: 18, color: mutedColor),
           const SizedBox(width: 8),
           Expanded(child: Text(blackoutText, style: TextStyle(color: mutedColor))),
         ],

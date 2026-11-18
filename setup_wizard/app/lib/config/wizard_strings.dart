@@ -207,6 +207,11 @@ abstract final class WizardStrings {
   static const String stopProfileErrorText = 'Could not stop the profile.';
   static const String runButtonLabel = 'Run';
   static const String runButtonTooltip = 'Choose the app on the projector and start this profile.';
+  static String getRunAppButtonLabel({required String appDisplayName}) {
+    return 'Run $appDisplayName';
+  }
+
+  static const String runAppButtonTooltip = 'Start this profile with this app on the projector.';
   static const String runNeedsCameraTooltip = 'Add a camera first: the profile has none to start.';
   static String getStopOtherProfileButtonLabel({required String? profileName}) {
     return 'Stop $profileName';

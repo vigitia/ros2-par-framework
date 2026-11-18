@@ -13,6 +13,7 @@ import '../../data/services/displays_api.dart';
 import 'projector_display_choice_view.dart';
 import '../../data/services/setup_wizard_backend_client.dart';
 import '../../config/wizard_strings.dart';
+import '../../config/wizard_icons.dart';
 
 /// Why the stored projector cannot be trusted as it is, one sentence each; empty when all is as chosen.
 List<String> getProjectorWarningTexts(ProfileSummary profileSummary) {
@@ -203,7 +204,7 @@ class ProjectorWarningBox extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Icon(
-            Icons.warning_amber_rounded,
+            WizardIcons.projectorDisplayWarningIcon,
             color: colorScheme.onErrorContainer,
             semanticLabel: WizardStrings.warningIconSemanticLabel,
           ),

@@ -7,6 +7,7 @@
 
 import 'package:flutter/material.dart';
 import '../../config/wizard_strings.dart';
+import '../../config/wizard_icons.dart';
 
 /// Space between the menu button and the window's edge (the hub's app bar keeps it), and between the button and the
 /// opened menu. The menu itself keeps PopupMenuButton's own distance from the window's edges.
@@ -57,7 +58,7 @@ class ProfileSelectorView extends StatelessWidget {
       // An empty box instead of the check keeps every name at the same indent
       Widget leadingIcon = const SizedBox(width: 24);
       if (profileName == shownProfileName) {
-        leadingIcon = const Icon(Icons.check);
+        leadingIcon = const Icon(WizardIcons.chosenMenuEntryIcon);
       }
       menuEntries.add(_buildMenuEntry(
         leadingIcon: leadingIcon,
@@ -69,14 +70,14 @@ class ProfileSelectorView extends StatelessWidget {
       menuEntries.add(const PopupMenuDivider());
     }
     menuEntries.add(_buildMenuEntry(
-      leadingIcon: const Icon(Icons.add),
+      leadingIcon: const Icon(WizardIcons.addButtonIcon),
       onChosen: onNewProfileClicked,
       child: const Text(WizardStrings.newProfileMenuLabel),
     ));
     final String? copyableProfileName = shownProfileName;
     if (copyableProfileName != null) {
       menuEntries.add(_buildMenuEntry(
-        leadingIcon: const Icon(Icons.copy),
+        leadingIcon: const Icon(WizardIcons.copyProfileMenuIcon),
         onChosen: () => onCopyProfileClicked(copyableProfileName),
         child: Text(WizardStrings.getCopyProfileMenuLabel(copyableProfileName: copyableProfileName)),
       ));
@@ -85,7 +86,7 @@ class ProfileSelectorView extends StatelessWidget {
     if (deletableProfileName != null) {
       final Color deleteColor = Theme.of(context).colorScheme.error;
       menuEntries.add(_buildMenuEntry(
-        leadingIcon: Icon(Icons.delete_outline, color: deleteColor),
+        leadingIcon: Icon(WizardIcons.deleteProfileMenuIcon, color: deleteColor),
         onChosen: () => onDeleteProfileClicked(deletableProfileName),
         child: Text(
           WizardStrings.getDeleteProfileMenuLabel(deletableProfileName: deletableProfileName),
@@ -101,7 +102,7 @@ class ProfileSelectorView extends StatelessWidget {
     // PopupMenuButton instead of MenuAnchor: MenuAnchor puts a menu that would leave the window flush against its edge
     return PopupMenuButton<VoidCallback>(
       tooltip: WizardStrings.profilesMenuTooltip,
-      icon: const Icon(Icons.menu),
+      icon: const Icon(WizardIcons.profileMenuButtonIcon),
       position: PopupMenuPosition.under,
       offset: const Offset(0, profileMenuOuterMarginLogicalPx),
       itemBuilder: _buildMenuEntries,
