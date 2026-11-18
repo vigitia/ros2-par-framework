@@ -18,10 +18,10 @@ from par_framework_core.launch_helpers import (get_par_app_package_names,
                                                PAR_APP_ENTRY_INPUTS_KEY, PROJECTOR_APP_NONE,
                                                read_par_app_entry, read_sensor_node_entry,
                                                RENDERING_MANAGER_APP_NAME)
-from profile_files import (PAR_LAUNCH_NODE_NAME, read_camera_name_by_input_by_app,
-                           read_enabled_app_names, read_profile_cameras_or_raise,
-                           read_profile_launch_section, RVIZ_LAUNCH_SWITCH_NAME, write_app_inputs,
-                           write_node_settings_into_profile)
+from profiles.profile_files import (PAR_LAUNCH_NODE_NAME, read_camera_name_by_input_by_app,
+                                    read_enabled_app_names, read_profile_cameras_or_raise,
+                                    read_profile_launch_section, RVIZ_LAUNCH_SWITCH_NAME,
+                                    write_app_inputs, write_node_settings_into_profile)
 from pydantic import BaseModel
 
 # Special case: the rendering manager has no entry in the index yet (no launch file of its own),

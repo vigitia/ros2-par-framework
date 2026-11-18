@@ -1,6 +1,6 @@
 // Written by Claude Code
 //
-// The app's calls to the backend's camera preview (setup_wizard/backend/camera_preview_api.py): start a camera,
+// The app's calls to the backend's camera preview (setup_wizard/backend/cameras/camera_preview_api.py): start a camera,
 // list its feeds (image topics), fetch a feed's latest frame as JPEG, read and change its settings, stop it.
 
 import 'dart:convert';

@@ -1,6 +1,6 @@
 // Written by Claude Code
 //
-// The app's call to the backend's display list (setup_wizard/backend/displays_api.py): the connected displays with
+// The app's call to the backend's display list (setup_wizard/backend/projectors/displays_api.py): the connected displays with
 // the ids the framework uses, to pick the projector from.
 
 import 'setup_wizard_backend_client.dart';

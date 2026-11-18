@@ -13,7 +13,7 @@ profile. Used by the camera endpoints (cameras_api.py) and the new-profile endpo
 import os
 import shutil
 
-from camera_types import read_installed_camera_entry
+from cameras.camera_types import read_installed_camera_entry
 from fastapi import HTTPException
 from par_framework_core.launch_helpers import (CAMERA_ENTRY_INTRINSICS_KEY,
                                                CAMERA_ENTRY_SERIAL_KEY,
@@ -28,13 +28,13 @@ from par_framework_core.launch_helpers import (CAMERA_ENTRY_INTRINSICS_KEY,
                                                get_unit_intrinsics_file_path,
                                                PAR_LAUNCH_CAMERAS_KEY, ProfileCamera,
                                                read_camera_entry, read_merged_parameters)
-from profile_files import (create_deleted_folder, create_profile_launch_context,
-                           find_camera_node_section_names, find_profile_camera,
-                           move_camera_node_sections, PAR_LAUNCH_NODE_NAME,
-                           read_camera_name_by_input_by_app, read_par_setup_node_settings,
-                           read_profile_cameras_or_raise, read_profile_document,
-                           read_profile_launch_section, ROS_PARAMETERS_KEY, write_app_inputs,
-                           write_node_settings_into_profile)
+from profiles.profile_files import (create_deleted_folder, create_profile_launch_context,
+                                    find_camera_node_section_names, find_profile_camera,
+                                    move_camera_node_sections, PAR_LAUNCH_NODE_NAME,
+                                    read_camera_name_by_input_by_app, read_par_setup_node_settings,
+                                    read_profile_cameras_or_raise, read_profile_document,
+                                    read_profile_launch_section, ROS_PARAMETERS_KEY,
+                                    write_app_inputs, write_node_settings_into_profile)
 from pydantic import BaseModel
 
 # Every camera needs a placeholder pose /<camera name>_tf_publisher until it is measured, or a

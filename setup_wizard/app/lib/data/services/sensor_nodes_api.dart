@@ -1,6 +1,6 @@
 // Written by Claude Code
 //
-// The app's calls to the backend's sensor processing nodes (setup_wizard/backend/sensor_nodes_api.py): the
+// The app's calls to the backend's sensor processing nodes (setup_wizard/backend/sensor_nodes/sensor_nodes_api.py): the
 // installed nodes and on which cameras the profile starts each, a run of the profile's cameras with their nodes, what
 // each node publishes. Settings are read and saved by node_settings_api.dart. A run is stopped like a preview
 // (stopCameraPreview with the run's preview id).

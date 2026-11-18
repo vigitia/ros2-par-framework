@@ -7,14 +7,14 @@ par_framework_core):
     .venv/bin/python -m pytest setup_wizard/backend/test
 """
 
-import cameras_api
-import extrinsics_api
+from calibration import extrinsics_api
+from cameras import cameras_api
 from fastapi import HTTPException
-import node_parameters
 from par_framework_core import connected_displays
-import profile_files
+from profiles import profile_files
 import pytest
 from rclpy.parameter import Parameter
+from shared import node_parameters
 
 
 @pytest.mark.parametrize('section_name, full_node_name, does_match', [

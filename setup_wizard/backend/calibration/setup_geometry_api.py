@@ -19,9 +19,8 @@ camera's image stands in for it.
 
 import os
 
-from backend_shared_helpers import read_yaml_file
+from calibration.intrinsics_api import get_factory_camera_info_file_path
 from fastapi import APIRouter
-from intrinsics_api import get_factory_camera_info_file_path
 from launch import LaunchContext
 import numpy as np
 from par_framework_core.launch_helpers import (CAMERA_POSE_KEYS,
@@ -33,9 +32,10 @@ from par_framework_core.launch_helpers import (CAMERA_POSE_KEYS,
                                                ProfileCamera, read_published_camera_pose)
 from par_geometry.par_geometry import (pixels_to_table, projector_to_table,
                                        quaternion_to_rotation_matrix)
-from profile_files import (check_profile_exists, create_profile_launch_context,
-                           read_profile_cameras_or_raise)
+from profiles.profile_files import (check_profile_exists, create_profile_launch_context,
+                                    read_profile_cameras_or_raise)
 from pydantic import BaseModel
+from shared.backend_helpers import read_yaml_file
 import yaml
 
 # Rotation of the optical frame in the camera's body frame (the child of its mount transform):

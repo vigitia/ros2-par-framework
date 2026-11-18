@@ -1,6 +1,6 @@
 // Written by Claude Code
 //
-// The app's calls to the backend's projector blackout (setup_wizard/backend/projector_blackout_api.py): a black
+// The app's calls to the backend's projector blackout (setup_wizard/backend/projectors/projector_blackout_api.py): a black
 // fullscreen window on the projector while a calibration step does not need its light.
 
 import 'setup_wizard_backend_client.dart';

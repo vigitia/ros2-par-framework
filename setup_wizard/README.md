@@ -12,6 +12,9 @@ Two parts:
 - `app/`: Flutter desktop/web app. the user interface.
 - `backend/`: FastAPI backend that does everything touching the PAR machine (profiles, cameras, displays,
   launches). The app talks to it at `http://127.0.0.1:8800`, so the backend must run before the app is useful.
+  `setup_wizard_backend.py` starts it; the other modules sit in one folder per wizard area (`profiles/`,
+  `cameras/`, `calibration/`, `projectors/`, `sensor_nodes/`, `apps/`, `run/`, `install/`), helpers several areas use
+  in `shared/`.
 
 ## Requirements
 

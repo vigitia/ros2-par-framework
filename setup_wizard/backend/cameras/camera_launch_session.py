@@ -30,19 +30,19 @@ import tempfile
 import threading
 import time
 
-from backend_ros_node import CAMERA_IMAGE_STREAM_NAME, CameraPreviewRosNode
-from backend_shared_helpers import get_ros2_executable_path, read_log_lines, read_log_tail_text
-from camera_types import read_installed_camera_entry
+from cameras.camera_types import read_installed_camera_entry
 from fastapi import HTTPException
-from node_parameters import get_node_parameter_client
 from par_framework_core.launch_helpers import CAMERAS_NAMESPACE, get_camera_namespace
-from process_groups import LAUNCH_STOP_SIGNALS, stop_process_group
-from profile_files import (check_profile_exists, find_profile_camera,
-                           read_profile_cameras_or_raise)
-from profile_run_state import is_profile_running, profile_run_lock
+from profiles.profile_files import (check_profile_exists, find_profile_camera,
+                                    read_profile_cameras_or_raise)
+from profiles.profile_run_state import is_profile_running, profile_run_lock
 import rclpy
 from rclpy.executors import ExternalShutdownException, SingleThreadedExecutor
 from rclpy.signals import SignalHandlerOptions
+from shared.backend_helpers import get_ros2_executable_path, read_log_lines, read_log_tail_text
+from shared.backend_ros_node import CAMERA_IMAGE_STREAM_NAME, CameraPreviewRosNode
+from shared.node_parameters import get_node_parameter_client
+from shared.process_groups import LAUNCH_STOP_SIGNALS, stop_process_group
 
 # How long the camera's launch may take to end after SIGINT, and again after SIGTERM.
 CAMERA_PROCESS_STOP_TIMEOUT_S = 10.0

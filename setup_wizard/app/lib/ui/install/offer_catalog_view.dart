@@ -1,7 +1,7 @@
 // Written by Claude Code
 //
 // The installed and available offers of one kind (apps, cameras or sensor processing nodes) from the framework's
-// catalog (setup_wizard/backend/install_api.py), one row each with its description and, right-aligned, its version.
+// catalog (setup_wizard/backend/install/install_api.py), one row each with its description and, right-aligned, its version.
 // Used as the page of the Apps, Cameras and Sensor nodes areas while there is no profile, and as the dialog behind
 // their "Add …" buttons (OfferPickerDialog).
 //

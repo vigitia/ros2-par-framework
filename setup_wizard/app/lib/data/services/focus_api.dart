@@ -1,6 +1,6 @@
 // Written by Claude Code
 //
-// The app's calls to the backend's focus measure (setup_wizard/backend/focus_api.py): the sharpness of the previewed
+// The app's calls to the backend's focus measure (setup_wizard/backend/cameras/focus_api.py): the sharpness of the previewed
 // camera's image centre with its best value so far, the centre crop itself, and resetting the best value.
 
 import 'dart:typed_data';

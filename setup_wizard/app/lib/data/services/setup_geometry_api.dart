@@ -1,6 +1,6 @@
 // Written by Claude Code
 //
-// The app's call to the backend's setup geometry (setup_wizard/backend/setup_geometry_api.py): where a profile's
+// The app's call to the backend's setup geometry (setup_wizard/backend/calibration/setup_geometry_api.py): where a profile's
 // cameras and projector are, in metres in world (the table plane is z = 0).
 
 import 'setup_wizard_backend_client.dart';

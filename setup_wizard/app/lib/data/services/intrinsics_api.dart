@@ -1,6 +1,6 @@
 // Written by Claude Code
 //
-// The app's calls to the backend's lens calibration (setup_wizard/backend/intrinsics_api.py): where the previewed
+// The app's calls to the backend's lens calibration (setup_wizard/backend/calibration/intrinsics_api.py): where the previewed
 // camera's intrinsics come from, and the calibration on it (start, progress, frame with the detected board,
 // calibrate, save, stop).
 

@@ -16,13 +16,13 @@ resolution and losslessly, so single-pixel edges can be judged by eye.
 from collections import deque
 import threading
 
-from backend_ros_node import CAMERA_IMAGE_STREAM_NAME
-from camera_launch_session import (check_camera_process_runs, get_camera_launch_session,
-                                   get_preview_topic_name)
+from cameras.camera_launch_session import (check_camera_process_runs, get_camera_launch_session,
+                                           get_preview_topic_name)
 import cv2
 from fastapi import APIRouter, HTTPException, Response
-from image_conversion import convert_image_message_to_frame
 from pydantic import BaseModel
+from shared.backend_ros_node import CAMERA_IMAGE_STREAM_NAME
+from shared.image_conversion import convert_image_message_to_frame
 
 # Side of the square centre crop in camera pixels, as in scripts/focus_preview.py: small enough
 # that the app can show it enlarged, each camera pixel as a block

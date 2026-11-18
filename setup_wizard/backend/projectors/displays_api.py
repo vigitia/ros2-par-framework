@@ -8,9 +8,9 @@ a profile's projector, so the wizard and a launch always count displays alike.
 
 from dataclasses import asdict
 
-from backend_shared_helpers import read_connected_displays_or_raise
 from fastapi import APIRouter
 from pydantic import BaseModel
+from shared.backend_helpers import read_connected_displays_or_raise
 
 displays_router = APIRouter()
 

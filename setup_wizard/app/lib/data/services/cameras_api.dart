@@ -1,6 +1,6 @@
 // Written by Claude Code
 //
-// The backend's cameras API (setup_wizard/backend/cameras_api.py and the camera endpoints of profiles_api.py): the
+// The backend's cameras API (setup_wizard/backend/cameras/cameras_api.py and the camera endpoints of profiles_api.py): the
 // installed camera types with what their entries say, their connected units, and a profile's cameras by name.
 
 import 'setup_wizard_backend_client.dart';

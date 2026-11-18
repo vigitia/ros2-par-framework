@@ -1,6 +1,6 @@
 // Written by Claude Code
 //
-// The app's calls for the Install area (setup_wizard/backend/install_api.py): what the repositories of
+// The app's calls for the Install area (setup_wizard/backend/install/install_api.py): what the repositories of
 // config/node_catalog.list offer, refreshing that from the network, what installing a choice needs, and the install
 // itself with its state.
 

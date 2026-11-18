@@ -14,21 +14,21 @@ API docs, to try every endpoint in the browser: http://127.0.0.1:8800/docs
 import os
 import socket
 
-import apps_api
-import camera_preview_api
-import cameras_api
-import displays_api
-import extrinsics_api
+from apps import apps_api
+from calibration import extrinsics_api
+from calibration import intrinsics_api
+from calibration import setup_geometry_api
+from cameras import camera_preview_api
+from cameras import cameras_api
+from cameras import focus_api
 from fastapi import FastAPI
-import focus_api
-import install_api
-import intrinsics_api
-import node_settings_api
-import profiles_api
-import projector_blackout_api
-import run_api
-import sensor_nodes_api
-import setup_geometry_api
+from install import install_api
+from profiles import profiles_api
+from projectors import displays_api
+from projectors import projector_blackout_api
+from run import run_api
+from sensor_nodes import sensor_nodes_api
+from shared import node_settings_api
 import uvicorn
 
 # Localhost only: nothing protects the backend yet, so other machines in the network must not

@@ -1,8 +1,8 @@
 // Written by Claude Code
 //
-// The app's calls for the apps: the installed apps (setup_wizard/backend/apps_api.py), the apps a profile offers
+// The app's calls for the apps: the installed apps (setup_wizard/backend/apps/apps_api.py), the apps a profile offers
 // (par_launch.apps), the one it puts on the projector (par_launch.projector_app) and the cameras their inputs read
-// (par_launch.app_inputs), all three in setup_wizard/backend/profiles_api.py. Their settings are read and saved by node_settings_api.dart.
+// (par_launch.app_inputs), all three in setup_wizard/backend/profiles/profiles_api.py. Their settings are read and saved by node_settings_api.dart.
 
 import 'setup_wizard_backend_client.dart';
 

@@ -22,24 +22,25 @@ import sys
 import tempfile
 import threading
 
-import apps_api
 from ament_index_python.packages import get_package_share_directory
 from ament_index_python.resources import has_resource
-from backend_shared_helpers import read_log_lines
-from camera_types import read_camera_types
+from apps import apps_api
+from cameras.camera_types import read_camera_types
 from fastapi import APIRouter, HTTPException
-from node_catalog import (add_install_plan_to_store_lists, add_user_catalog_repository,
-                          CatalogOffer, CatalogRepository, compute_install_plan,
-                          get_camera_version_package_name, InstallPlan, OFFER_KIND_APP,
-                          OFFER_KIND_CAMERA, OFFER_KIND_SENSOR_NODE, parse_package_manifest,
-                          read_catalog_list_entries, read_catalog_repository,
-                          read_user_catalog_directory_names, remove_user_catalog_repository,
-                          REPOSITORY_ROOT_PATH, update_catalog_cache)
+from install.node_catalog import (add_install_plan_to_store_lists, add_user_catalog_repository,
+                                  CatalogOffer, CatalogRepository, compute_install_plan,
+                                  get_camera_version_package_name, InstallPlan, OFFER_KIND_APP,
+                                  OFFER_KIND_CAMERA, OFFER_KIND_SENSOR_NODE,
+                                  parse_package_manifest, read_catalog_list_entries,
+                                  read_catalog_repository, read_user_catalog_directory_names,
+                                  remove_user_catalog_repository, REPOSITORY_ROOT_PATH,
+                                  update_catalog_cache)
 from par_framework_core.launch_helpers import (get_sensor_node_package_names,
                                                read_sensor_node_entry)
-from profile_run_state import is_profile_running, profile_run_lock
+from profiles.profile_run_state import is_profile_running, profile_run_lock
 from pydantic import BaseModel
-import run_api
+from run import run_api
+from shared.backend_helpers import read_log_lines
 
 # Repositories downloaded at the same time during a refresh: faster than one by one, without
 # opening a connection per repository at once
@@ -52,7 +53,8 @@ REPOSITORY_REFRESH_STATUS_PENDING = 'pending'
 REPOSITORY_REFRESH_STATUS_OK = 'ok'
 REPOSITORY_REFRESH_STATUS_FAILED = 'failed'
 
-BACKEND_FOLDER_PATH = os.path.dirname(os.path.abspath(__file__))
+# setup_wizard/backend/, one folder up from this one, where setup_wizard_backend.py is
+BACKEND_FOLDER_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 LOCAL_BUILD_SCRIPT_PATH = os.path.join(REPOSITORY_ROOT_PATH, 'scripts', 'local_build.sh')
 LOCAL_BUILD_NON_INTERACTIVE_OPTION = '--non-interactive'
 # What local_build.sh --non-interactive prints and returns when something needs root; both must

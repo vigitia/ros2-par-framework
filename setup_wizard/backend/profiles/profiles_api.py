@@ -13,7 +13,6 @@ import datetime
 import os
 import shutil
 
-from backend_shared_helpers import read_connected_displays_or_raise
 from fastapi import APIRouter, HTTPException
 from par_framework_core.connected_displays import (ConnectedDisplay, get_projector_display_mode,
                                                    get_projector_identity)
@@ -22,13 +21,14 @@ from par_framework_core.launch_helpers import (FILE_NAME_PART_PATTERN,
                                                FOLDER_PATH_EXTRINSICS, FOLDER_PATH_PROFILES,
                                                get_path_in_config_folder, get_profile_file_path,
                                                PAR_LAUNCH_CAMERAS_KEY)
-from profile_files import (check_profile_exists, DELETED_PROFILES_FOLDER_NAME,
-                           DeletedProfileResponse, PAR_LAUNCH_NODE_NAME,
-                           read_profile_names, ROS_PARAMETERS_KEY,
-                           write_node_settings_into_profile)
-from profile_summary import (ProfileSummary, read_connected_displays_for_summary,
-                             read_profile_summary)
+from profiles.profile_files import (check_profile_exists, DELETED_PROFILES_FOLDER_NAME,
+                                    DeletedProfileResponse, PAR_LAUNCH_NODE_NAME,
+                                    read_profile_names, ROS_PARAMETERS_KEY,
+                                    write_node_settings_into_profile)
+from profiles.profile_summary import (ProfileSummary, read_connected_displays_for_summary,
+                                      read_profile_summary)
 from pydantic import BaseModel
+from shared.backend_helpers import read_connected_displays_or_raise
 
 # In the profiles folder, which is gitignored as a whole: the selection belongs to this machine.
 # Hidden and without .yaml, so it is never listed as a profile.

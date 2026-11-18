@@ -1,6 +1,6 @@
 // Written by Claude Code
 //
-// The app's calls to the backend's node settings (setup_wizard/backend/node_settings_api.py): the settings of a
+// The app's calls to the backend's node settings (setup_wizard/backend/shared/node_settings_api.py): the settings of a
 // sensor node or an app's node, read once by starting the node alone and cached, shown with the profile's values,
 // and saved into the profile without a running node.
 

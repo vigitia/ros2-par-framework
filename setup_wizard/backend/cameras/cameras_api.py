@@ -11,7 +11,7 @@ through profile_cameras.py, which also checks the cameras of a new profile.
 import glob
 import os
 
-from camera_types import CameraType, read_camera_types, read_installed_camera_entry
+from cameras.camera_types import CameraType, read_camera_types, read_installed_camera_entry
 from fastapi import APIRouter
 from par_framework_core.launch_helpers import (CAMERA_ENTRY_SERIAL_KEY,
                                                CAMERA_ENTRY_USB_PRODUCT_ID_KEY,
@@ -20,10 +20,11 @@ from par_framework_core.launch_helpers import (CAMERA_ENTRY_SERIAL_KEY,
                                                CAMERA_ENTRY_V4L_BY_ID_PREFIX_KEY,
                                                CAMERA_SERIAL_SOURCE_LISTED,
                                                FILE_NAME_PART_PATTERN)
-from profile_cameras import (check_new_camera, NewCameraRequest, remove_camera_from_profile,
-                             write_camera_placeholder_pose, write_profile_cameras)
-from profile_files import (check_profile_exists, DeletedProfileResponse,
-                           read_profile_cameras_or_raise)
+from profiles.profile_cameras import (check_new_camera, NewCameraRequest,
+                                      remove_camera_from_profile, write_camera_placeholder_pose,
+                                      write_profile_cameras)
+from profiles.profile_files import (check_profile_exists, DeletedProfileResponse,
+                                    read_profile_cameras_or_raise)
 from pydantic import BaseModel
 
 # serial: listed with v4l_by_id_prefix: the connected units are

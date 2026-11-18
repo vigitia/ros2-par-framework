@@ -27,10 +27,10 @@ from par_framework_core.launch_helpers import (CAMERA_ENTRY_INTRINSICS_KEY,
                                                read_projector_identity,
                                                read_published_camera_pose,
                                                read_stored_projector_display_id)
-from profile_files import (create_profile_launch_context, PROFILE_READ_ERROR_TYPES,
-                           read_camera_name_by_input_by_app, read_enabled_app_names,
-                           read_profile_cameras_allowing_none,
-                           read_profile_own_launch_parameters)
+from profiles.profile_files import (create_profile_launch_context, PROFILE_READ_ERROR_TYPES,
+                                    read_camera_name_by_input_by_app, read_enabled_app_names,
+                                    read_profile_cameras_allowing_none,
+                                    read_profile_own_launch_parameters)
 from pydantic import BaseModel
 
 # Calibration states as the app receives them.

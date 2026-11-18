@@ -5476,3 +5476,29 @@ device". Found when installing object teaching from the setup wizard.
 - Rejected: exporting `TMPDIR` for the whole script: rosdep, apt and colcon have no such need, and their temporary files
   belong in the system's place.
 - The folder is not removed afterwards: pip deletes its own files there, so it stays empty.
+
+## 2026-11-18: setup wizard backend sorted into folders per area
+
+**What changed:** The backend's 27 modules moved from `setup_wizard/backend/` into one package per wizard area:
+`shared/` (ROS node, process groups, node parameters and settings, image conversion, shared helpers), `profiles/`,
+`cameras/` (types, launch session, preview, focus), `calibration/` (intrinsics, extrinsics, setup geometry),
+`projectors/` (displays, blackout window), `sensor_nodes/`, `apps/`, `run/`, `install/` (catalog, install job). Each
+has an `__init__.py`. `setup_wizard_backend.py` and `test/` stay at the top, so `start_setup_wizard.sh`, the
+self-restart and the tests' `conftest.py` keep their paths. Imports became `from <area> import <module>` (attribute
+uses unchanged) and `from <area>.<module> import …`, sorted into place. Module names stayed the same, except
+`backend_shared_helpers` → `shared/backend_helpers.py`, as the folder already says "shared".
+`REPOSITORY_ROOT_PATH` (`install/node_catalog.py`) and `BACKEND_FOLDER_PATH` (`install/install_api.py`) now go one
+folder further up. The Dart services' header comments name the new paths; `setup_wizard/README.md` lists the folders.
+
+**Why:** Vitus asked to sort the flat folder into subfolders; per area, it mirrors the app's `lib/ui/` folders, so an
+area's endpoint and its logic sit together.
+
+**Decisions and rejected alternatives:**
+- Rejected: grouping by layer (`api/` with every router, logic apart): a feature would be split over two folders.
+- Regular packages with `__init__.py`, not namespace packages: Python uses a namespace package only when no regular
+  package or module of that name exists anywhere on `sys.path`, so a later-installed package named e.g. `run` would
+  win over the backend's folder. A regular package is taken at the first match, and the backend's folder comes first.
+  All nine names were checked to be free in the venv.
+- Rejected: making `backend` itself a package with relative imports: the entry point runs as a script and the
+  self-restart starts it by path, which would have to change to `python -m`.
+- `node_settings_api` went to `shared/`, since the Apps and Sensor nodes areas both use it.

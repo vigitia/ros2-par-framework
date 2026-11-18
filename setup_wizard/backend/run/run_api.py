@@ -13,15 +13,15 @@ import os
 import subprocess
 import tempfile
 
-from backend_shared_helpers import get_ros2_executable_path, read_log_lines
-from camera_launch_session import stop_camera_launch
+from cameras.camera_launch_session import stop_camera_launch
 from fastapi import APIRouter, HTTPException
-from process_groups import LAUNCH_STOP_SIGNALS, stop_process_group
-from profile_files import (check_profile_exists, NO_CAMERA_TO_RUN_TEXT,
-                           read_profile_cameras_or_raise)
-from profile_run_state import (get_profile_run_process, is_profile_running, profile_run_lock,
-                               set_profile_run_process)
+from profiles.profile_files import (check_profile_exists, NO_CAMERA_TO_RUN_TEXT,
+                                    read_profile_cameras_or_raise)
+from profiles.profile_run_state import (get_profile_run_process, is_profile_running,
+                                        profile_run_lock, set_profile_run_process)
 from pydantic import BaseModel
+from shared.backend_helpers import get_ros2_executable_path, read_log_lines
+from shared.process_groups import LAUNCH_STOP_SIGNALS, stop_process_group
 
 RUN_LAUNCH_FILE_NAME = 'par.launch.py'
 RUN_LOG_PATH = os.path.join(tempfile.gettempdir(), 'par_setup_wizard_run.log')

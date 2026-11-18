@@ -28,22 +28,22 @@ import threading
 import time
 
 from ament_index_python.packages import get_package_share_directory
-from backend_ros_node import join_node_name
-from backend_shared_helpers import get_ros2_executable_path, read_log_tail_text
-from camera_launch_session import get_camera_launch_session
+from cameras.camera_launch_session import get_camera_launch_session
 from fastapi import APIRouter, HTTPException
-from node_parameters import (convert_setting_value, get_node_parameter_client, NodeSetting,
-                             read_node_settings, TYPE_NAME_BY_PARAMETER_TYPE)
 from par_framework_core.launch_helpers import (get_camera_namespace,
                                                get_installed_par_setup_path,
                                                get_par_app_package_names, get_sensor_node_name,
                                                get_sensor_node_package_names, read_par_app_entry)
-from process_groups import LAUNCH_STOP_SIGNALS, stop_process_group
-from profile_files import (check_profile_exists, read_profile_cameras_or_raise,
-                           read_profile_node_settings, write_node_settings_into_profile)
-from profile_run_state import is_profile_running, profile_run_lock
+from profiles.profile_files import (check_profile_exists, read_profile_cameras_or_raise,
+                                    read_profile_node_settings, write_node_settings_into_profile)
+from profiles.profile_run_state import is_profile_running, profile_run_lock
 from pydantic import BaseModel
 from rclpy.parameter import Parameter
+from shared.backend_helpers import get_ros2_executable_path, read_log_tail_text
+from shared.backend_ros_node import join_node_name
+from shared.node_parameters import (convert_setting_value, get_node_parameter_client, NodeSetting,
+                                    read_node_settings, TYPE_NAME_BY_PARAMETER_TYPE)
+from shared.process_groups import LAUNCH_STOP_SIGNALS, stop_process_group
 
 NODE_KIND_SENSOR_NODE = 'sensor_node'
 NODE_KIND_APP = 'app'

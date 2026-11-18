@@ -29,23 +29,23 @@ import threading
 import time
 import urllib.parse
 
-from backend_ros_node import CAMERA_IMAGE_STREAM_NAME
-from camera_launch_session import (check_camera_process_runs, get_camera_launch_session,
-                                   get_driver_parameter_client, get_preview_topic_name)
-from camera_types import read_installed_camera_entry
+from cameras.camera_launch_session import (check_camera_process_runs, get_camera_launch_session,
+                                           get_driver_parameter_client, get_preview_topic_name)
+from cameras.camera_types import read_installed_camera_entry
 import cv2
 from fastapi import APIRouter, HTTPException, Response
-from node_parameters import PARAMETER_SERVICE_TIMEOUT_S, wait_for_service_answer
 from par_framework_core.launch_helpers import (CAMERA_ENTRY_INTRINSICS_KEY,
                                                CAMERA_INTRINSICS_SOURCE_FACTORY,
                                                get_unit_intrinsics_file_path)
-from profile_cameras import get_camera_intrinsics_file_path
-from profile_files import create_profile_launch_context
+from profiles.profile_cameras import get_camera_intrinsics_file_path
+from profiles.profile_files import create_profile_launch_context
 from pydantic import BaseModel, Field
 from rcl_interfaces.msg import ParameterType
 from rclpy.qos import QoSHistoryPolicy, QoSProfile, QoSReliabilityPolicy
 from sensor_msgs.msg import CameraInfo
 from sensor_msgs.srv import SetCameraInfo
+from shared.backend_ros_node import CAMERA_IMAGE_STREAM_NAME
+from shared.node_parameters import PARAMETER_SERVICE_TIMEOUT_S, wait_for_service_answer
 import yaml
 
 # The camera's streams this API uses, below its namespace (/cameras/<camera name>/)

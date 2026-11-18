@@ -15,24 +15,25 @@ here:
 The router's lifespan starts and stops the backend's ROS node and the camera launch session.
 """
 
-from backend_ros_node import CAMERA_IMAGE_STREAM_NAME
-from camera_launch_session import (check_camera_process_runs, create_profile_preview_camera,
-                                   find_own_camera_driver_node_name,
-                                   get_camera_launch_session, get_driver_parameter_client,
-                                   get_preview_topic_name, run_ros_for_camera_launches,
-                                   start_camera_launch, stop_camera_launch)
+from calibration.intrinsics_api import start_copying_factory_camera_info
+from cameras.camera_launch_session import (check_camera_process_runs,
+                                           create_profile_preview_camera,
+                                           find_own_camera_driver_node_name,
+                                           get_camera_launch_session, get_driver_parameter_client,
+                                           get_preview_topic_name, run_ros_for_camera_launches,
+                                           start_camera_launch, stop_camera_launch)
 import cv2
 from fastapi import APIRouter, HTTPException, Response
-from image_conversion import convert_image_message_to_frame
-from intrinsics_api import start_copying_factory_camera_info
-from node_parameters import (convert_parameter_value_to_plain_python, convert_setting_value,
-                             NodeSetting, read_node_settings, wait_for_service_answer)
-from profile_files import read_par_setup_node_settings, write_node_settings_into_profile
+from profiles.profile_files import read_par_setup_node_settings, write_node_settings_into_profile
 from pydantic import BaseModel
 from rclpy.exceptions import InvalidTopicNameException
 from rclpy.node import NodeNameNonExistentError
 from rclpy.parameter import Parameter
 from rclpy.validate_topic_name import validate_topic_name
+from shared.backend_ros_node import CAMERA_IMAGE_STREAM_NAME
+from shared.image_conversion import convert_image_message_to_frame
+from shared.node_parameters import (convert_parameter_value_to_plain_python, convert_setting_value,
+                                    NodeSetting, read_node_settings, wait_for_service_answer)
 
 # The app shows the preview small; a smaller JPEG also keeps the polling cheap.
 PREVIEW_MAXIMUM_WIDTH_PX = 960

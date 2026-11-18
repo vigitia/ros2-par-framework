@@ -23,18 +23,19 @@ import threading
 import time
 
 from ament_index_python.resources import has_resource
-from backend_shared_helpers import read_yaml_file
-from camera_launch_session import (create_profile_preview_camera, get_camera_launch_session,
-                                   read_camera_process_log_lines, start_camera_launch)
+from cameras.camera_launch_session import (create_profile_preview_camera,
+                                           get_camera_launch_session,
+                                           read_camera_process_log_lines, start_camera_launch)
 from fastapi import APIRouter, HTTPException
 from par_framework_core.launch_helpers import (CAMERA_ENTRY_STREAMS_KEY,
                                                get_extrinsics_relative_path,
                                                get_invalid_pose_keys, get_path_in_config_folder,
                                                POSE_ROTATION_KEYS, read_camera_entry,
                                                read_published_camera_pose)
-from profile_files import create_profile_launch_context
-import projector_blackout_api
+from profiles.profile_files import create_profile_launch_context
+from projectors import projector_blackout_api
 from pydantic import BaseModel, Field
+from shared.backend_helpers import read_yaml_file
 import yaml
 
 # What a run calibrates (ExtrinsicsCalibrationStartRequest.calibration_kind)

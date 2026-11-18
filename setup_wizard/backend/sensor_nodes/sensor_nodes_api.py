@@ -30,10 +30,9 @@ here:
 from dataclasses import dataclass, field
 import time
 
-from backend_ros_node import join_node_name
-from camera_launch_session import (check_camera_process_runs, get_camera_launch_session,
-                                   PreviewCamera, read_camera_process_log_lines,
-                                   start_camera_launch)
+from cameras.camera_launch_session import (check_camera_process_runs, get_camera_launch_session,
+                                           PreviewCamera, read_camera_process_log_lines,
+                                           start_camera_launch)
 from fastapi import APIRouter, HTTPException
 from par_framework_core.launch_helpers import (get_app_input_camera_names,
                                                get_camera_namespace,
@@ -44,14 +43,15 @@ from par_framework_core.launch_helpers import (get_app_input_camera_names,
                                                PAR_APP_ENTRY_INPUTS_KEY, PROJECTOR_APP_NONE,
                                                read_offered_par_app_names, read_par_app_entry,
                                                read_sensor_node_entry, RENDERING_MANAGER_APP_NAME)
-from profile_files import (NO_CAMERA_TO_RUN_TEXT, PAR_LAUNCH_NODE_NAME,
-                           read_profile_cameras_or_raise,
-                           read_profile_launch_section, write_node_settings_into_profile)
+from profiles.profile_files import (NO_CAMERA_TO_RUN_TEXT, PAR_LAUNCH_NODE_NAME,
+                                    read_profile_cameras_or_raise, read_profile_launch_section,
+                                    write_node_settings_into_profile)
 from pydantic import BaseModel
 from rclpy.exceptions import InvalidTopicNameException
 from rclpy.validate_topic_name import validate_topic_name
 from rosidl_runtime_py import message_to_yaml
 from rosidl_runtime_py.utilities import get_message
+from shared.backend_ros_node import join_node_name
 
 SENSOR_NODES_LAUNCH_FILE_NAME = 'par.launch.py'
 # A run shows the cameras and the sensor nodes, also those the profile's apps require; the apps

@@ -1,6 +1,6 @@
 // Written by Claude Code
 //
-// The app's calls to the backend's camera pose and projector calibration (setup_wizard/backend/extrinsics_api.py):
+// The app's calls to the backend's camera pose and projector calibration (setup_wizard/backend/calibration/extrinsics_api.py):
 // what a profile has stored for a camera, starting a calibration run on it, and the run's progress. A run is
 // stopped like a preview (stopCameraPreview with the run's preview id), since its launch runs as the preview's
 // camera.

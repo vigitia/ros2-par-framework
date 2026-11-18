@@ -26,8 +26,8 @@ from par_framework_core.launch_helpers import (CAMERA_ENTRY_REQUIRED_PACKAGES_KE
                                                SENSOR_NODE_RESOURCE_TYPE)
 from pydantic import BaseModel
 
-# The repository this backend belongs to: setup_wizard/backend/ -> two folders up
-REPOSITORY_ROOT_PATH = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# The repository this backend belongs to: setup_wizard/backend/install/ -> three folders up
+REPOSITORY_ROOT_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
 NODE_CATALOG_LIST_PATH = os.path.join(REPOSITORY_ROOT_PATH, 'config', 'node_catalog.list')
 # Repositories the user added to the catalog by URL in the wizard (gitignored, nodes.list format)
 USER_CATALOG_LIST_PATH = os.path.join(REPOSITORY_ROOT_PATH, 'config', 'user_catalog.list')

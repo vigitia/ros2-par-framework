@@ -25,10 +25,10 @@ import tempfile
 import threading
 import time
 
-from backend_shared_helpers import read_connected_displays_or_raise, read_log_tail_text
 from fastapi import APIRouter
-from process_groups import stop_process_group
 from pydantic import BaseModel, Field
+from shared.backend_helpers import read_connected_displays_or_raise, read_log_tail_text
+from shared.process_groups import stop_process_group
 
 BLACKOUT_WINDOW_SCRIPT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                            'projector_blackout_window.py')
