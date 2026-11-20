@@ -2,12 +2,12 @@
 """
 Measure a depth camera's pose (e.g. the Azure Kinect's) from the clear table and store it.
 
-camera_pose_calibrator fits the table plane in the camera's registered depth and writes
-config/calibration/extrinsics/camera_pose_<camera>.yaml (with profile:=<name>, in
-extrinsics/<name>/ instead), which the launch files then use instead of the placeholder
-/<camera>_tf_publisher (height and tilt are measured, the rotation about the vertical is kept from
-the placeholder). camera:= chooses the camera when the profile has several. The launch ends when
-the calibrator is done. Keep the table clear:
+depth_pose_calibrator (package camera_pose_calibrator) fits the table plane in the camera's
+registered depth and writes config/calibration/extrinsics/camera_pose_<camera>.yaml (with
+profile:=<name>, in extrinsics/<name>/ instead), which the launch files then use instead of the
+placeholder /<camera>_tf_publisher (height and tilt are measured, the rotation about the vertical
+is kept from the placeholder). camera:= chooses the camera when the profile has several. The
+launch ends when the calibrator is done. Keep the table clear:
 
     ros2 launch par_framework_core camera_pose_calibration_depth.launch.py
 """
@@ -19,6 +19,7 @@ from par_framework_core.launch_helpers import (CAMERA_TF_PUBLISHER_NAME_SUFFIX,
                                                create_camera_actions,
                                                create_camera_choice_launch_argument,
                                                create_camera_stream_remappings,
+                                               create_folder_of_file,
                                                create_profile_launch_argument,
                                                get_camera_body_frame_id, get_camera_to_calibrate,
                                                get_extrinsics_relative_path,
@@ -45,12 +46,14 @@ def launch_setup(context):
     placeholder_rotation = [float(placeholder_pose[key]) for key in POSE_ROTATION_KEYS]
     camera_pose_relative_path = get_extrinsics_relative_path(context, 'camera_pose', camera)
     camera_pose_file_path = get_path_in_config_folder(camera_pose_relative_path)
+    # camera_pose_calibrator writes the file without creating its folder
+    create_folder_of_file(camera_pose_file_path)
     return [
         *create_camera_actions(context, camera_to_calibrate),
         Node(
             package='camera_pose_calibrator',
-            executable='camera_pose_calibrator',
-            name='camera_pose_calibrator_node',
+            executable='depth_pose_calibrator',
+            name='depth_pose_calibrator_node',
             output='screen',
             emulate_tty=True,
             parameters=[{

@@ -184,11 +184,17 @@ def get_path_in_config_folder(relative_path):
     # file. realpath follows the --symlink-install links back to the source folder, so files
     # written there survive rebuilds
     config_folder_path = os.path.dirname(os.path.realpath(get_installed_par_setup_path()))
-    absolute_path = os.path.join(config_folder_path, relative_path)
-    # The writers (camera_info_manager, camera_pose_calibrator, ...) open the file without
-    # creating its folder
-    os.makedirs(os.path.dirname(absolute_path), exist_ok=True)
-    return absolute_path
+    return os.path.join(config_folder_path, relative_path)
+
+
+# Written by Claude Code
+def create_folder_of_file(file_path):
+    """Create the folder file_path lies in, for a file that is written there."""
+    # Only for writers: the nodes that write calibrations (camera_info_manager,
+    # camera_pose_calibrator, ...) open the file without creating its folder. Code that only
+    # checks or reads a file must not call this, or it leaves empty folders behind, e.g. for a
+    # profile that was deleted meanwhile
+    os.makedirs(os.path.dirname(file_path), exist_ok=True)
 
 
 # Co-authored by Claude Code
@@ -291,7 +297,10 @@ def get_unit_intrinsics_file_path(context, camera_type, serial):
 # Written by Claude Code
 def get_camera_info_url(context, camera_type, serial):
     """Return the file:// URL of a camera unit's intrinsics file, the drivers' camera_info_url."""
-    return f'file://{get_unit_intrinsics_file_path(context, camera_type, serial)}'
+    intrinsics_file_path = get_unit_intrinsics_file_path(context, camera_type, serial)
+    # The driver writes the file there when a calibration is committed through set_camera_info
+    create_folder_of_file(intrinsics_file_path)
+    return f'file://{intrinsics_file_path}'
 
 
 # Co-authored by Claude Code
@@ -890,8 +899,12 @@ def create_projection_calibration_server_node(context, camera):
     # would point elsewhere. And while the camera poses in par_setup.yaml are placeholders, each
     # camera's table plane is its own, so a mapping only fits the camera it was calibrated with.
     # Per profile as well: another setup has another table and projector
-    corners_relative_path = get_extrinsics_relative_path(context, 'projection_corners', camera)
-    mapping_relative_path = get_extrinsics_relative_path(context, 'projection_mapping', camera)
+    corners_file_path = get_path_in_config_folder(
+        get_extrinsics_relative_path(context, 'projection_corners', camera))
+    mapping_file_path = get_path_in_config_folder(
+        get_extrinsics_relative_path(context, 'projection_mapping', camera))
+    # The server writes both files when a calibration sets them; they share one folder
+    create_folder_of_file(mapping_file_path)
     # In the camera's namespace, so each camera has its own server, topics and services, e.g.
     # /cameras/overhead/projection_mapping
     return [Node(
@@ -902,8 +915,8 @@ def create_projection_calibration_server_node(context, camera):
         output='screen',
         emulate_tty=True,
         parameters=[{
-            'projection_corners_file': get_path_in_config_folder(corners_relative_path),
-            'projection_mapping_file': get_path_in_config_folder(mapping_relative_path),
+            'projection_corners_file': corners_file_path,
+            'projection_mapping_file': mapping_file_path,
         }],
     )]
 
@@ -1126,7 +1139,7 @@ def _read_ament_index_entry(resource_type, package_name, entry_kind_text, instal
         installed_names_text = ', '.join(installed_names) or 'none'
         raise RuntimeError(f'[launch_helpers]: {package_name!r} is no installed '
                            f'{entry_kind_text} (installed: {installed_names_text}): add its repo '
-                           f'from config/node_catalog.list to config/store_installed.list and '
+                           f'from config/catalog_repos.list to config/installed_repos.list and '
                            f'run ./scripts/local_build.sh')
     error_start_text = (f'[launch_helpers]: the {entry_kind_text} entry of {package_name} '
                         f'(share/ament_index/resource_index/{resource_type}/{package_name})')

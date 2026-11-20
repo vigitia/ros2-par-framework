@@ -1,6 +1,6 @@
 # Written by Claude Code
 # Node repositories that can be added to an installation of the PAR framework: cameras, sensor processing
-# nodes and apps. Same format as config/nodes.list (<directory> <git-url> [branch]); the repositories every
+# nodes and apps. Same format as config/required_repos.list (<directory> <git-url> [branch]); the repositories every
 # installation needs are listed there, not here.
 #
 # Only where the repositories are lives here. What a repository offers (its display names, descriptions,
@@ -8,10 +8,11 @@
 # (resource/par_framework_{apps,cameras,sensor_nodes}/) and its package.xml files.
 #
 # Nothing here is cloned by itself. To install a repository, add its line to the gitignored
-# config/store_installed.list (the setup wizard does that) and run ./scripts/local_build.sh. For everything
-# at once, e.g. in a development workspace: cp config/node_catalog.list config/store_installed.list
+# config/installed_repos.list (the setup wizard does that) and run ./scripts/local_build.sh. For everything
+# at once, e.g. in a development workspace (copies the entries without this header):
+#   grep -v '^#' config/catalog_repos.list > config/installed_repos.list
 
-# Sensors (released camera drivers are rosdep keys instead, see config/ros_packages.list):
+# Sensors (released camera drivers are rosdep keys instead, see config/required_ros_packages.list):
 
 logitech_brio             git@github.com:vigitia/ros2-logitech-brio.git                     main
 see3cam_cu40              git@github.com:vigitia/ros2-see3cam-cu40.git                      main

@@ -9,7 +9,7 @@
 #   ./scripts/local_build.sh --non-interactive   # never asks for a password, e.g. run by the setup wizard
 #
 # Steps:
-#   1. clone or update the node repositories of config/nodes.list and config/store_installed.list into src/
+#   1. clone or update the node repositories of config/required_repos.list and config/installed_repos.list into src/
 #      (scripts/sync_nodes.sh)
 #   2. install missing build tools and the nodes' apt dependencies (rosdep)
 #   3. install their PyPI dependencies and the setup wizard backend's into .venv
@@ -152,7 +152,7 @@ set -u
 step "Installing build tools and apt dependencies (rosdep)"
 # nullglob makes a pattern without matches expand to nothing instead of staying as literal text
 shopt -s nullglob
-# The released packages of config/ros_packages.list and config/store_ros_packages.list, as a package.xml
+# The released packages of config/required_ros_packages.list and config/installed_ros_packages.list, as a package.xml
 # rosdep can read. It goes into a temporary directory outside the workspace, so colcon never builds it;
 # `trap ... EXIT` deletes the directory when the script ends, also after an error.
 ros_packages_dir="$(mktemp -d)"

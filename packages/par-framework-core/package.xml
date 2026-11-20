@@ -20,14 +20,14 @@
   <exec_depend>camera_calibration</exec_depend>
 
   <exec_depend>rviz_bridge</exec_depend>
-  <!-- Calibration is optional: surface_selector, projection_calibration_server and
+  <!-- Calibration is optional: projection_calibration, projection_calibration_server and
        camera_pose_calibrator (ros2-par-framework-calibration) are not declared. par.launch.py
        starts the server only when it is installed; the calibration launch files need the repo. -->
   <!-- Sensor processing nodes are optional too: par.launch.py starts the ones registered in the
        ament index (par_framework_sensor_nodes). Not declared, so rosdep never tries to resolve them
        as released packages on an installation without them. -->
-  <!-- Camera drivers are optional too: each installation chooses them (config/store_ros_packages.list
-       for released ones, config/store_installed.list for drivers from source). -->
+  <!-- Camera drivers are optional too: each installation chooses them (config/installed_ros_packages.list
+       for released ones, config/installed_repos.list for drivers from source). -->
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>

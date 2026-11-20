@@ -1,4 +1,4 @@
-# Co-authored by Claude Code (split into this core list and node_catalog.list)
+# Co-authored by Claude Code
 # ROS2 node repositories every installation of the PAR framework needs.
 # These nodes live in their own repository for better modularity and reusability.
 #
@@ -11,8 +11,8 @@
 #
 # Every node listed here is cloned and installed by scripts/local_build.sh, including its package.xml and
 # requirements.txt dependencies. Everything else (cameras, sensor processing nodes, apps) is listed in
-# config/node_catalog.list and installed only when chosen: the setup wizard records the choice in the
-# gitignored config/store_installed.list, which local_build.sh reads next to this file.
+# config/catalog_repos.list and installed only when chosen: the setup wizard records the choice in the
+# gitignored config/installed_repos.list, which local_build.sh reads next to this file.
 
 # Framework Core:
 

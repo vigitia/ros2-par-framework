@@ -86,6 +86,17 @@ Projector pixels to table points, with the inverse of the homography (inverted o
 The homography is valid for the table plane only. It is measured by `projection_calibration.launch.py` and
 published latched on `/projection_mapping`; subscribe with `QoSDurabilityPolicy.TRANSIENT_LOCAL`.
 
+### Camera pixels → projector pixels without intrinsics
+
+**`compute_camera_to_projector_homography(projection_corners_msg, projector_width_px, projector_height_px)`** → 3×3
+array
+The homography from raw camera pixels directly to projector pixels, from the four corners of a `ProjectionCorners`
+message (latched on `/cameras/<camera>/projection_corners`, clicked with `calibration.launch.py`). Needs no camera
+intrinsics and no camera pose, so it works for a camera that has neither. Map points with `apply_homography`.
+Valid on the table plane only and exact at the four corners; the camera's lens distortion is not removed, so the
+error is largest between the corners. Raises `ValueError` when three corners lie on one line. With intrinsics and a
+pose, prefer `pixels_to_table` + `table_to_projector`: they remove the distortion and give table metres in between.
+
 ### Points above the table
 
 A point above the table seen through the homography lands offset sideways (parallax): the projector pixel that lights
@@ -159,4 +170,4 @@ Without calibrated intrinsics (`camera_info.k` all zeros) or without the transfo
 | Page → projector | `pixels_to_table`, `table_to_projector`, `apply_homography` | `demo_app`, `rendering_manager_bridge` |
 | Projector pixel → camera image | `projector_to_table`, `table_to_pixels` | `training_images_collector` |
 | Mask over hands and objects | `compute_pixel_rays`, `depth_to_table`, `project_to_table`, `table_to_projector` | `projection_mask` |
-| Projector calibration | `pixels_to_table`, `projector_to_table`, `compute_closest_point_to_rays` | `projection_calibrator` (`surface_selector`) |
+| Projector calibration | `pixels_to_table`, `projector_to_table`, `compute_closest_point_to_rays` | `projection_calibrator` (`projection_calibration`) |

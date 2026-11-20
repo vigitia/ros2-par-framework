@@ -1,6 +1,6 @@
 # Written by Claude Code
 """
-Install API of the setup wizard backend: what config/node_catalog.list's repositories offer
+Install API of the setup wizard backend: what config/catalog_repos.list's repositories offer
 (node_catalog.py), refreshed from the network on request, what installing a choice of offers
 needs, and the install itself.
 
@@ -8,11 +8,11 @@ A refresh runs in a background thread, a few repositories at a time; the app pol
 catalog read from the downloaded clones is kept in memory until the next refresh. Camera types
 this repository registers itself (core) are offered too, so their released drivers can be chosen.
 
-An install adds the plan to the store lists and runs scripts/local_build.sh --non-interactive in
-its own process group, its output in a log file; the app polls its state. What needs root (apt
+An install adds the plan to the installed lists and runs scripts/local_build.sh --non-interactive
+in its own process group, its output in a log file; the app polls its state. What needs root (apt
 packages, `rosdep init`) ends the build with one sudo command for the user to run in a terminal;
-starting the install again then continues it. After a successful build the backend restarts
-itself, because it reads the ament index only once, at its start.
+starting the install again then continues it. After a successful build the backend restarts itself,
+because it reads the ament index only once, at its start.
 """
 
 from concurrent.futures import ThreadPoolExecutor
@@ -27,7 +27,7 @@ from ament_index_python.resources import has_resource
 from apps import apps_api
 from cameras.camera_types import read_camera_types
 from fastapi import APIRouter, HTTPException
-from install.node_catalog import (add_install_plan_to_store_lists, add_user_catalog_repository,
+from install.node_catalog import (add_install_plan_to_installed_lists, add_user_catalog_repository,
                                   CatalogOffer, CatalogRepository, compute_install_plan,
                                   get_camera_version_package_name, InstallPlan, OFFER_KIND_APP,
                                   OFFER_KIND_CAMERA, OFFER_KIND_SENSOR_NODE,
@@ -267,7 +267,7 @@ def create_install_plan(request: InstallPlanRequest) -> InstallPlan:
 @install_router.post('/api/install/start')
 def start_install(request: InstallPlanRequest) -> InstallState:
     """
-    Add what the chosen offers need to the store lists and build the workspace.
+    Add what the chosen offers need to the installed lists and build the workspace.
 
     Refuses while an install or a profile run is active. Starting again with the same offers
     continues an install that needed a sudo command: the lists already have the entries.
@@ -281,10 +281,10 @@ def start_install(request: InstallPlanRequest) -> InstallState:
             raise HTTPException(status_code=409,
                                 detail='A profile is running: stop it before installing')
         try:
-            add_install_plan_to_store_lists(install_plan)
+            add_install_plan_to_installed_lists(install_plan)
         except (OSError, ValueError) as error:
             raise HTTPException(status_code=500,
-                                detail=f'The store lists cannot be written: {error}')
+                                detail=f'The installed lists cannot be written: {error}')
         # No terminal to answer git's questions: a missing key or password fails at once
         build_environment = dict(os.environ, GIT_TERMINAL_PROMPT='0',
                                  GIT_SSH_COMMAND='ssh -o BatchMode=yes -o ConnectTimeout=15')

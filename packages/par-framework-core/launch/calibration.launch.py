@@ -43,7 +43,7 @@ def create_camera_and_surface_selector(context):
     if projector_display_id is not None:
         surface_selector_parameters.append({'display_id': projector_display_id})
     surface_selector_node = Node(
-        package='surface_selector',
+        package='projection_calibration',
         executable='surface_selector',
         name='surface_selector_node',
         output='screen',

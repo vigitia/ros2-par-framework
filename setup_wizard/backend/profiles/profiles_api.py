@@ -16,7 +16,7 @@ import shutil
 from fastapi import APIRouter, HTTPException
 from par_framework_core.connected_displays import (ConnectedDisplay, get_projector_display_mode,
                                                    get_projector_identity)
-from par_framework_core.launch_helpers import (FILE_NAME_PART_PATTERN,
+from par_framework_core.launch_helpers import (create_folder_of_file, FILE_NAME_PART_PATTERN,
                                                FOLDER_PATH_CAMERA_INTRINSICS,
                                                FOLDER_PATH_EXTRINSICS, FOLDER_PATH_PROFILES,
                                                get_path_in_config_folder, get_profile_file_path,
@@ -124,6 +124,8 @@ def create_profile(request: NewProfileRequest) -> None:
         f'  {ROS_PARAMETERS_KEY}:',
         f'    {PAR_LAUNCH_CAMERAS_KEY}: {{}}',
     ]
+    # The profiles folder is gitignored, so the first profile of an installation creates it
+    create_folder_of_file(profile_path)
     try:
         # 'x' creates the file only if it does not exist, so an existing profile is never
         # overwritten, even by two requests at once

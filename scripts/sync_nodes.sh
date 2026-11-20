@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Clone (or update) every repository listed in config/nodes.list and config/store_installed.list into src/.
+# Clone (or update) every repository listed in config/required_repos.list and config/installed_repos.list into src/.
 # Each repo stays a normal git repo you can commit and push from.
 # Co-authored by Claude Code: called by scripts/local_build.sh; split into functions for readability; reads
-# the store list next to the core list and reports git's own error for a failed clone.
+# the installed list next to the required list and reports git's own error for a failed clone.
 #
 # A repository is never changed when that could lose work: a checkout with uncommitted changes, on another
 # branch than its list names, or with local commits is reported and left as it is.
@@ -31,7 +31,7 @@ clone_repo() {
     if ! clone_error_text="$(git clone "${clone_args[@]}" "$url" "$target" 2>&1)"; then
         rm -rf "$target"    # remove what a half-finished clone left behind
         warn "${dir}: clone failed: ${clone_error_text}"
-        hint "check the URL in config/nodes.list or config/store_installed.list and that branch '${branch}' exists"
+        hint "check the URL in config/required_repos.list or config/installed_repos.list and that branch '${branch}' exists"
         hint "for an SSH URL (git@github.com:...): ssh -T git@github.com must greet you; else add an SSH key to GitHub"
         hint "a repository with no commits yet has no branches -- push it first"
         failures+=("$dir")
@@ -91,11 +91,11 @@ step "Syncing node repositories"
 mkdir -p "$SRC_DIR"
 
 # Co-authored by Claude Code
-# read_installed_nodes_lists prints "<dir><TAB><url><TAB><branch>" per entry; IFS=$'\t' splits each line at
+# read_repos_to_build prints "<dir><TAB><url><TAB><branch>" per entry; IFS=$'\t' splits each line at
 # the tabs. It runs first on its own, so a broken list stops the script instead of silently syncing fewer
 # repos. `<<<` feeds the entries into the loop; a pipe (... | while ...) would run the loop in a subshell,
 # and the failures it records would be lost when the subshell ends.
-node_entries="$(read_installed_nodes_lists)" || die "fix the list named above"
+node_entries="$(read_repos_to_build)" || die "fix the list named above"
 while IFS=$'\t' read -r dir url branch; do
     if [[ -z "$dir" ]]; then
         continue    # no entries at all

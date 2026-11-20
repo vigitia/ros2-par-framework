@@ -99,7 +99,7 @@ def launch_setup(context):
                     {'use_depth': is_projector_center_run}],
     )
     projection_calibrator_node = Node(
-        package='surface_selector',
+        package='projection_calibration',
         executable='projection_calibrator',
         name='projection_calibrator_node',
         namespace=get_camera_namespace(camera),

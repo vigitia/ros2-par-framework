@@ -7,27 +7,28 @@ Guidance for Claude Code (claude.ai/code) in this repository.
 ## What this repository is
 
 Core repo of a projected augmented reality (PAR) framework on ROS 2: a camera and a projector aimed at the same
-surface. It declares which repos make up a setup (`config/nodes.list`) and holds the launch files, the per-setup
-parameters and the source every setup builds.
+surface. It declares which repos make up a setup (`config/required_repos.list` for every installation,
+`config/catalog_repos.list` for the optional ones) and holds the launch files, the per-setup parameters and the
+source every setup builds.
 
 **Where a package belongs** (first yes decides):
 
-1. Useful outside the framework (camera driver, detector)? → own repo under `github.com/vigitia`, or a public
-   third-party repo.
+1. Useful outside the framework (camera driver, detector)? → own repo, or a public third-party repo.
 2. Shared library or setup/inspection tooling (`par_geometry`, `rviz_bridge`)? → this repo, its own directory under
    `packages/` (`local_build.sh` takes `packages/` as a whole, no path changes needed).
-3. Otherwise a framework capability (calibration, projection mask) → own repo under `github.com/vigitia`, added to a
-   setup through `config/nodes.list`. Nothing here declares it as a dependency; `par.launch.py` starts it only when
-   installed (`has_resource('packages', …)`), otherwise it logs which repo to add.
+3. Otherwise a framework capability (calibration, projection mask) → own repo, listed in
+   `config/required_repos.list` if every setup needs it, else in `config/catalog_repos.list`. Nothing here declares
+   it as a dependency; `par.launch.py` starts it only when installed (`has_resource('packages', …)`), otherwise it
+   logs which repo to add.
 
 `packages/par-framework-core/` (package `par_framework_core`) holds launch files and `config/par_setup.yaml` only,
 no nodes.
 
 **Calibration is optional.** The framework runs uncalibrated, in camera pixels. Camera pose, projection corners,
 projection mapping and the server that publishes them latched live in `ros2-par-framework-calibration` (packages
-`surface_selector`, `camera_pose_calibrator`, `projection_calibration_server`, one level down); the calibration launch
-files here need that repo. A node that can work without calibration must: publish camera pixels always, add table or
-projector coordinates only when calibrated (e.g. `gesture_detector`: `pixel` always, `position` with
+`projection_calibration`, `camera_pose_calibrator`, `projection_calibration_server`, one level down); the calibration
+launch files here need that repo. A node that can work without calibration must: publish camera pixels always, add
+table or projector coordinates only when calibrated (e.g. `gesture_detector`: `pixel` always, `position` with
 `position_valid`). Camera intrinsics are not part of this split, they belong to the camera (`camera_info`), so
 `launch_helpers` (`camera_info_url`) and `scripts/run_cameracalibrator.sh` stay here.
 
@@ -55,23 +56,27 @@ colcon test --packages-select logitech_brio --pytest-args -k flake8
 
 ## Architecture
 
-**Build.** `scripts/sync_nodes.sh` clones each `config/nodes.list` entry into `src/` (each stays its own git repo).
+**Build.** `scripts/sync_nodes.sh` clones each entry of `config/required_repos.list` and of the gitignored
+`config/installed_repos.list` (this installation's choice from the catalog) into `src/` (each stays its own git repo).
 `local_build.sh` resolves every `package.xml` with rosdep, installs all `requirements.txt` in **one** `pip` call into
 `.venv` (`--system-site-packages`, so apt's rclpy stays importable) so conflicting pins fail instead of silently
 overwriting each other, then builds with `.venv/bin/python -m colcon`.
 
-**Adding a node** = one line in `config/nodes.list`, then `./scripts/local_build.sh`. The repo needs a
-colcon-buildable package whose `package.xml` declares all dependencies (`ament_python` or `ament_cmake`; our own are
-`ament_python`), PyPI deps in an optional root `requirements.txt`. Packages may sit at the root, one level down, or
-several per repo; each is keyed by its `<name>`. A third-party repo written for an older distro may need a fork.
+**Adding a node** = one line in `config/catalog_repos.list` (or `config/required_repos.list` if every setup needs it),
+installed by the setup wizard or by copying the line into `config/installed_repos.list`, then
+`./scripts/local_build.sh`. The repo needs a colcon-buildable package whose `package.xml` declares all dependencies
+(`ament_python` or `ament_cmake`; our own are `ament_python`), PyPI deps in an optional root `requirements.txt`.
+Packages may sit at the root, one level down, or several per repo; each is keyed by its `<name>`. A third-party repo
+written for an older distro may need a fork.
 
 **Released packages** (`v4l2_camera`, `realsense2_camera`, `spinnaker_camera_driver`) are not cloned: they are rosdep
-keys in `config/ros_packages.list`, turned into a generated `package.xml` by `write_ros_packages_manifest` in
-`scripts/common.sh`. So camera drivers stay optional and `par_framework_core` declares none. The Kinect SDK (`K4A`) is
-installed by hand (rosdep runs with `--skip-keys K4A`); nothing in core may declare the Kinect driver, or a Brio-only
-build breaks. `spinnaker_camera_driver` brings its own copy of the Spinnaker SDK. `metavision_driver` (event camera)
-brings OpenEB; a SilkyEvCam's plugin is installed by hand and found through `MV_HAL_PLUGIN_PATH` (README, "Event
-camera").
+keys in `config/required_ros_packages.list` (every installation) and the gitignored
+`config/installed_ros_packages.list` (this installation's camera drivers), turned into a generated `package.xml` by
+`write_ros_packages_manifest` in `scripts/common.sh`. So camera drivers stay optional and `par_framework_core`
+declares none. The Kinect SDK (`K4A`) is installed by hand (rosdep runs with `--skip-keys K4A`); nothing in core may
+declare the Kinect driver, or a Brio-only build breaks. `spinnaker_camera_driver` brings its own copy of the Spinnaker
+SDK. `metavision_driver` (event camera) brings OpenEB; a SilkyEvCam's plugin is installed by hand and found through
+`MV_HAL_PLUGIN_PATH` (README, "Event camera").
 
 **Interfaces.** All `.msg`/`.srv`/`.action` live in `par_framework_interfaces` (repo `ros2-par-framework-interfaces`),
 which is `ament_cmake` because `rosidl_generate_interfaces()` is a CMake macro, so interfaces can never move into a
@@ -139,7 +144,7 @@ math (no service per point, no images through services):
 
 The mapping comes from `projection_calibration.launch.py`: the projector shows ArUco ids 0–8 (`marker_ids`; must
 not clash with the document pages' 96–99), `fiducials_detector` finds them, `projection_calibrator` (in
-`surface_selector`) fits the homography, and `projection_calibration_server_node` stores it as
+`projection_calibration`) fits the homography, and `projection_calibration_server_node` stores it as
 `config/calibration/extrinsics/projection_mapping_<camera>.yaml`, next to `camera_pose_<camera>.yaml` and the
 projection corners. One file per camera, because while the poses are placeholders each camera has its own table plane.
 
@@ -148,7 +153,9 @@ does). Points above the table (hands) land offset by parallax. A second run,
 `projection_calibration.launch.py camera:=kinect projector_center:=true`, adds the projector's optical centre
 (`projector_center`, valid when `projector_center_valid`) from marker rays located in 3D by the depth camera; with it,
 `par_geometry.project_to_table` moves a raised point along its projector ray onto the table. Re-running the homography
-clears the centre. The clicked `/projection_corners` are a manual fallback, named in camera terms.
+clears the centre. The quick path, `calibration.launch.py` (`surface_selector`), stores the clicked
+`/projection_corners` (camera pixels, the projector image's top left first) and a mapping computed from them, exact
+at the four corners only. Whichever ran last owns the mapping; the calibration repo's README lists the levels.
 
 ### Projector masks
 

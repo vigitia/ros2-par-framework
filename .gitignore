@@ -5,11 +5,11 @@
 # Setup profiles (profile:=<name>) belonging to local setups, added with the help of Claude Code
 /packages/par-framework-core/config/profiles/
 
-# What this installation added from config/node_catalog.list and which camera drivers it uses, written by
+# What this installation added from config/catalog_repos.list and which camera drivers it uses, written by
 # the setup wizard, and the repositories the user added to the catalog by URL
-/config/store_installed.list
-/config/store_ros_packages.list
-/config/user_catalog.list
+/config/installed_repos.list
+/config/installed_ros_packages.list
+/config/user_catalog_repos.list
 
 
 # Node repositories are cloned to the src/ folder and should not be commited

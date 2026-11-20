@@ -47,9 +47,9 @@ is_setup_wizard_backend_answering() {
 # would fail later. `ssh -T git@github.com` exits with 1 even when it works, so its greeting is
 # checked instead.
 check_github_ssh_access() {
-    local list_paths=("$CORE_NODES_LIST_PATH" "${REPO_ROOT}/config/node_catalog.list")
-    if [[ -f "$STORE_NODES_LIST_PATH" ]]; then
-        list_paths+=("$STORE_NODES_LIST_PATH")
+    local list_paths=("$REQUIRED_REPOS_LIST_PATH" "${REPO_ROOT}/config/catalog_repos.list")
+    if [[ -f "$INSTALLED_REPOS_LIST_PATH" ]]; then
+        list_paths+=("$INSTALLED_REPOS_LIST_PATH")
     fi
     if ! grep -q '^[^#]*git@github\.com:' "${list_paths[@]}"; then
         return

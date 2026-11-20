@@ -9,8 +9,16 @@ same projector pixels, given the projector's optical centre (found with
 compute_closest_point_to_rays).
 """
 
+import itertools
+
 import cv2
 import numpy as np
+
+# The corner fields of a ProjectionCorners message, clockwise from the projector image's top left
+PROJECTION_CORNER_NAMES = ('top_left', 'top_right', 'bottom_right', 'bottom_left')
+# Three projection corners spanning less than this lie on one line for
+# compute_camera_to_projector_homography: no plane-to-plane mapping goes through them
+MIN_CORNER_TRIANGLE_AREA_PX2 = 1.0
 
 
 def quaternion_to_rotation_matrix(x, y, z, w):
@@ -81,6 +89,46 @@ def apply_homography(homography, points):
 def get_homography_from_mapping_msg(projection_mapping_msg):
     """Return the table-to-projector homography of a ProjectionMapping message as 3x3 array."""
     return np.reshape(projection_mapping_msg.homography, (3, 3))
+
+
+def compute_camera_to_projector_homography(projection_corners_msg, projector_width_px,
+                                           projector_height_px):
+    """
+    Return the 3x3 homography from raw camera pixels to projector pixels, from four corners.
+
+    projection_corners_msg: a ProjectionCorners message, the projector image's corners in camera
+    pixels (top_left must be the projector image's top left, as surface_selector stores them).
+    Needs no camera intrinsics or pose, so it works without any other calibration. Valid for
+    points on the table plane only, exact at the four corners; the camera's lens distortion is
+    not removed, so points between the corners are off by the distortion there. Raises ValueError
+    when the corners give no homography (three of them on one line).
+    """
+    corner_pixels = []
+    for corner_name in PROJECTION_CORNER_NAMES:
+        corner_point = getattr(projection_corners_msg, corner_name)
+        corner_pixels.append([corner_point.x, corner_point.y])
+    corner_pixels = np.array(corner_pixels, np.float64)
+    # findHomography does not reject such corners itself: it returns a matrix that maps points
+    # to infinity
+    for first_index, second_index, third_index in itertools.combinations(range(4), 3):
+        first_edge_px = corner_pixels[second_index] - corner_pixels[first_index]
+        second_edge_px = corner_pixels[third_index] - corner_pixels[first_index]
+        # The 2D cross product, written out: np.cross takes 3D vectors only
+        edges_cross_product_px2 = (first_edge_px[0] * second_edge_px[1]
+                                   - first_edge_px[1] * second_edge_px[0])
+        triangle_area_px2 = abs(edges_cross_product_px2) / 2
+        if triangle_area_px2 < MIN_CORNER_TRIANGLE_AREA_PX2:
+            raise ValueError('the projection corners give no homography, three of them lie on '
+                             'one line')
+    projector_corner_pixels = np.array([[0.0, 0.0],
+                                        [projector_width_px, 0.0],
+                                        [projector_width_px, projector_height_px],
+                                        [0.0, projector_height_px]])
+    # Four points, no outliers to reject: method 0 fits them exactly
+    homography, _ = cv2.findHomography(corner_pixels, projector_corner_pixels, 0)
+    if homography is None:
+        raise ValueError('the projection corners give no homography')
+    return homography / homography[2, 2]
 
 
 def table_to_projector(table_to_projector_homography, points_m):

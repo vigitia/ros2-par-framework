@@ -1,7 +1,7 @@
 // Written by Claude Code
 //
 // The app's calls for the Install area (setup_wizard/backend/install/install_api.py): what the repositories of
-// config/node_catalog.list offer, refreshing that from the network, what installing a choice needs, and the install
+// config/catalog_repos.list offer, refreshing that from the network, what installing a choice needs, and the install
 // itself with its state.
 
 import 'setup_wizard_backend_client.dart';

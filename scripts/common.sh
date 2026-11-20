@@ -87,22 +87,22 @@ command_exists() {
 # Reading the list files in config/
 # ---------------------------------------------------------------------------------------------------------
 
-# Placeholder in read_nodes_list's output for an entry without a branch. An empty field would not work:
+# Placeholder in read_repos_list's output for an entry without a branch. An empty field would not work:
 # `read` with a tab separator merges two tabs in a row, so the fields would shift.
 NO_BRANCH="-"
 
-# The lists the build reads: the tracked core list and the gitignored list of what this installation
+# The lists the build reads: the tracked required list and the gitignored list of what this installation
 # added (written by the setup wizard). The second one may be missing.
-CORE_NODES_LIST_PATH="${REPO_ROOT}/config/nodes.list"
-STORE_NODES_LIST_PATH="${REPO_ROOT}/config/store_installed.list"
-CORE_ROS_PACKAGES_LIST_PATH="${REPO_ROOT}/config/ros_packages.list"
-STORE_ROS_PACKAGES_LIST_PATH="${REPO_ROOT}/config/store_ros_packages.list"
+REQUIRED_REPOS_LIST_PATH="${REPO_ROOT}/config/required_repos.list"
+INSTALLED_REPOS_LIST_PATH="${REPO_ROOT}/config/installed_repos.list"
+REQUIRED_ROS_PACKAGES_LIST_PATH="${REPO_ROOT}/config/required_ros_packages.list"
+INSTALLED_ROS_PACKAGES_LIST_PATH="${REPO_ROOT}/config/installed_ros_packages.list"
 
 # Co-authored by Claude Code
-# Read a list in the nodes.list format and print one line "<dir><TAB><url><TAB><branch>" per entry.
+# Read a list in the required_repos.list format and print one line "<dir><TAB><url><TAB><branch>" per entry.
 # Comments and blank lines are skipped, and a missing branch is printed as $NO_BRANCH.
-#   read_nodes_list <list_path>
-read_nodes_list() {
+#   read_repos_list <list_path>
+read_repos_list() {
     local list="$1"
     if [[ ! -f "$list" ]]; then
         die "missing $list"
@@ -129,14 +129,14 @@ read_nodes_list() {
 }
 
 # Co-authored by Claude Code
-# Read every repository the build installs: the core list, then the store list if it exists. Prints the
-# read_nodes_list format. A directory in both lists is printed once, from the core list; a different URL
-# or branch for it in the store list is reported and ignored.
-read_installed_nodes_lists() {
-    local core_entries store_entries=""
-    core_entries="$(read_nodes_list "$CORE_NODES_LIST_PATH")" || return 1
-    if [[ -f "$STORE_NODES_LIST_PATH" ]]; then
-        store_entries="$(read_nodes_list "$STORE_NODES_LIST_PATH")" || return 1
+# Read every repository the build installs: the required list, then the installed list if it exists.
+# Prints the read_repos_list format. A directory in both lists is printed once, from the required list; a
+# different URL or branch for it in the installed list is reported and ignored.
+read_repos_to_build() {
+    local required_entries installed_entries=""
+    required_entries="$(read_repos_list "$REQUIRED_REPOS_LIST_PATH")" || return 1
+    if [[ -f "$INSTALLED_REPOS_LIST_PATH" ]]; then
+        installed_entries="$(read_repos_list "$INSTALLED_REPOS_LIST_PATH")" || return 1
     fi
 
     # Directory -> "<url><TAB><branch>" of the entry already printed
@@ -149,17 +149,17 @@ read_installed_nodes_lists() {
         if [[ -v "printed_entry_by_dir[$dir]" ]]; then
             if [[ "${printed_entry_by_dir[$dir]}" != "${url}"$'\t'"${branch}" ]]; then
                 warn "${dir} is listed twice with different URLs or branches; using the first entry"
-                hint "fix ${STORE_NODES_LIST_PATH}"
+                hint "fix ${INSTALLED_REPOS_LIST_PATH}"
             fi
             continue
         fi
         printed_entry_by_dir[$dir]="${url}"$'\t'"${branch}"
         printf '%s\t%s\t%s\n' "$dir" "$url" "$branch"
-    done <<< "${core_entries}"$'\n'"${store_entries}"
+    done <<< "${required_entries}"$'\n'"${installed_entries}"
 }
 
 # Co-authored by Claude Code
-# Read a list in the ros_packages.list format and print one rosdep key per line. Comments and blank
+# Read a list in the required_ros_packages.list format and print one rosdep key per line. Comments and blank
 # lines are skipped. The keys end up in a generated package.xml, so anything that is not a plain key
 # fails here instead of producing broken XML.
 #   read_ros_packages_list <list_path>
@@ -189,19 +189,19 @@ read_ros_packages_list() {
 
 # Co-authored by Claude Code
 # Write <output_dir>/par_ros_packages/package.xml: a package that only depends on every key of
-# config/ros_packages.list and config/store_ros_packages.list (if it exists), so that
+# config/required_ros_packages.list and config/installed_ros_packages.list (if it exists), so that
 # `rosdep install --from-paths <output_dir>` installs those packages the same way it installs the
 # nodes' dependencies.
 write_ros_packages_manifest() {
     local output_dir="$1"
     local keys
-    keys="$(read_ros_packages_list "$CORE_ROS_PACKAGES_LIST_PATH")" || die "fix ${CORE_ROS_PACKAGES_LIST_PATH}"
-    if [[ -f "$STORE_ROS_PACKAGES_LIST_PATH" ]]; then
-        local store_keys
-        store_keys="$(read_ros_packages_list "$STORE_ROS_PACKAGES_LIST_PATH")" \
-            || die "fix ${STORE_ROS_PACKAGES_LIST_PATH}"
+    keys="$(read_ros_packages_list "$REQUIRED_ROS_PACKAGES_LIST_PATH")" || die "fix ${REQUIRED_ROS_PACKAGES_LIST_PATH}"
+    if [[ -f "$INSTALLED_ROS_PACKAGES_LIST_PATH" ]]; then
+        local installed_keys
+        installed_keys="$(read_ros_packages_list "$INSTALLED_ROS_PACKAGES_LIST_PATH")" \
+            || die "fix ${INSTALLED_ROS_PACKAGES_LIST_PATH}"
         # A key in both lists once: sort -u removes duplicates
-        keys="$(printf '%s\n%s\n' "$keys" "$store_keys" | sort -u)"
+        keys="$(printf '%s\n%s\n' "$keys" "$installed_keys" | sort -u)"
     fi
 
     # One <exec_depend> line per key
@@ -214,11 +214,11 @@ write_ros_packages_manifest() {
     # The license is required by rosdep's manifest parser; it is the same as par_framework_core's
     cat > "${output_dir}/par_ros_packages/package.xml" <<EOF
 <?xml version="1.0"?>
-<!-- Generated from config/ros_packages.list and config/store_ros_packages.list by scripts/common.sh -->
+<!-- Generated from config/required_ros_packages.list and config/installed_ros_packages.list by scripts/common.sh -->
 <package format="3">
   <name>par_ros_packages</name>
   <version>0.0.0</version>
-  <description>Released packages listed in config/ros_packages.list and config/store_ros_packages.list.</description>
+  <description>Released packages listed in config/required_ros_packages.list and config/installed_ros_packages.list.</description>
   <maintainer email="none@example.com">generated</maintainer>
   <license>MIT</license>
 ${depends}</package>

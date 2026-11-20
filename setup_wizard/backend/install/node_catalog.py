@@ -1,6 +1,6 @@
 # Written by Claude Code
 """
-Node catalog of the setup wizard: what the repositories of config/node_catalog.list offer (apps,
+Node catalog of the setup wizard: what the repositories of config/catalog_repos.list offer (apps,
 camera types, sensor processing nodes), read from the repositories themselves before they are
 installed, and which repositories and released packages installing a choice needs.
 
@@ -28,28 +28,32 @@ from pydantic import BaseModel
 
 # The repository this backend belongs to: setup_wizard/backend/install/ -> three folders up
 REPOSITORY_ROOT_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
-NODE_CATALOG_LIST_PATH = os.path.join(REPOSITORY_ROOT_PATH, 'config', 'node_catalog.list')
-# Repositories the user added to the catalog by URL in the wizard (gitignored, nodes.list format)
-USER_CATALOG_LIST_PATH = os.path.join(REPOSITORY_ROOT_PATH, 'config', 'user_catalog.list')
+CATALOG_REPOS_LIST_PATH = os.path.join(REPOSITORY_ROOT_PATH, 'config', 'catalog_repos.list')
+# Repositories the user added to the catalog by URL in the wizard (gitignored, format of
+# required_repos.list)
+USER_CATALOG_LIST_PATH = os.path.join(REPOSITORY_ROOT_PATH, 'config', 'user_catalog_repos.list')
 USER_CATALOG_LIST_HEADER_TEXT = (
-    '# Repositories added to the catalog in the setup wizard, next to config/node_catalog.list\n'
-    '# (gitignored; format of nodes.list: <directory> <git-url> [branch])\n')
+    '# Repositories added to the catalog in the setup wizard, next to config/catalog_repos.list\n'
+    '# (gitignored; format of required_repos.list: <directory> <git-url> [branch])\n')
 # What the wizard accepts as a repository URL: a URL git understands (https://, ssh://, git://,
 # file://) or the scp-like form user@host:path that GitHub's SSH URLs use
 REPOSITORY_URL_PATTERN = re.compile(r'(?:(?:https?|ssh|git|file)://\S+|[\w.-]+@[\w.-]+:\S+)')
-# The lists scripts/local_build.sh installs from (scripts/common.sh): the tracked core lists and
-# the gitignored store lists of what this installation added
-CORE_NODES_LIST_PATH = os.path.join(REPOSITORY_ROOT_PATH, 'config', 'nodes.list')
-STORE_NODES_LIST_PATH = os.path.join(REPOSITORY_ROOT_PATH, 'config', 'store_installed.list')
-CORE_ROS_PACKAGES_LIST_PATH = os.path.join(REPOSITORY_ROOT_PATH, 'config', 'ros_packages.list')
-STORE_ROS_PACKAGES_LIST_PATH = os.path.join(REPOSITORY_ROOT_PATH, 'config',
-                                            'store_ros_packages.list')
-STORE_NODES_LIST_HEADER_TEXT = (
-    '# Node repositories this installation added to config/nodes.list (gitignored; written by\n'
-    '# the setup wizard, format of nodes.list: <directory> <git-url> [branch])\n')
-STORE_ROS_PACKAGES_LIST_HEADER_TEXT = (
-    '# Released packages this installation uses besides config/ros_packages.list (gitignored;\n'
-    '# written by the setup wizard, format of ros_packages.list: one rosdep key per line)\n')
+# The lists scripts/local_build.sh installs from (scripts/common.sh): the tracked required lists
+# and the gitignored installed lists of what this installation added
+REQUIRED_REPOS_LIST_PATH = os.path.join(REPOSITORY_ROOT_PATH, 'config', 'required_repos.list')
+INSTALLED_REPOS_LIST_PATH = os.path.join(REPOSITORY_ROOT_PATH, 'config', 'installed_repos.list')
+REQUIRED_ROS_PACKAGES_LIST_PATH = os.path.join(REPOSITORY_ROOT_PATH, 'config',
+                                               'required_ros_packages.list')
+INSTALLED_ROS_PACKAGES_LIST_PATH = os.path.join(REPOSITORY_ROOT_PATH, 'config',
+                                                'installed_ros_packages.list')
+INSTALLED_REPOS_LIST_HEADER_TEXT = (
+    '# Node repositories this installation added to config/required_repos.list (gitignored;\n'
+    '# written by the setup wizard, format of required_repos.list: <directory> <git-url>\n'
+    '# [branch])\n')
+INSTALLED_ROS_PACKAGES_LIST_HEADER_TEXT = (
+    '# Released packages this installation uses besides config/required_ros_packages.list\n'
+    '# (gitignored; written by the setup wizard, format of required_ros_packages.list: one\n'
+    '# rosdep key per line)\n')
 # One rosdep key, the same rule as read_ros_packages_list in scripts/common.sh
 ROS_PACKAGE_KEY_PATTERN = re.compile(r'[A-Za-z0-9_.-]+')
 NODES_SOURCE_FOLDER_PATH = os.path.join(REPOSITORY_ROOT_PATH, 'src')
@@ -131,7 +135,8 @@ class CatalogRepository(BaseModel):
     entry_error_texts: list[str] = []
     # Why the repository could not be read at all, e.g. git's message; None when it could
     error_text: str | None = None
-    # True for a repository the user added (config/user_catalog.list), which the user can remove
+    # True for a repository the user added (config/user_catalog_repos.list), which the user can
+    # remove
     is_user_added: bool = False
 
 
@@ -158,7 +163,8 @@ class InstallPlan(BaseModel):
 
 def read_node_list_file(node_list_path: str) -> list[NodeListEntry]:
     """
-    Return the entries of a file in the nodes.list format, the same rules as scripts/common.sh.
+    Return the entries of a file in the required_repos.list format, the same rules as
+    scripts/common.sh.
 
     Comments (from '#') and blank lines are skipped. Raises ValueError naming the line when an
     entry has no URL or a value git or the file system must not get.
@@ -185,24 +191,24 @@ def read_node_list_file(node_list_path: str) -> list[NodeListEntry]:
 
 def read_catalog_list_entries() -> list[NodeListEntry]:
     """
-    Return the catalog's repositories: config/node_catalog.list, then config/user_catalog.list
-    when it exists. Raises OSError or ValueError when a list cannot be read or names a directory
-    twice.
+    Return the catalog's repositories: config/catalog_repos.list, then
+    config/user_catalog_repos.list when it exists. Raises OSError or ValueError when a list
+    cannot be read or names a directory twice.
     """
-    catalog_list_entries = read_node_list_file(NODE_CATALOG_LIST_PATH)
+    catalog_list_entries = read_node_list_file(CATALOG_REPOS_LIST_PATH)
     if os.path.isfile(USER_CATALOG_LIST_PATH):
         catalog_list_entries += read_node_list_file(USER_CATALOG_LIST_PATH)
     listed_directory_names = set()
     for node_list_entry in catalog_list_entries:
         if node_list_entry.directory_name in listed_directory_names:
             raise ValueError(f'{node_list_entry.directory_name} is listed twice in '
-                             f'{NODE_CATALOG_LIST_PATH} and {USER_CATALOG_LIST_PATH}')
+                             f'{CATALOG_REPOS_LIST_PATH} and {USER_CATALOG_LIST_PATH}')
         listed_directory_names.add(node_list_entry.directory_name)
     return catalog_list_entries
 
 
 def read_user_catalog_directory_names() -> set[str]:
-    """Return the directories of config/user_catalog.list; empty when it does not exist."""
+    """Return the directories of config/user_catalog_repos.list; empty when it does not exist."""
     if not os.path.isfile(USER_CATALOG_LIST_PATH):
         return set()
     directory_names = set()
@@ -213,8 +219,8 @@ def read_user_catalog_directory_names() -> set[str]:
 
 def add_user_catalog_repository(url: str, branch: str | None) -> NodeListEntry:
     """
-    Add a repository to config/user_catalog.list, its directory named after the URL's last part
-    (e.g. my_app for https://github.com/someone/my_app.git). Returns the new entry.
+    Add a repository to config/user_catalog_repos.list, its directory named after the URL's last
+    part (e.g. my_app for https://github.com/someone/my_app.git). Returns the new entry.
 
     Raises ValueError for a URL or branch git must not get, or a directory name that core, the
     catalog or the user list has already; OSError when the list cannot be written.
@@ -236,7 +242,9 @@ def add_user_catalog_repository(url: str, branch: str | None) -> NodeListEntry:
     if not NODE_LIST_DIRECTORY_NAME_PATTERN.fullmatch(directory_name):
         raise ValueError(f'No folder name can be made from {url!r}')
     taken_directory_names = set()
-    for node_list_entry in read_node_list_file(CORE_NODES_LIST_PATH) + read_catalog_list_entries():
+    required_and_catalog_entries = (read_node_list_file(REQUIRED_REPOS_LIST_PATH)
+                                    + read_catalog_list_entries())
+    for node_list_entry in required_and_catalog_entries:
         taken_directory_names.add(node_list_entry.directory_name)
     if directory_name in taken_directory_names:
         raise ValueError(f'A repository named {directory_name} is listed already')
@@ -250,7 +258,7 @@ def add_user_catalog_repository(url: str, branch: str | None) -> NodeListEntry:
 
 def remove_user_catalog_repository(directory_name: str) -> None:
     """
-    Remove a repository from config/user_catalog.list, keeping the other lines and comments.
+    Remove a repository from config/user_catalog_repos.list, keeping the other lines and comments.
     An installed copy stays installed. Raises KeyError when the list does not have it.
     """
     if directory_name not in read_user_catalog_directory_names():
@@ -411,17 +419,17 @@ def compute_install_plan(chosen_offers: list[CatalogOffer],
                                            key=lambda planned: planned.ros_package_name))
 
 
-def add_install_plan_to_store_lists(install_plan: InstallPlan) -> None:
+def add_install_plan_to_installed_lists(install_plan: InstallPlan) -> None:
     """
-    Add the plan's repositories and released packages to the store lists, which
-    scripts/local_build.sh installs next to the core lists. Creates a missing store list.
+    Add the plan's repositories and released packages to the installed lists, which
+    scripts/local_build.sh installs next to the required lists. Creates a missing installed list.
 
-    What a core or store list has already is not added again, so a plan can be added twice, e.g.
-    when an install is continued. Raises OSError when a list cannot be read or written, ValueError
-    when one is malformed or a package name is no rosdep key.
+    What a required or installed list has already is not added again, so a plan can be added
+    twice, e.g. when an install is continued. Raises OSError when a list cannot be read or
+    written, ValueError when one is malformed or a package name is no rosdep key.
     """
     listed_directory_names = set()
-    for list_path in (CORE_NODES_LIST_PATH, STORE_NODES_LIST_PATH):
+    for list_path in (REQUIRED_REPOS_LIST_PATH, INSTALLED_REPOS_LIST_PATH):
         if os.path.isfile(list_path):
             for node_list_entry in read_node_list_file(list_path):
                 listed_directory_names.add(node_list_entry.directory_name)
@@ -435,7 +443,7 @@ def add_install_plan_to_store_lists(install_plan: InstallPlan) -> None:
         new_node_list_lines.append(' '.join(line_words))
 
     listed_ros_package_names = set()
-    for list_path in (CORE_ROS_PACKAGES_LIST_PATH, STORE_ROS_PACKAGES_LIST_PATH):
+    for list_path in (REQUIRED_ROS_PACKAGES_LIST_PATH, INSTALLED_ROS_PACKAGES_LIST_PATH):
         if os.path.isfile(list_path):
             listed_ros_package_names.update(_read_ros_packages_list_file(list_path))
     new_ros_package_lines = []
@@ -446,14 +454,14 @@ def add_install_plan_to_store_lists(install_plan: InstallPlan) -> None:
         if ros_package_name not in listed_ros_package_names:
             new_ros_package_lines.append(ros_package_name)
 
-    _append_lines_to_list_file(STORE_NODES_LIST_PATH, STORE_NODES_LIST_HEADER_TEXT,
+    _append_lines_to_list_file(INSTALLED_REPOS_LIST_PATH, INSTALLED_REPOS_LIST_HEADER_TEXT,
                                new_node_list_lines)
-    _append_lines_to_list_file(STORE_ROS_PACKAGES_LIST_PATH, STORE_ROS_PACKAGES_LIST_HEADER_TEXT,
-                               new_ros_package_lines)
+    _append_lines_to_list_file(INSTALLED_ROS_PACKAGES_LIST_PATH,
+                               INSTALLED_ROS_PACKAGES_LIST_HEADER_TEXT, new_ros_package_lines)
 
 
 def _read_ros_packages_list_file(list_path: str) -> list[str]:
-    """Return the rosdep keys of a ros_packages.list-format file; ValueError if malformed."""
+    """Return the keys of a file in required_ros_packages.list's format; ValueError if bad."""
     ros_package_names = []
     with open(list_path) as list_file:
         for line_number, line_text in enumerate(list_file, start=1):

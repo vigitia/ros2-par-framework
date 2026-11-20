@@ -55,16 +55,16 @@ DEPTH_REGISTERED_STREAM_NAME = 'depth_registered/image_raw'
 # Packages the calibration launch files start, with the repository that brings them
 CALIBRATION_REPOSITORY_BY_PACKAGE = {
     'camera_pose_calibrator': 'ros2-par-framework-calibration',
-    'surface_selector': 'ros2-par-framework-calibration',
+    'projection_calibration': 'ros2-par-framework-calibration',
     'projection_calibration_server': 'ros2-par-framework-calibration',
     'fiducials_detector': 'ros2-par-framework-fiducials',
 }
 PACKAGES_NEEDED_BY_CALIBRATION_KIND = {
     CALIBRATION_KIND_POSE_BOARD: ('camera_pose_calibrator',),
     CALIBRATION_KIND_POSE_DEPTH: ('camera_pose_calibrator',),
-    CALIBRATION_KIND_PROJECTION_MAPPING: ('surface_selector', 'projection_calibration_server',
+    CALIBRATION_KIND_PROJECTION_MAPPING: ('projection_calibration', 'projection_calibration_server',
                                           'fiducials_detector'),
-    CALIBRATION_KIND_PROJECTOR_CENTER: ('surface_selector', 'projection_calibration_server',
+    CALIBRATION_KIND_PROJECTOR_CENTER: ('projection_calibration', 'projection_calibration_server',
                                         'fiducials_detector'),
 }
 
@@ -123,9 +123,9 @@ class ExtrinsicsState(BaseModel):
     projection_mapping: ProjectionMappingSummary
     # The calibration kinds this camera offers now, a subset of CALIBRATION_KINDS
     available_calibration_kinds: list[str]
-    # What is not installed for a kind, e.g. 'surface_selector (add ros2-par-framework-calibration
-    # to config/nodes.list and run ./scripts/local_build.sh)'; kinds without missing packages are
-    # left out
+    # What is not installed for a kind, e.g. 'projection_calibration (add ros2-par-framework-calibration
+    # to config/required_repos.list and run ./scripts/local_build.sh)'; kinds without missing
+    # packages are left out
     missing_package_text_by_calibration_kind: dict[str, str]
 
 
@@ -438,7 +438,8 @@ def _get_missing_package_text(calibration_kind):
             continue
         repository_name = CALIBRATION_REPOSITORY_BY_PACKAGE[package_name]
         missing_package_texts.append(f'{package_name} (add {repository_name} to '
-                                     f'config/nodes.list and run ./scripts/local_build.sh)')
+                                     f'config/required_repos.list and run '
+                                     f'./scripts/local_build.sh)')
     return ', '.join(missing_package_texts)
 
 

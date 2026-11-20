@@ -37,9 +37,9 @@ TODO: In the future a proper wizard/installer will take care of this
 `rosdep init`/`update`, colcon, Python's venv, cargo where a node needs it) are installed on the way; it asks for your
 sudo password for that and for the nodes' apt packages. `--non-interactive` never asks: it prints the one
 `sudo ...` command to run instead and exits with code 3 (the setup wizard uses it). It installs only what every setup needs
-(`config/nodes.list`). Cameras, sensor processing nodes and apps are chosen per installation: add their lines from
-`config/node_catalog.list` to `config/store_installed.list` (released camera drivers: their rosdep key to
-`config/store_ros_packages.list`) and re-run it. For everything: `cp config/node_catalog.list config/store_installed.list`.
+(`config/required_repos.list`). Cameras, sensor processing nodes and apps are chosen per installation: add their lines from
+`config/catalog_repos.list` to `config/installed_repos.list` (released camera drivers: their rosdep key to
+`config/installed_ros_packages.list`) and re-run it. For everything: `grep -v '^#' config/catalog_repos.list > config/installed_repos.list`.
 
 Source ROS, the python venv and the local ROS2 setup. Then enable Fast DDS Large Data Mode, so that large video streams don't drop packages:
 ```bash
@@ -93,11 +93,11 @@ After editing node code, re-run the `colcon build` line.
 ### Repo structure
 
 ```
-config/nodes.list           ROS2 node repositories every installation needs
-config/node_catalog.list    ROS2 node repositories an installation can add (cameras, sensor nodes, apps)
-config/ros_packages.list    released ROS packages every installation needs, installed instead of cloned
-config/store_installed.list     (gitignored) repositories of node_catalog.list this installation added
-config/store_ros_packages.list  (gitignored) released packages this installation added (e.g. camera drivers)
+config/required_repos.list           ROS2 node repositories every installation needs
+config/catalog_repos.list    ROS2 node repositories an installation can add (cameras, sensor nodes, apps)
+config/required_ros_packages.list    released ROS packages every installation needs, installed instead of cloned
+config/installed_repos.list     (gitignored) repositories of catalog_repos.list this installation added
+config/installed_ros_packages.list  (gitignored) released packages this installation added (e.g. camera drivers)
 packages/                   this repo's own ROS packages, built together with src/
   par-framework-core/       launch files + parameters (package par_framework_core)
     launch/                 ROS2 launch files
@@ -119,7 +119,7 @@ utils/                      helper code, e.g. for creating a calibration chessbo
 | `par_framework_core` | this repo | launch files and per-setup parameters |
 | `par_framework_interfaces` | `ros2-par-framework-interfaces` | shared message, service and action definitions |
 | `logitech_brio` | `ros2-logitech-brio` | Brio driver and camera type `brio`: frames on `/cameras/<camera>/image_raw` (+ `/compressed`) and `CameraInfo` on `/cameras/<camera>/camera_info` |
-| `surface_selector` | `ros2-par-framework-calibration` | subscribes to a camera's `image_raw`, lets you mark the projection area; `projection_calibrator` calibrates the table-to-projector mapping automatically from projected ArUco markers seen on the camera's `fiducials` |
+| `projection_calibration` | `ros2-par-framework-calibration` | `surface_selector` subscribes to a camera's `image_raw`, lets you mark the projection area; `projection_calibrator` calibrates the table-to-projector mapping automatically from projected ArUco markers seen on the camera's `fiducials` |
 | `object_detector` | `ros2-par-framework-object-detection` | detects objects in a camera's `image_raw/compressed` (raw image for cameras without JPEGs), publishes them in image pixels on `objects` in that camera's namespace |
 | `fiducials_detector` | `ros2-par-framework-fiducials` | detects fiducial markers in a camera's `image_raw`, publishes them on `fiducials` in that camera's namespace |
 | `hand_landmarks` | `ros2-par-framework-hand-landmarks` | tracks hands in a camera's `image_raw` with MediaPipe, publishes their landmarks in image pixels on `hand_landmarks` in that camera's namespace |
@@ -147,8 +147,8 @@ most of these best-effort frames are lost on the way. The setting must be identi
 **every** ROS process: if only the publisher or only the subscriber has it, they don't connect at all and
 nothing arrives (measured between two nodes).
 
-**Nodes live in `src/`.** `scripts/sync_nodes.sh` clones each entry of `config/nodes.list` and
-`config/store_installed.list` into `src/`. Each node stays a normal git repository you can edit and can commit from if desired; after changing node code,
+**Nodes live in `src/`.** `scripts/sync_nodes.sh` clones each entry of `config/required_repos.list` and
+`config/installed_repos.list` into `src/`. Each node stays a normal git repository you can edit and can commit from if desired; after changing node code,
 rebuild with `./scripts/local_build.sh <pkg>`.
 
 **Dependencies come from the manifests.** `local_build.sh` installs the apt dependencies of every
@@ -168,8 +168,8 @@ projector is on differ per machine and sometimes even after a restart, so they l
 
 1. Create the repository containing your new ROS2 node (if you use Python: an `ament_python` package with a `package.xml`, and a `requirements.txt` at its
    root for PyPI dependencies). The package may sit at the repo root or in a subdirectory.
-2. Add the new repository to `config/node_catalog.list` (or to `config/nodes.list` if every installation needs it),
-   and to your `config/store_installed.list`.
+2. Add the new repository to `config/catalog_repos.list` (or to `config/required_repos.list` if every installation needs it),
+   and to your `config/installed_repos.list`.
 3. Re-run `./scripts/local_build.sh`, this will clone the repo to `src/`.
 
 ### Custom messages, services and actions
@@ -282,7 +282,7 @@ Then:
 1. `config/par_setup.yaml`: the driver's defaults under `/cameras/*/<driver node>` (colour images in BGR order) and
    a placeholder pose under `/<type>_tf_publisher`.
 2. A released driver is named in the camera entry's `required_packages` (installations add its rosdep key to
-   `config/store_ros_packages.list`), a driver from source goes into `config/node_catalog.list`.
+   `config/installed_ros_packages.list`), a driver from source goes into `config/catalog_repos.list`.
 
 The one RViz configuration, `config/rviz/par_framework.rviz`, shows the main camera and needs no change.
 

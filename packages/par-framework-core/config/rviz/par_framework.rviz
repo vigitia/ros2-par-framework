@@ -2,7 +2,7 @@
 # Configuration for the RViz2 tool.
 #
 # RViz view of the current PAR setup.
-# It takes car of displaying:
+# It takes care of displaying:
 # - world grid
 # - TF frames
 # - every camera's frustum (par.launch.py copies the CameraInfo display once per started camera,
@@ -167,6 +167,9 @@ Window Geometry:
   Hide Right Dock: false
   Camera image:
     collapsed: false
+  # Hex of Qt's QMainWindow::saveState(): panel names (UTF-16), their dock area, order and size in
+  # logical pixels, plus the 3D view's size. No screen positions, so it works on any machine; Qt
+  # shrinks it to fit a smaller window and ignores it if a panel name no longer matches.
   QMainWindow State: 000000ff00000000fd00000002000000000000014a000003b6fc0200000001fb000000100044006900730070006c0061007900730100000000000003b60000001300ffffff00000001000001e0000003b6fc0200000002fb0000000a005600690065007700730100000000000001ee0000001300fffffffb0000001800430061006d00650072006100200069006d00610067006501000001f4000001c20000001300ffffff0000030a000003b600000004000000040000000800000008fc00000000
   Views:
     collapsed: false

@@ -23,6 +23,7 @@ from par_framework_core.launch_helpers import (CAMERA_TF_PUBLISHER_NAME_SUFFIX,
                                                create_camera_actions,
                                                create_camera_choice_launch_argument,
                                                create_camera_stream_remappings,
+                                               create_folder_of_file,
                                                create_profile_launch_argument,
                                                get_camera_body_frame_id, get_camera_to_calibrate,
                                                get_extrinsics_relative_path,
@@ -41,6 +42,8 @@ def launch_setup(context):
     placeholder_rotation = [float(placeholder_pose[key]) for key in POSE_ROTATION_KEYS]
     camera_pose_relative_path = get_extrinsics_relative_path(context, 'camera_pose', camera)
     camera_pose_file_path = get_path_in_config_folder(camera_pose_relative_path)
+    # camera_pose_calibrator writes the file without creating its folder
+    create_folder_of_file(camera_pose_file_path)
     square_size_mm = float(LaunchConfiguration('square_size_mm').perform(context))
     board_columns = int(LaunchConfiguration('board_columns').perform(context))
     board_rows = int(LaunchConfiguration('board_rows').perform(context))
