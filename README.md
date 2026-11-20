@@ -2,44 +2,68 @@
 
 > Readme written together with Claude Code. Comments in the Code indicate where Claude Code was used while creating this framework. 
 
+## 1. Overview
+
 A Framework for people who want to build their own Projected Augmented Reality (PAR) setups. 
-It is built on the Robot Operating System 2 (ROS2). Most components are fully interchangable ROS 2 packages that make it modular.
 
-This repository contains the frameworks' core components. Depending on your hardware and use case, additional components are required (see list below).
+It is built on the Robot Operating System 2 (ROS2). Most components are fully interchangeable ROS 2 packages that make it modular.
 
-### Minimum Hardware requirements
+This repository contains the frameworks' core components. 
+Depending on your hardware and use case, additional components are required (see list below).
+
+## 2. Hardware
+
+### 2.1 Minimum Hardware requirements
 - A Projector
-- A camera (Webcam is fine to get started. Some applications/use cases require a depth camera such as the Azure Kinect or Realsense D435 or even other camera types such as IR, Thermal, etc.)
+- A camera (Webcam is fine to get started)
 
 Certain applications might require special camera types (e.g. Depth, IR, Thermal, ...) or multiple projectors (currently not yet supported).
 
-### Hardware setup
+### 2.2 Hardware setup
 
 Camera and projector pointed at the same surface. Optimal: Camera sees the entire projected image.
 
-### Quick start on a new computer (without Docker)
 
+## 3. Installation 
+
+Currently, only manual installation is supported.
+While most parts of the framework should run under Windows or MacOS, some parts currently do not. Support for Docker is work in progress and should close this gap.
+Everything is currently tested on **Ubuntu 26.04**.
+
+### Prerequisites
+
+Install **ROS2**. Tested with `lyrical`:
 
 Clone this repo and navigate into the folder:
 ```bash
-git clone git@github.com:vigitia/ros2-par-framework.git
+git clone https://github.com/vigitia/ros2-par-framework.git
 cd ros2-par-framework
 ```
 
-Install ROS2 and set the distro you picked in `scripts/common.sh` under `ROS_DISTRO`; default `lyrical`:
-TODO: In the future a proper wizard/installer will take care of this
+### Framework Installation with the provided Wizard
+
+![Wizard.png](setup_wizard/assets/Wizard.png)
 
 ```bash
-./scripts/local_build.sh           # clone the core nodes, install dependencies, build
-./scripts/start_setup_wizard.sh    # or: build what is missing and open the setup wizard (setup_wizard/README.md)
+./scripts/start_setup_wizard.sh
 ```
-`local_build.sh` is safe to re-run — that is also how you pull node updates. Missing build tools (rosdep with
-`rosdep init`/`update`, colcon, Python's venv) are installed on the way; it asks for your
-sudo password for that and for the nodes' apt packages. `--non-interactive` never asks: it prints the one
-`sudo ...` command to run instead and exits with code 3 (the setup wizard uses it). It installs only what every setup needs
-(`config/required_repos.list`). Cameras, sensor processing nodes and apps are chosen per installation: add their lines from
-`config/catalog_repos.list` to `config/installed_repos.list` (released camera drivers: their rosdep key to
-`config/installed_ros_packages.list`) and re-run it. For everything: `grep -v '^#' config/catalog_repos.list > config/installed_repos.list`.
+
+The installation also adds the wizard to the application menu (a .desktop file in ~/.local/share/applications).
+
+The wizard will guide you then through all installation, setup and calibration steps and allows you to test components and
+
+#### Manual installation
+
+```bash
+./scripts/local_build.sh
+```
+`local_build.sh` is safe to re-run — that is also how you pull node updates. 
+
+Missing build tools (rosdep, colcon, Python's venv) are installed on the way; 
+for some dependencies it might ask for your sudo password. With `--non-interactive` it never asks: it prints the one `sudo ...` command instead for you to run yourself. 
+
+Dependencies: It installs only what every setup needs (as defined in `config/required_repos.list`). 
+Cameras, Sensor Processing Nodes and Apps are chosen per installation: add their lines from `config/catalog_repos.list` to `config/installed_repos.list` (released camera drivers: their rosdep key to `config/installed_ros_packages.list`) and re-run it. 
 
 Source ROS, the python venv and the local ROS2 setup. Then enable Fast DDS Large Data Mode, so that large video streams don't drop packages:
 ```bash
@@ -49,47 +73,19 @@ export FASTDDS_BUILTIN_TRANSPORTS=LARGE_DATA
 
 Run the calibration process (with several cameras, once per camera, choosing it with `camera:=<name>`):
 ```bash
-ros2 launch par_framework_core calibration.launch.py
+ros2 launch projection_calibration projection_corners.launch.py
 ```
+The calibration launch files come with `ros2-par-framework-calibration`; its README lists all of them.
 
-Launch the framework:
+Launch the framework (the wizard will help you setup custom profiles. Without it, you need to update launch entries manually):
 ```bash
 ros2 launch par_framework_core par.launch.py
 ```
 
-Which cameras and nodes `par.launch.py` starts is the `par_launch` section of
-`packages/par-framework-core/config/par_setup.yaml`. Arguments override it for one run
-(`camera:=overhead rviz:=true`), and `params_file:=<file>` uses another parameter file.
-TODO: List available arguments here
+### Profiles
 
-**Setup profiles.** For another physical setup (another table, projector or camera unit), add
-`profile:=<name>` to any launch file (`par.launch.py`, `calibration.launch.py`, `projection_calibration.launch.py`,
-`camera_pose_calibration_depth.launch.py`). The profile is `packages/par-framework-core/config/profiles/<name>.yaml`
-(gitignored), and holds **only what differs** from the defaults (`par_setup.yaml`, the nodes' own, the camera
-types' `parameters_file`), keyed by node name:
+The wizard allows creation of individual profiles (physical, e.g., a different hardware setup, or digital, e.g., different apps that should launch).
 
-```yaml
-par_launch:
-  ros__parameters:
-    cameras:
-      overhead: 'brio:<serial of this Brio>'
-    fiducials_detector: [overhead]
-/overhead_tf_publisher:
-  ros__parameters:
-    translation.z: 1.10
-```
-
-A profile has its own camera poses, projection corners and projection mappings in
-`config/calibration/extrinsics/<name>/` and its own intrinsics in `config/calibration/intrinsics/<name>/`, so run
-the calibrations once per profile. The setup wizard (`setup_wizard/`) creates and edits profiles. Without `profile:=`, everything
-uses `par_setup.yaml` and `config/calibration/extrinsics/` as before. Arguments on the command line still win over
-both files.
-
-
-In every new terminal, source `/opt/ros/<distro>/setup.bash`, `.venv/bin/activate` and
-`install/setup.bash`, in that order, and run `export FASTDDS_BUILTIN_TRANSPORTS=LARGE_DATA`. 
-
-After editing node code, re-run the `colcon build` line.
 
 ### Repo structure
 
@@ -103,7 +99,7 @@ packages/                   this repo's own ROS packages, built together with sr
   par-framework-core/       launch files + parameters (package par_framework_core)
     launch/                 ROS2 launch files
     config/par_setup.yaml   cameras and nodes to start, projector display, placeholder camera pose
-    par_framework_core/     launch_helpers.py: node start functions shared by the launch files
+    par_framework_core/     shared Python modules: launch_helpers.py (launch arguments and actions), setup files, camera types, apps, sensor nodes
   par_camera_adapters/      camera types for third-party drivers (webcam, RealSense, Kinect, Blackfly, event camera)
   par_geometry/             helper functions fpr transformations: camera pixels -> table (m) -> projector pixels
   rviz_bridge/              A ROS2 node that converts framework output into something RViz can display (e.g. turns /hand_landmarks into markers)
@@ -113,6 +109,7 @@ src/                        node repositories, cloned by local_build.sh
 templates/                  blueprints: a camera type, a PAR app, a sensor processing node
 utils/                      helper code, e.g. for creating a calibration chessboard pattern
 ```
+
 
 ### Current ROS2 packages that make up the framework
 
@@ -269,7 +266,7 @@ instead, the event camera (`none`) has none.
 **The camera pose is a static transform.** `world` → the camera's body frame `<name>_<body_frame>` (e.g.
 `overhead_link`, the Kinect's `<name>_camera_base`) is published by `/<name>_tf_publisher`, started with the camera.
 It uses the measured `config/calibration/extrinsics/camera_pose_<name>.yaml` while that file exists (written by
-`camera_pose_calibration_depth.launch.py` or `camera_pose_calibration_sheet.launch.py`; with a profile in
+`camera_pose_calibration_depth.launch.py` or `camera_pose_calibration_sheet.launch.py` of `camera_pose_calibrator`; with a profile in
 `extrinsics/<profile>/`), and otherwise a placeholder pose: `/<name>_tf_publisher` where a profile sets one for this
 camera, else `placeholder_camera_pose` in `par_setup.yaml`, the same for every camera. The camera's frames are named
 after it too: `<name>_link`, `<name>_optical_frame`. The table is the plane z = 0 of `world`.
