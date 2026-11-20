@@ -3,7 +3,7 @@
 # templates/par_camera/ of ros2-par-framework. The file name is the camera type.
 display_name: Azure Kinect
 description: Depth camera through azure_kinect_ros_driver, with its factory calibration.
-package: par_framework_core
+package: par_camera_adapters
 launch_file: camera_kinect.launch.py
 # The driver's own body frame, x forward and z up
 # The released driver this launch file starts, installed separately (config/required_ros_packages.list)

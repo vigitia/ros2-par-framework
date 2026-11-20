@@ -3,7 +3,7 @@
 # templates/par_camera/ of ros2-par-framework. The file name is the camera type.
 display_name: Event camera
 description: Event camera through metavision_driver; its events collected into images.
-package: par_framework_core
+package: par_camera_adapters
 launch_file: camera_event.launch.py
 # The released driver this launch file starts, installed separately (config/required_ros_packages.list)
 required_packages: [metavision_driver, event_camera_renderer]

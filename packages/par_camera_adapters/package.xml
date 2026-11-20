@@ -1,0 +1,19 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+
+<package format="3">
+  <name>par_camera_adapters</name>
+  <version>0.1.0</version>
+  <description>Camera types of the PAR framework for third-party ROS 2 camera drivers: one ament index entry and one launch file per type, which starts the driver in the camera's namespace and maps its names onto the framework's.</description>
+  <maintainer email="vitus.maierhoefer@gmail.com">vitus</maintainer>
+  <license>MIT</license>
+
+  <exec_depend>par_framework_core</exec_depend>
+  <exec_depend>ament_index_python</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>
