@@ -44,6 +44,9 @@ the par_launch.<sensor node> lists are not used, a <sensor node>:=true still add
 camera:=<name> still starts that camera. start_projector_app:=false starts no app, but every
 camera and what the projector app and every app of par_launch.apps need (the setup wizard's
 sensor node run).
+
+A camera taking single high-resolution frames on request (e.g. a Blackfly S in software trigger
+mode, see par_setup.yaml) is an ordinary camera of par_launch.cameras with its own settings.
 """
 
 import copy

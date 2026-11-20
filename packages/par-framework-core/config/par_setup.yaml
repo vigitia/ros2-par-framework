@@ -88,6 +88,28 @@
     image_width: 1920
     image_height: 1200
 
+# A Blackfly in software trigger mode, e.g. a camera that takes single high-resolution frames on request, is an
+# ordinary camera of par_launch.cameras whose own section switches the trigger on. It sends no frames by itself:
+# every
+#   ros2 param set /cameras/<camera>/blackfly trigger_software true
+# makes it take one (config/blackfly_s_software_trigger.yaml, which every Blackfly uses, maps that command).
+# Subscribe RELIABLE: a best-effort subscriber can lose a whole full-resolution frame, and no other follows. It
+# gets the defaults above too, so its section also sets its own image size and exposure. After a USB reconnect the
+# driver keeps running but the camera is back on its power-on settings (e.g. Bayer frames): restart the driver.
+# Example section in a profile, for a camera named capture:
+# /cameras/capture/blackfly:
+#   ros__parameters:
+#     trigger_selector: 'FrameStart'
+#     trigger_source: 'Software'
+#     trigger_mode: 'On'
+#     # In trigger mode the trigger decides when a frame is taken, not the frame rate
+#     frame_rate_enable: false
+#     # The driver restarts streaming when its last frame is older than this (s). Captures can be minutes apart,
+#     # and a restart between them can lose the next trigger, so effectively never (one day).
+#     acquisition_timeout: 86400.0
+#     image_width: 4000
+#     image_height: 3000
+
 # e-con See3CAM_CU40 RGB-IR camera (camera: cu40) through see3cam_cu40, started as /cameras/<camera>/see3cam_cu40_node
 # by that package's launch file. It publishes its infrared image, on the colour image's pixel grid
 # (/cameras/<camera>/ir/image_raw).

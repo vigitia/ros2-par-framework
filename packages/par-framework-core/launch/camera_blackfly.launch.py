@@ -1,4 +1,4 @@
-# Co-authored by Claude Code: written by Claude Code, later edited by hand
+# Written by Claude Code
 """
 Start a FLIR Blackfly S with spinnaker_camera_driver as a PAR framework camera (type blackfly).
 
@@ -27,13 +27,14 @@ DRIVER_NODE_NAME = 'blackfly'
 
 
 def launch_setup(context):
-    # Co-authored by Claude Code
     camera = read_camera_launch_arguments(context)
     namespace = camera['namespace']
-    # The driver maps its ROS parameters onto the camera's settings with this file, which ships
-    # with the driver for the whole Blackfly S series
+    # The driver maps its ROS parameters onto the camera's settings with this file: the driver's
+    # own for the whole Blackfly S series plus a software trigger (trigger_software), which a camera
+    # in trigger mode needs and a freely running one ignores
     camera_settings_mapping_path = os.path.join(
-        get_package_share_directory('spinnaker_camera_driver'), 'config', 'blackfly_s.yaml')
+        get_package_share_directory('par_framework_core'), 'config',
+        'blackfly_s_software_trigger.yaml')
     # frame_id must match the optical frame transform below, so it is set here and not in the
     # parameter files. The driver spells its calibration parameter camerainfo_url
     driver_parameters = {'parameter_file': camera_settings_mapping_path,
