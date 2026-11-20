@@ -158,11 +158,8 @@ PAR_LAUNCH_APP_INPUTS_KEY = 'app_inputs'
 # par_launch.apps: the apps a profile offers, from which the setup wizard's Run menu chooses the
 # projector app
 PAR_LAUNCH_APPS_KEY = 'apps'
-# par_launch.projector_app chooses the one app on the projector: none, the rendering manager or a
-# PAR app's package. The rendering manager has no entry in the index yet, since it has no launch
-# file of its own; par.launch.py starts it by its own code until it has.
+# par_launch.projector_app chooses the one app on the projector: none or a PAR app's package
 PROJECTOR_APP_NONE = 'none'
-RENDERING_MANAGER_APP_NAME = 'rendering_manager'
 
 # Sensor processing nodes (detectors, page_locator, projection_mask, ...) register in the ament
 # index under this resource type, like PAR apps: share/ament_index/resource_index/
@@ -955,7 +952,7 @@ def read_offered_par_app_names(launch_section):
     """
     Return the installed PAR apps par_launch.apps offers, in its order.
 
-    Other names (rviz, the rendering manager, an app not installed) are left out. Raises
+    Other names (rviz, an app not installed) are left out. Raises
     RuntimeError naming the fix when par_launch.apps is no list.
     """
     listed_app_names = launch_section.get(PAR_LAUNCH_APPS_KEY) or []

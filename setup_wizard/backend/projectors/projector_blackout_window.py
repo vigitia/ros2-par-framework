@@ -4,8 +4,8 @@ Show a black fullscreen window on one display until the process is ended.
 
 Started by projector_blackout_api, so the projector's light does not disturb camera images while
 calibration steps run that do not need the projector (e.g. capturing a checkerboard). Uses
-pygame's fullscreen on an SDL display index, the framework's display_id, as surface_selector's
-calibration windows do.
+pygame's fullscreen on an SDL display index, the framework's display_id, as
+projection_corner_selector's calibration windows do.
 
     python projector_blackout_window.py <display_id>
 """

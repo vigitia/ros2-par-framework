@@ -3,9 +3,9 @@
 Focus API of the setup wizard backend: a sharpness score of the previewed camera's image.
 
 For focusing a camera, by turning its lens ring or through a focus setting: the user changes the
-focus until the score peaks. The same measure as scripts/focus_preview.py: the variance of the
-Laplacian in a square crop at the image centre, averaged over the last few frames because sensor
-noise at high gain makes single frames jump. The score only compares focus settings of one scene:
+focus until the score peaks. The score is the variance of the Laplacian in a square crop at the
+image centre, averaged over the last few frames because sensor noise at high gain makes single
+frames jump. The score only compares focus settings of one scene:
 it changes with the light and the content, so it has no absolute "sharp" value.
 
 Generic: it reads the image_raw of the camera the preview runs (camera_launch_session), so it works
@@ -24,8 +24,8 @@ from pydantic import BaseModel
 from shared.backend_ros_node import CAMERA_IMAGE_STREAM_NAME
 from shared.image_conversion import convert_image_message_to_frame
 
-# Side of the square centre crop in camera pixels, as in scripts/focus_preview.py: small enough
-# that the app can show it enlarged, each camera pixel as a block
+# Side of the square centre crop in camera pixels: small enough that the app can show it
+# enlarged, each camera pixel as a block
 CENTER_CROP_SIDE_PX = 240
 SHARPNESS_AVERAGED_FRAME_COUNT = 5
 
@@ -129,9 +129,6 @@ def get_center_crop_bounds(frame_width_px, frame_height_px):
 
 def compute_sharpness(gray_image):
     """Variance of the Laplacian: high when the image has strong fine edges, i.e. is in focus."""
-    # Simplification: the same two lines as in scripts/focus_preview.py, which is a standalone
-    # script outside any importable package. Upgrade: move both into a shared module once a
-    # third user needs them
     laplacian = cv2.Laplacian(gray_image, cv2.CV_64F)
     return float(laplacian.var())
 

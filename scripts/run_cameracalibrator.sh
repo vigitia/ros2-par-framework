@@ -7,7 +7,7 @@
 #   scripts/run_cameracalibrator.sh <camera> <inner corners, e.g. 8x6> <square size in m> [more cameracalibrator options]
 #   scripts/run_cameracalibrator.sh overhead 8x6 0.031
 
-# Some cameras such as the Azure Kinect do not need this script. Their driver already publishes its factory calibration.
+# A camera whose driver publishes its factory calibration does not need this script.
 
 # It works on the camera's image_raw and set_camera_info in the camera's namespace. <camera> is a framework camera's
 # name, as in camera:= and par_launch.cameras, and stands for /cameras/<camera> (each camera's launch file maps its
@@ -31,7 +31,7 @@ if ! command_exists ros2; then
 fi
 
 camera_argument="$1"
-board_size="$2"
+board_inner_corners="$2"
 square_size_m="$3"
 shift 3    # the remaining arguments are passed on to cameracalibrator
 
@@ -41,11 +41,11 @@ if [[ "$camera_argument" == /* ]]; then
 elif [[ "$camera_argument" =~ ^[a-z][a-z0-9_]*$ ]]; then
     camera_namespace="/cameras/${camera_argument}"
 else
-    die "'$camera_argument' is no camera name (lower case letters, digits and _, starting with a letter) or namespace (starting with /) -- run e.g.: $0 overhead $board_size $square_size_m"
+    die "'$camera_argument' is no camera name (lower case letters, digits and _, starting with a letter) or namespace (starting with /) -- run e.g.: $0 overhead $board_inner_corners $square_size_m"
 fi
 
-if [[ ! "$board_size" =~ ^[0-9]+x[0-9]+$ ]]; then
-    die "inner corners must look like 8x6 (columns x rows), got '$board_size' -- run: $0 $camera_argument 8x6 0.031"
+if [[ ! "$board_inner_corners" =~ ^[0-9]+x[0-9]+$ ]]; then
+    die "inner corners must look like 8x6 (columns x rows), got '$board_inner_corners' -- run: $0 $camera_argument 8x6 0.031"
 fi
 
 # Must match the camera node's transport (the framework's terminals export LARGE_DATA), otherwise the two
@@ -77,7 +77,7 @@ EOF
 # exec replaces this shell with the calibrator, so its exit code is the script's.
 # --no-service-check: its startup check waits only 1 s for set_camera_info, less than discovery can take.
 exec python3 -c "$calibrator_code" \
-    --size "$board_size" --square "$square_size_m" --no-service-check "$@" \
+    --size "$board_inner_corners" --square "$square_size_m" --no-service-check "$@" \
     --ros-args \
     -r image:="${camera_namespace}/image_raw" \
     -r camera/set_camera_info:="${camera_namespace}/set_camera_info"

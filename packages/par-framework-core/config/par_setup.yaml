@@ -366,8 +366,7 @@ par_launch:
     #   cameras: {overhead: 'blackfly:22260470', capture: 'blackfly:25290614'}
     # The name makes its namespace (/cameras/<name>), frames (<name>_link, ...), placeholder pose
     # (/<name>_tf_publisher) and extrinsics files; the unit makes its intrinsics file. The first camera is the main
-    # camera RViz and the rendering manager use. A profile's cameras replace these instead of being merged with
-    # them.
+    # camera RViz uses. A profile's cameras replace these instead of being merged with them.
     cameras:
       kinect: kinect
     object_detector: []
@@ -382,9 +381,8 @@ par_launch:
     # Keeps projected light off hands and objects (/projector/mask); needs a depth camera, the calibration and
     # projection_mask from config/catalog_repos.list installed
     projection_mask: []
-    # The one app that owns the projector: none, rendering_manager (Wayland compositor with its bridge, one app per
-    # detected page; needs rendering_manager from config/catalog_repos.list installed and page_locator) or the
-    # package of an installed PAR app, e.g. demo_app (ros2-par-framework-demo-application). A PAR app registers in
+    # The one app that owns the projector: none or the package of an installed PAR app, e.g. demo_app
+    # (ros2-par-framework-demo-application) or rendering_manager (one app per detected page). A PAR app registers in
     # the ament index (templates/par_app/), and the framework nodes it requires are switched on for it.
     projector_app: none
     # The apps this setup offers (package names as for projector_app), set in the setup wizard's Apps area; its Run

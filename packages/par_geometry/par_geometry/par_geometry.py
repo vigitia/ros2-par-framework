@@ -22,7 +22,14 @@ MIN_CORNER_TRIANGLE_AREA_PX2 = 1.0
 
 
 def quaternion_to_rotation_matrix(x, y, z, w):
-    """Return the 3x3 rotation matrix of the unit quaternion (x, y, z, w)."""
+    """
+    Return the 3x3 rotation matrix of the quaternion (x, y, z, w).
+
+    The quaternion is normalized first, so values rounded in a YAML file or a parameter still give
+    a proper rotation.
+    """
+    quaternion_length = np.linalg.norm((x, y, z, w))
+    x, y, z, w = np.array((x, y, z, w), np.float64) / quaternion_length
     return np.array([
         [1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
         [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
@@ -97,7 +104,8 @@ def compute_camera_to_projector_homography(projection_corners_msg, projector_wid
     Return the 3x3 homography from raw camera pixels to projector pixels, from four corners.
 
     projection_corners_msg: a ProjectionCorners message, the projector image's corners in camera
-    pixels (top_left must be the projector image's top left, as surface_selector stores them).
+    pixels (top_left must be the projector image's top left, as projection_corner_selector stores
+    them).
     Needs no camera intrinsics or pose, so it works without any other calibration. Valid for
     points on the table plane only, exact at the four corners; the camera's lens distortion is
     not removed, so points between the corners are off by the distortion there. Raises ValueError

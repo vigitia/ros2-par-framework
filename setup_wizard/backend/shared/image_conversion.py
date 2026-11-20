@@ -32,7 +32,6 @@ def convert_image_message_to_frame(image_message):
 
 def _read_8_bit_frame(image_message):
     """Return an 8-bit image as gray or BGR, as OpenCV expects."""
-    # The same row handling as scripts/focus_preview.py, but keeping the colours
     channel_count = CHANNEL_COUNT_BY_8_BIT_ENCODING[image_message.encoding]
     rows = np.frombuffer(image_message.data, dtype=np.uint8).reshape(image_message.height,
                                                                      image_message.step)

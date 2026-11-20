@@ -16,20 +16,12 @@ from fastapi import APIRouter, HTTPException
 from par_framework_core.launch_helpers import (get_par_app_package_names,
                                                get_sensor_node_package_names,
                                                PAR_APP_ENTRY_INPUTS_KEY, PROJECTOR_APP_NONE,
-                                               read_par_app_entry, read_sensor_node_entry,
-                                               RENDERING_MANAGER_APP_NAME)
+                                               read_par_app_entry, read_sensor_node_entry)
 from profiles.profile_files import (PAR_LAUNCH_NODE_NAME, read_camera_name_by_input_by_app,
                                     read_enabled_app_names, read_profile_cameras_or_raise,
                                     read_profile_launch_section, RVIZ_LAUNCH_SWITCH_NAME,
                                     write_app_inputs, write_node_settings_into_profile)
 from pydantic import BaseModel
-
-# Special case: the rendering manager has no entry in the index yet (no launch file of its own),
-# so its card text lives here until it has one, and it counts as installed with its bridge.
-RENDERING_MANAGER_BRIDGE_PACKAGE_NAME = 'rendering_manager_bridge'
-RENDERING_MANAGER_DISPLAY_NAME = 'Rendering manager'
-RENDERING_MANAGER_DESCRIPTION = ('Shows websites and desktop apps on the detected pages, one per '
-                                 'page.')
 
 # Special case: RViz is no PAR app with an entry in the index, it is par.launch.py's switch rviz
 # (rviz2 with the framework's configuration, and rviz_bridge). Its app name is that switch,
@@ -99,13 +91,6 @@ def _read_installed_app_summaries() -> list[InstalledAppSummary]:
     # started, and colcon gives every package its own prefix, so an app built for the first time
     # appears after a backend restart. Upgrade: re-read install/setup.bash's prefixes per request.
     installed_apps = []
-    if has_resource('packages', RENDERING_MANAGER_BRIDGE_PACKAGE_NAME):
-        installed_apps.append(InstalledAppSummary(
-            app_name=RENDERING_MANAGER_APP_NAME,
-            display_name=RENDERING_MANAGER_DISPLAY_NAME,
-            description=RENDERING_MANAGER_DESCRIPTION,
-            required_launch_switch_names=[],
-            used_calibration_names=[]))
     for app_package_name in get_par_app_package_names():
         installed_apps.append(_read_installed_app_summary(app_package_name))
     is_rviz_installed = all(

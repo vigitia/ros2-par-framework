@@ -67,7 +67,7 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Best Effort
         Value: /points2
-    # Projection area selected with surface_selector, projected onto the table by rviz_bridge
+    # Projection area selected with projection_corner_selector, projected onto the table by rviz_bridge
     - Class: rviz_default_plugins/MarkerArray
       Enabled: true
       Name: Projection area

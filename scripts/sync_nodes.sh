@@ -18,9 +18,9 @@ failures=()
 # Co-authored by Claude Code
 # Clone a repository that is not in src/ yet. Returns 1 (and records a failure) when the clone fails.
 clone_repo() {
-    local dir="$1" url="$2" branch="$3" target="$4"
+    local repo_dir_name="$1" url="$2" branch="$3" repo_checkout_path="$4"
 
-    info "cloning ${dir} <- ${url}"
+    info "cloning ${repo_dir_name} <- ${url}"
     local clone_args=(--quiet)
     if [[ "$branch" != "$NO_BRANCH" ]]; then
         clone_args+=(--branch "$branch")
@@ -28,13 +28,16 @@ clone_repo() {
 
     # git's own message (e.g. no access, branch not found) is kept to show it when the clone fails
     local clone_error_text
-    if ! clone_error_text="$(git clone "${clone_args[@]}" "$url" "$target" 2>&1)"; then
-        rm -rf "$target"    # remove what a half-finished clone left behind
-        warn "${dir}: clone failed: ${clone_error_text}"
-        hint "check the URL in config/required_repos.list or config/installed_repos.list and that branch '${branch}' exists"
+    if ! clone_error_text="$(git clone "${clone_args[@]}" "$url" "$repo_checkout_path" 2>&1)"; then
+        rm -rf "$repo_checkout_path"    # remove what a half-finished clone left behind
+        warn "${repo_dir_name}: clone failed: ${clone_error_text}"
+        hint "check the URL in config/required_repos.list or config/installed_repos.list"
+        if [[ "$branch" != "$NO_BRANCH" ]]; then
+            hint "check that branch '${branch}' exists"
+        fi
         hint "for an SSH URL (git@github.com:...): ssh -T git@github.com must greet you; else add an SSH key to GitHub"
         hint "a repository with no commits yet has no branches -- push it first"
-        failures+=("$dir")
+        failures+=("$repo_dir_name")
         return 1
     fi
 }
@@ -43,31 +46,31 @@ clone_repo() {
 # Fast-forward an existing checkout to its upstream branch. Returns 1 when the checkout is left
 # untouched; that is a warning, not a failure, because the existing checkout still builds.
 update_repo() {
-    local dir="$1" branch="$2" target="$3"
+    local repo_dir_name="$1" branch="$2" repo_checkout_path="$3"
 
     # --porcelain prints one line per changed file, so any output means uncommitted changes
-    if [[ -n "$(git -C "$target" status --porcelain)" ]]; then
-        warn "${dir} has uncommitted changes -- leaving it untouched"
+    if [[ -n "$(git -C "$repo_checkout_path" status --porcelain)" ]]; then
+        warn "${repo_dir_name} has uncommitted changes -- leaving it untouched"
         return 1
     fi
 
     local current_branch
-    current_branch="$(git -C "$target" rev-parse --abbrev-ref HEAD)"
+    current_branch="$(git -C "$repo_checkout_path" rev-parse --abbrev-ref HEAD)"
     if [[ "$branch" != "$NO_BRANCH" && "$current_branch" != "$branch" ]]; then
-        warn "${dir} is on '${current_branch}', its list says '${branch}' -- leaving it untouched"
+        warn "${repo_dir_name} is on '${current_branch}', its list says '${branch}' -- leaving it untouched"
         return 1
     fi
 
     # Handled explicitly: set -e does not stop a function that is called as a condition (update_repo || ...)
-    if ! git -C "$target" fetch --quiet --prune origin; then
-        warn "${dir} could not fetch from origin (offline?) -- leaving it untouched"
+    if ! git -C "$repo_checkout_path" fetch --quiet --prune origin; then
+        warn "${repo_dir_name} could not fetch from origin (offline?) -- leaving it untouched"
         return 1
     fi
 
     # @{upstream} is the remote branch the current branch tracks, e.g. origin/main. --ff-only refuses
     # instead of creating a merge commit when there are local commits.
-    if ! git -C "$target" merge --quiet --ff-only "@{upstream}" 2>/dev/null; then
-        warn "${dir} could not fast-forward (diverged from upstream?) -- leaving it untouched"
+    if ! git -C "$repo_checkout_path" merge --quiet --ff-only "@{upstream}" 2>/dev/null; then
+        warn "${repo_dir_name} could not fast-forward (diverged from upstream?) -- leaving it untouched"
         return 1
     fi
 }
@@ -76,13 +79,13 @@ update_repo() {
 # A repository that exists but has never been pushed to clones "successfully" into an empty directory,
 # which would otherwise surface much later as a ROS package that is inexplicably missing. Returns 1 (and
 # records a failure) in that case.
-has_commits() {
-    local dir="$1" url="$2" target="$3"
+check_repo_has_commits() {
+    local repo_dir_name="$1" url="$2" repo_checkout_path="$3"
 
-    if ! git -C "$target" rev-parse HEAD >/dev/null 2>&1; then
-        warn "${dir}: repository is empty -- nothing has been pushed to ${url}"
+    if ! git -C "$repo_checkout_path" rev-parse HEAD >/dev/null 2>&1; then
+        warn "${repo_dir_name}: repository is empty -- nothing has been pushed to ${url}"
         hint "commit and push it, then re-run ./scripts/local_build.sh"
-        failures+=("$dir")
+        failures+=("$repo_dir_name")
         return 1
     fi
 }
@@ -96,22 +99,22 @@ mkdir -p "$SRC_DIR"
 # repos. `<<<` feeds the entries into the loop; a pipe (... | while ...) would run the loop in a subshell,
 # and the failures it records would be lost when the subshell ends.
 node_entries="$(read_repos_to_build)" || die "fix the list named above"
-while IFS=$'\t' read -r dir url branch; do
-    if [[ -z "$dir" ]]; then
+while IFS=$'\t' read -r repo_dir_name url branch; do
+    if [[ -z "$repo_dir_name" ]]; then
         continue    # no entries at all
     fi
-    target="${SRC_DIR}/${dir}"
+    repo_checkout_path="${SRC_DIR}/${repo_dir_name}"
 
     # An empty repository has no branch yet, so it is checked before update_repo asks for one
-    if [[ -d "${target}/.git" ]]; then
-        has_commits "$dir" "$url" "$target" || continue
-        update_repo "$dir" "$branch" "$target" || continue
+    if [[ -d "${repo_checkout_path}/.git" ]]; then
+        check_repo_has_commits "$repo_dir_name" "$url" "$repo_checkout_path" || continue
+        update_repo "$repo_dir_name" "$branch" "$repo_checkout_path" || continue
     else
-        clone_repo "$dir" "$url" "$branch" "$target" || continue
-        has_commits "$dir" "$url" "$target" || continue
+        clone_repo "$repo_dir_name" "$url" "$branch" "$repo_checkout_path" || continue
+        check_repo_has_commits "$repo_dir_name" "$url" "$repo_checkout_path" || continue
     fi
 
-    ok "${dir} at $(git -C "$target" rev-parse --short HEAD)"
+    ok "${repo_dir_name} at $(git -C "$repo_checkout_path" rev-parse --short HEAD)"
 done <<< "$node_entries"
 
 if (( ${#failures[@]} > 0 )); then

@@ -45,7 +45,8 @@ One command does all of it, also on a fresh clone with nothing built:
 It checks ROS 2 and the GitHub SSH key, builds the workspace (`local_build.sh`) and the app when they are missing,
 starts the backend (log: `log/setup_wizard_backend.log`) unless one already runs, and then the app. Closing the app
 stops the backend it started. Flutter itself is the one thing to install by hand; its Linux build tools are installed
-on the way.
+on the way. The first run also adds "PAR setup wizard" to the desktop's application menu; the entry runs the same
+script, without a terminal window (backend output in the log above).
 
 By hand:
 

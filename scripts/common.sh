@@ -103,29 +103,29 @@ INSTALLED_ROS_PACKAGES_LIST_PATH="${REPO_ROOT}/config/installed_ros_packages.lis
 # Comments and blank lines are skipped, and a missing branch is printed as $NO_BRANCH.
 #   read_repos_list <list_path>
 read_repos_list() {
-    local list="$1"
-    if [[ ! -f "$list" ]]; then
-        die "missing $list"
+    local list_path="$1"
+    if [[ ! -f "$list_path" ]]; then
+        die "missing $list_path"
     fi
 
-    local line line_number=0 dir url branch
+    local line line_number=0 repo_dir_name url branch
     # `|| [[ -n "$line" ]]` also reads a last line that has no line break at its end
     while IFS= read -r line || [[ -n "$line" ]]; do
         line_number=$((line_number + 1))
         line="${line%%#*}"    # drop the comment: everything from the first '#'
 
         # Split at whitespace; words after the third are ignored
-        read -r dir url branch _ <<< "$line"
-        if [[ -z "$dir" ]]; then
+        read -r repo_dir_name url branch _ <<< "$line"
+        if [[ -z "$repo_dir_name" ]]; then
             continue          # blank or comment-only line
         fi
         if [[ -z "$url" ]]; then
-            echo "${list} line ${line_number}: expected \"<dir> <url> [branch]\"" >&2
+            echo "${list_path} line ${line_number}: expected \"<dir> <url> [branch]\"" >&2
             return 1
         fi
 
-        printf '%s\t%s\t%s\n' "$dir" "$url" "${branch:-$NO_BRANCH}"
-    done < "$list"
+        printf '%s\t%s\t%s\n' "$repo_dir_name" "$url" "${branch:-$NO_BRANCH}"
+    done < "$list_path"
 }
 
 # Co-authored by Claude Code
@@ -141,20 +141,20 @@ read_repos_to_build() {
 
     # Directory -> "<url><TAB><branch>" of the entry already printed
     local -A printed_entry_by_dir=()
-    local dir url branch
-    while IFS=$'\t' read -r dir url branch; do
-        if [[ -z "$dir" ]]; then
+    local repo_dir_name url branch
+    while IFS=$'\t' read -r repo_dir_name url branch; do
+        if [[ -z "$repo_dir_name" ]]; then
             continue          # an empty list gives one empty line
         fi
-        if [[ -v "printed_entry_by_dir[$dir]" ]]; then
-            if [[ "${printed_entry_by_dir[$dir]}" != "${url}"$'\t'"${branch}" ]]; then
-                warn "${dir} is listed twice with different URLs or branches; using the first entry"
+        if [[ -v "printed_entry_by_dir[$repo_dir_name]" ]]; then
+            if [[ "${printed_entry_by_dir[$repo_dir_name]}" != "${url}"$'\t'"${branch}" ]]; then
+                warn "${repo_dir_name} is listed twice with different URLs or branches; using the first entry"
                 hint "fix ${INSTALLED_REPOS_LIST_PATH}"
             fi
             continue
         fi
-        printed_entry_by_dir[$dir]="${url}"$'\t'"${branch}"
-        printf '%s\t%s\t%s\n' "$dir" "$url" "$branch"
+        printed_entry_by_dir[$repo_dir_name]="${url}"$'\t'"${branch}"
+        printf '%s\t%s\t%s\n' "$repo_dir_name" "$url" "$branch"
     done <<< "${required_entries}"$'\n'"${installed_entries}"
 }
 
@@ -164,9 +164,9 @@ read_repos_to_build() {
 # fails here instead of producing broken XML.
 #   read_ros_packages_list <list_path>
 read_ros_packages_list() {
-    local list="$1"
-    if [[ ! -f "$list" ]]; then
-        die "missing $list"
+    local list_path="$1"
+    if [[ ! -f "$list_path" ]]; then
+        die "missing $list_path"
     fi
 
     local line line_number=0 key extra
@@ -179,12 +179,12 @@ read_ros_packages_list() {
             continue          # blank or comment-only line
         fi
         if [[ -n "$extra" || ! "$key" =~ ^[A-Za-z0-9_.-]+$ ]]; then
-            echo "${list} line ${line_number}: expected one rosdep key" >&2
+            echo "${list_path} line ${line_number}: expected one rosdep key" >&2
             return 1
         fi
 
         echo "$key"
-    done < "$list"
+    done < "$list_path"
 }
 
 # Co-authored by Claude Code

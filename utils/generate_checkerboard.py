@@ -34,7 +34,7 @@ def main():
     img = cv2.copyMakeBorder(img, top=MARGIN_PX, bottom=MARGIN_PX, left=MARGIN_PX, right=MARGIN_PX,
                              borderType=cv2.BORDER_CONSTANT, value=[WHITE])
 
-    # cameracalibrator looks for the inner corners, so a board OpenCV cannot detect is useless
+    # ROS 2 package cameracalibrator looks for the inner corners, so a board OpenCV cannot detect is useless
     inner_corners = (COLS - 1, ROWS - 1)
     found, _ = cv2.findChessboardCorners(img, inner_corners)
     if not found:

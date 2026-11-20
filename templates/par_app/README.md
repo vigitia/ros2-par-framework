@@ -85,7 +85,7 @@ A profile chooses the one app that owns the projector:
 ```yaml
 par_launch:
   ros__parameters:
-    projector_app: example_app      # none, rendering_manager or a PAR app's package
+    projector_app: example_app      # none or a PAR app's package
     projector_display_id: 1         # SDL/pygame display number, 0 = primary
 ```
 
@@ -108,5 +108,3 @@ fullscreen window there.
 
 - `exclusive`: whether the app draws on the projector itself (like `demo_app`) or as a client of the rendering
   manager, so that several apps can run at once (card "Setup Wizard", "App store and launcher").
-- The rendering manager gets its own entry with a `launch_file`; until then `par.launch.py` starts it by its own
-  code (`projector_app: rendering_manager`).

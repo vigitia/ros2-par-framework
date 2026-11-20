@@ -44,7 +44,7 @@ from par_framework_core.launch_helpers import (add_required_sensor_nodes,
                                                get_sensor_node_package_names,
                                                PAR_APP_ENTRY_INPUTS_KEY, PROJECTOR_APP_NONE,
                                                read_offered_par_app_names, read_par_app_entry,
-                                               read_sensor_node_entry, RENDERING_MANAGER_APP_NAME)
+                                               read_sensor_node_entry)
 from profiles.profile_files import (PAR_LAUNCH_NODE_NAME, read_profile_cameras_or_raise,
                                     read_profile_launch_section,
                                     write_node_settings_into_profile)
@@ -365,8 +365,7 @@ def _get_app_requirements(launch_section, profile_camera_names):
         requirements.error_texts.append(str(error))
         app_names = []
     projector_app_name = str(launch_section.get('projector_app', PROJECTOR_APP_NONE))
-    is_par_projector_app = projector_app_name not in (PROJECTOR_APP_NONE,
-                                                      RENDERING_MANAGER_APP_NAME)
+    is_par_projector_app = projector_app_name != PROJECTOR_APP_NONE
     if is_par_projector_app and projector_app_name not in app_names:
         app_names.append(projector_app_name)
     main_camera_name = profile_camera_names[0]

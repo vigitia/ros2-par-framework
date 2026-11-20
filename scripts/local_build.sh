@@ -3,7 +3,7 @@
 #
 # Builds the framework on the host, as described in README.md. Safe to re-run; that is also how node
 # updates are pulled. Needs ROS 2 installed on the host, in the distro of ROS_DISTRO (scripts/common.sh);
-# the build tools (rosdep, colcon, Python's venv, cargo where needed) are installed when missing.
+# the build tools (rosdep, colcon, Python's venv) are installed when missing.
 #   ./scripts/local_build.sh                     # everything
 #   ./scripts/local_build.sh logitech_brio       # rebuild one package
 #   ./scripts/local_build.sh --non-interactive   # never asks for a password, e.g. run by the setup wizard
@@ -14,7 +14,6 @@
 #   2. install missing build tools and the nodes' apt dependencies (rosdep)
 #   3. install their PyPI dependencies and the setup wizard backend's into .venv
 #   4. build the workspace with colcon
-#   5. build the node repositories' Rust programs with cargo (full builds only)
 #
 # --non-interactive: whatever needs root (apt packages, `rosdep init`) is not run but printed as one line
 # starting with "$SUDO_COMMAND_LINE_PREFIX", and the script exits with $EXIT_CODE_NEEDS_SUDO. Run that
@@ -70,12 +69,7 @@ collect_missing_build_tools() {
     if [[ ! -d .venv ]] && ! python3 -c 'import ensurepip' >/dev/null 2>&1; then
         missing_apt_package_names+=(python3-venv)
     fi
-    # cargo only builds in a full build (step 5), and only when a node repository has Rust code
-    local cargo_manifest_paths=(src/*/Cargo.toml)
-    if (( ${#selected_package_names[@]} == 0 && ${#cargo_manifest_paths[@]} > 0 )) && ! command_exists cargo; then
-        missing_apt_package_names+=(cargo)
-    fi
-    # -n "$(ls -A ...)" is true when the folder has any file in it
+    # -z "$(ls -A ...)" is true when the folder has no file in it
     if [[ ! -d "$ROSDEP_SOURCES_FOLDER_PATH" || -z "$(ls -A "$ROSDEP_SOURCES_FOLDER_PATH")" ]]; then
         other_sudo_command_lines+=("sudo rosdep init")
     fi
@@ -90,7 +84,7 @@ collect_missing_rosdep_packages() {
     local ros_packages_manifest_dir="$1"
     local simulate_output_text
     if ! simulate_output_text="$(rosdep install --simulate --from-paths src packages "$ros_packages_manifest_dir" \
-            --ignore-src -y --skip-keys K4A 2>&1)"; then
+            --ignore-src -y 2>&1)"; then
         printf '%s\n' "$simulate_output_text" >&2
         die "rosdep could not resolve the dependencies above -- fix the package.xml naming them"
     fi
@@ -113,7 +107,7 @@ collect_missing_rosdep_packages() {
 
 # Co-authored by Claude Code
 # Print every command step 2 found necessary as one line, joined with &&, e.g.
-# "sudo apt-get install -y cargo ros-lyrical-foo && sudo rosdep init". Prints nothing when nothing is
+# "sudo apt-get install -y git ros-lyrical-foo && sudo rosdep init". Prints nothing when nothing is
 # needed. Duplicates (a tool rosdep also wants) are installed once: sort -u.
 create_sudo_command_line() {
     local command_lines=()
@@ -137,15 +131,15 @@ create_sudo_command_line() {
 # 1. Node repositories
 "${REPO_ROOT}/scripts/sync_nodes.sh"
 
-ros_setup="/opt/ros/${ROS_DISTRO}/setup.bash"
-if [[ ! -f "$ros_setup" ]]; then
-    die "ROS 2 '${ROS_DISTRO}' not found at ${ros_setup} -- install it with the guide at https://docs.ros.org (ros-${ROS_DISTRO}-desktop), or set ROS_DISTRO to the installed one"
+ros_setup_script_path="/opt/ros/${ROS_DISTRO}/setup.bash"
+if [[ ! -f "$ros_setup_script_path" ]]; then
+    die "ROS 2 '${ROS_DISTRO}' not found at ${ros_setup_script_path} -- install it with the guide at https://docs.ros.org (ros-${ROS_DISTRO}-desktop), or set ROS_DISTRO to the installed one"
 fi
 
 # ROS's setup script reads variables that may be unset, which set -u would stop at. So -u is switched
 # off while it runs.
 set +u
-source "$ros_setup"
+source "$ros_setup_script_path"
 set -u
 
 # 2. Build tools and apt dependencies
@@ -187,8 +181,7 @@ else
         rosdep update
     fi
     # --ignore-src: packages that are in the workspace are built, not installed.
-    # --skip-keys K4A: the Azure Kinect SDK has no rosdep rule; install it by hand, see README.md.
-    rosdep install --from-paths src packages "$ros_packages_dir" --ignore-src -y --skip-keys K4A
+    rosdep install --from-paths src packages "$ros_packages_dir" --ignore-src -y
 fi
 
 # 3. PyPI dependencies
@@ -223,18 +216,7 @@ if (( ${#selected_package_names[@]} > 0 )); then
 fi
 .venv/bin/python -m colcon build "${build_args[@]}"
 
-# 5. Rust programs, e.g. the rendering manager (a Wayland compositor): colcon builds only their ROS
-# packages, cargo the programs themselves, in release mode as the launch files start them. Only in a
-# full build, so rebuilding one package stays quick; cargo skips what has not changed. Step 2 installed
-# cargo when a repository needs it.
-if (( ${#selected_package_names[@]} == 0 )); then
-    for cargo_manifest_path in src/*/Cargo.toml; do
-        step "Building ${cargo_manifest_path%/Cargo.toml} with cargo"
-        cargo build --release --manifest-path "$cargo_manifest_path"
-    done
-fi
-
 ok "workspace built"
 info "in each new bash terminal:"
-info "  source ${ros_setup} && source .venv/bin/activate && source install/setup.bash"
+info "  source ${ros_setup_script_path} && source .venv/bin/activate && source install/setup.bash"
 info "  export FASTDDS_BUILTIN_TRANSPORTS=LARGE_DATA"

@@ -34,7 +34,7 @@ TODO: In the future a proper wizard/installer will take care of this
 ./scripts/start_setup_wizard.sh    # or: build what is missing and open the setup wizard (setup_wizard/README.md)
 ```
 `local_build.sh` is safe to re-run — that is also how you pull node updates. Missing build tools (rosdep with
-`rosdep init`/`update`, colcon, Python's venv, cargo where a node needs it) are installed on the way; it asks for your
+`rosdep init`/`update`, colcon, Python's venv) are installed on the way; it asks for your
 sudo password for that and for the nodes' apt packages. `--non-interactive` never asks: it prints the one
 `sudo ...` command to run instead and exits with code 3 (the setup wizard uses it). It installs only what every setup needs
 (`config/required_repos.list`). Cameras, sensor processing nodes and apps are chosen per installation: add their lines from
@@ -103,6 +103,7 @@ packages/                   this repo's own ROS packages, built together with sr
     launch/                 ROS2 launch files
     config/par_setup.yaml   camera id, resolution, projector display
     par_framework_core/     launch_helpers.py: node start functions shared by the launch files
+  par_camera_adapters/      camera types for third-party drivers (webcam, RealSense, Kinect, Blackfly, event camera)
   par_geometry/             helper functions fpr transformations: camera pixels -> table (m) -> projector pixels
   rviz_bridge/              A ROS2 node that converts framework output into something RViz can display (e.g. turns /hand_landmarks into markers)
 scripts/                    setup and helper scripts
@@ -119,13 +120,13 @@ utils/                      helper code, e.g. for creating a calibration chessbo
 | `par_framework_core` | this repo | launch files and per-setup parameters |
 | `par_framework_interfaces` | `ros2-par-framework-interfaces` | shared message, service and action definitions |
 | `logitech_brio` | `ros2-logitech-brio` | Brio driver and camera type `brio`: frames on `/cameras/<camera>/image_raw` (+ `/compressed`) and `CameraInfo` on `/cameras/<camera>/camera_info` |
-| `projection_calibration` | `ros2-par-framework-calibration` | `surface_selector` subscribes to a camera's `image_raw`, lets you mark the projection area; `projection_calibrator` calibrates the table-to-projector mapping automatically from projected ArUco markers seen on the camera's `fiducials` |
+| `projection_calibration` | `ros2-par-framework-calibration` | `projection_corner_selector` subscribes to a camera's `image_raw`, lets you mark the projection area; `projection_calibrator` calibrates the table-to-projector mapping automatically from projected ArUco markers seen on the camera's `fiducials` |
 | `object_detector` | `ros2-par-framework-object-detection` | detects objects in a camera's `image_raw/compressed` (raw image for cameras without JPEGs), publishes them in image pixels on `objects` in that camera's namespace |
 | `fiducials_detector` | `ros2-par-framework-fiducials` | detects fiducial markers in a camera's `image_raw`, publishes them on `fiducials` in that camera's namespace |
 | `hand_landmarks` | `ros2-par-framework-hand-landmarks` | tracks hands in a camera's `image_raw` with MediaPipe, publishes their landmarks in image pixels on `hand_landmarks` in that camera's namespace |
 | `par_geometry` | this repo | library: `pixels_to_table`, `table_to_projector`, `projector_to_table` — the coordinate conversions every node shares |
 | `camera_pose_calibrator` | `ros2-par-framework-calibration` | fits the table plane in the depth camera's registered depth image and writes the camera pose to `config/calibration/extrinsics/camera_pose_<camera>.yaml` |
-| `projection_calibration_server` | `ros2-par-framework-calibration` | optional (`par.launch.py` starts it only when installed); stores the homography from `projection_calibrator` in `config/calibration/extrinsics/projection_mapping_<camera>.yaml` and the corners from `surface_selector` in `projection_corners_<camera>.yaml` next to it (one of each per camera), one server per camera publishes them latched on `/cameras/<camera>/projection_mapping` and `/cameras/<camera>/projection_corners` (RViz and the rendering manager read the main camera's through remappings, a PAR app the camera of its input) |
+| `projection_calibration_server` | `ros2-par-framework-calibration` | optional (`par.launch.py` starts it only when installed); stores the homography from `projection_calibrator` in `config/calibration/extrinsics/projection_mapping_<camera>.yaml` and the corners from `projection_corner_selector` in `projection_corners_<camera>.yaml` next to it (one of each per camera), one server per camera publishes them latched on `/cameras/<camera>/projection_mapping` and `/cameras/<camera>/projection_corners` (RViz and the rendering manager read the main camera's through remappings, a PAR app the camera of its input) |
 | `rviz_bridge` | this repo | projects `objects`, `hand_landmarks`, `fiducials`, `projection_corners` and `projection_mapping` onto the table as `/objects/markers`, `/hand_landmarks/markers`, `/fiducials/markers`, `/projection_corners/markers` and `/projection_mapping/markers` for RViz; reads the main camera's `camera_info` and projection calibration, but no detections yet, since the sensor nodes publish in their camera's namespace |
 
 Camera frames are published **best-effort, keep-last-1** — a late frame is worthless because a newer one
@@ -267,20 +268,19 @@ instead, the event camera (`none`) has none.
 `overhead_link`, the Kinect's `<name>_camera_base`) is published by `/<name>_tf_publisher`, started with the camera.
 It uses the measured `config/calibration/extrinsics/camera_pose_<name>.yaml` while that file exists (written by
 `camera_pose_calibration_depth.launch.py` or `camera_pose_calibration_sheet.launch.py`; with a profile in
-`extrinsics/<profile>/`), and otherwise the placeholder under `/<name>_tf_publisher` in the profile (`par_setup.yaml`
-has one per type, for a camera named after its type). The camera's frames are named after it too:
-`<name>_link`, `<name>_optical_frame`. The table is the plane z = 0 of `world`.
+`extrinsics/<profile>/`), and otherwise a placeholder pose: `/<name>_tf_publisher` where a profile sets one for this
+camera, else `placeholder_camera_pose` in `par_setup.yaml`, the same for every camera. The camera's frames are named
+after it too: `<name>_link`, `<name>_optical_frame`. The table is the plane z = 0 of `world`.
 
 ### Adding a camera
 
 No change in core and none in the consumers. A camera type is an entry in the ament index plus a launch file that
 starts the driver in the camera's namespace and maps its names onto the table above; blueprint and rules:
-`templates/par_camera/README.md`. Our own drivers ship both in their repo (`logitech_brio`, `see3cam_cu40`), core
-ships them for third-party drivers (`packages/par-framework-core/resource/par_framework_cameras/`, `launch/camera_*.launch.py`).
+`templates/par_camera/README.md`. Our own drivers ship both in their repo (`logitech_brio`, `see3cam_cu40`); for
+third-party drivers they are in `packages/par_camera_adapters/`.
 Then:
 
-1. `config/par_setup.yaml`: the driver's defaults under `/cameras/*/<driver node>` (colour images in BGR order) and
-   a placeholder pose under `/<type>_tf_publisher`.
+1. `config/par_setup.yaml`: the driver's defaults under `/cameras/*/<driver node>` (colour images in BGR order).
 2. A released driver is named in the camera entry's `required_packages` (installations add its rosdep key to
    `config/installed_ros_packages.list`), a driver from source goes into `config/catalog_repos.list`.
 
@@ -288,37 +288,7 @@ The one RViz configuration, `config/rviz/par_framework.rviz`, shows the main cam
 
 ### Event camera
 
-An event camera reports brightness changes per pixel instead of frames. A camera of type `event`
-(`cameras: {event: event}`, or `camera:=event`) starts like the other cameras, through the released
-`metavision_driver` (OpenEB) as `/cameras/<name>/event`, with its settings under `/cameras/*/event` in
-`par_setup.yaml`. Next to it, `event_camera_renderer` (`/cameras/<name>/event_renderer`) collects the events into
-`bgr8` images on `/cameras/<name>/image_raw`, at `fps` per second, and reads events only while something subscribes
-to the images. The raw events are on `/cameras/<name>/events` for nodes that want them. The driver publishes no `camera_info`, so the
-event camera has no intrinsics, and nothing that needs them (`pixels_to_table`, the frustum in RViz) works with it.
-The detectors are built for normal images; how well they work on collected events depends on the scene.
-
-**Vendor plugin.** OpenEB opens Prophesee's own cameras; other makers ship a HAL plugin, which has to match the OpenEB
-version bundled with the driver
-(`grep VERSION /opt/ros/$ROS_DISTRO/opt/openeb_vendor/include/metavision/sdk/version.h`). For a SilkyEvCam that is
-Century Arks' "SilkyEvCam Plugin Installer for ubuntu" of the same version. Its installer refuses Ubuntu versions it
-has no folder for; the newest folder's plugin can be installed by hand instead, from the unpacked installer:
-
-```bash
-sudo install -D -m 644 resources/24.04/libsilky_common_plugin.so /usr/lib/CenturyArks/hal/plugins/libsilky_common_plugin.so
-sudo cp resources/ca_device.rules /etc/udev/rules.d/ && sudo udevadm control --reload-rules
-```
-
-Then replug the camera, and set the plugin folder in every shell that starts ROS (`par.launch.py` warns when it is
-missing; bash: `~/.bashrc`, fish: `set -gx` in `~/.config/fish/config.fish`):
-
-```bash
-export MV_HAL_PLUGIN_PATH=/usr/lib/CenturyArks/hal/plugins
-```
-
-The package's two command-line tools are not needed by the driver.
-
-**USB 3 only.** On a USB 2 link (`cat /sys/bus/usb/devices/*/speed` shows `480`, e.g. through a USB 2 extension cable),
-changing a bias while events stream can abort the driver, and the camera then opens again only after replugging.
+Setup of an event camera (vendor plugin, USB 3): `packages/par_camera_adapters/README.md`.
 
 ---
 

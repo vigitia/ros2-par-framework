@@ -74,8 +74,9 @@ written for an older distro may need a fork.
 keys in `config/required_ros_packages.list` (every installation) and the gitignored
 `config/installed_ros_packages.list` (this installation's camera drivers), turned into a generated `package.xml` by
 `write_ros_packages_manifest` in `scripts/common.sh`. So camera drivers stay optional and `par_framework_core`
-declares none. The Kinect SDK (`K4A`) is installed by hand (rosdep runs with `--skip-keys K4A`); nothing in core may
-declare the Kinect driver, or a Brio-only build breaks. `spinnaker_camera_driver` brings its own copy of the Spinnaker
+declares none. The Kinect SDK is installed by hand; the driver fork's `package.xml` does not declare it (rosdep has
+no rule for `K4A`), so core needs no `--skip-keys`. Nothing in core may declare the Kinect driver, or a Brio-only
+build breaks. `spinnaker_camera_driver` brings its own copy of the Spinnaker
 SDK. `metavision_driver` (event camera) brings OpenEB; a SilkyEvCam's plugin is installed by hand and found through
 `MV_HAL_PLUGIN_PATH` (README, "Event camera").
 

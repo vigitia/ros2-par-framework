@@ -19,8 +19,8 @@ Each of them can be overridden for one run, e.g. camera:=kinect rviz:=true hand_
 an argument left empty keeps the parameter file's value. camera:= starts one camera instead of all:
 a name of par_launch.cameras, or <type>[:<serial>] for a unit the profile does not name. Every
 camera gets its own projection calibration (/cameras/<name>/projection_mapping and
-projection_corners). RViz and the rendering manager use the first camera (the main camera) and
-its projection calibration; RViz also draws the frustum of every started camera. With a camera
+projection_corners). RViz uses the first camera (the main camera) and its projection
+calibration; RViz also draws the frustum of every started camera. With a camera
 that offers depth on its colour image's grid (depth_registered in its entry's streams) the
 detectors also use its depth. camera_only:=true starts just the cameras and their mount
 transforms, e.g. for a preview or a calibration. An event camera (event) delivers its events collected into images, and the raw events on
@@ -34,10 +34,10 @@ gestures: camera:=kinect hand_landmarks:=true gesture_detector:=true debug:=true
 par_launch.projector_app (or projector_app:=<name>) chooses the one app that owns the projector,
 on par_launch.projector_display_id: none, an installed PAR app (a package registered in the ament
 index under par_framework_apps, see templates/par_app/; the framework nodes it requires are
-started too), or rendering_manager, the Wayland compositor whose ROS bridge shows one app on every
-detected page. A PAR app reads the cameras its entry's inputs name: par_launch.app_inputs binds
-each input to a camera, e.g. app_inputs: {demo_app: {camera: overhead}}; an input left unbound
-reads the only camera of the run. The app's required sensor nodes run on its bound cameras.
+started too; the rendering manager is one). A PAR app reads the cameras its entry's inputs
+name: par_launch.app_inputs binds each input to a camera, e.g.
+app_inputs: {demo_app: {camera: overhead}}; an input left unbound reads the only camera of the run.
+The app's required sensor nodes run on its bound cameras.
 A run with a PAR app starts only what the app depends on: the cameras its inputs read (for an
 app without inputs, the main camera if it requires sensor nodes) and its required sensor nodes;
 the par_launch.<sensor node> lists are not used, a <sensor node>:=true still adds one, and
@@ -53,7 +53,7 @@ import tempfile
 from ament_index_python.packages import get_package_share_directory
 from ament_index_python.resources import has_resource
 from launch import LaunchDescription
-from launch.actions import (DeclareLaunchArgument, ExecuteProcess, GroupAction,
+from launch.actions import (DeclareLaunchArgument, GroupAction,
                             IncludeLaunchDescription, LogInfo, OpaqueFunction)
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
@@ -77,7 +77,6 @@ from par_framework_core.launch_helpers import (create_camera_actions,
                                                read_camera_entry, read_launch_section,
                                                read_offered_par_app_names, read_par_app_entry,
                                                read_profile_cameras,
-                                               RENDERING_MANAGER_APP_NAME,
                                                SENSOR_NODE_RESOURCE_TYPE)
 import yaml
 
@@ -107,27 +106,6 @@ RVIZ_CAMERA_TOPIC_NAMES = (('/camera/image_raw', 'image_raw'),
 # with camera_info, as RViz draws one frustum per CameraInfo display
 RVIZ_FRUSTUM_DISPLAY_CLASS_NAME = 'rviz_default_plugins/CameraInfo'
 CAMERA_INFO_STREAM_NAME = 'camera_info'
-# The rendering manager is a Rust program in the repo of its ROS bridge, built by cargo
-# (scripts/local_build.sh)
-RENDERING_MANAGER_BRIDGE_PACKAGE_NAME = 'rendering_manager_bridge'
-RENDERING_MANAGER_BINARY_RELATIVE_PATH = os.path.join('target', 'release', 'rendering_manager')
-# A fixed Wayland socket name, so the bridge knows the control socket
-# $XDG_RUNTIME_DIR/<name>.control; a second rendering manager with this name fails to start
-# instead of taking another socket the bridge would not find. Apps get <name>-<app id>. Snap apps
-# (e.g. Chromium) may only open sockets named wayland-<digit>..., and the desktop's automatic
-# names are wayland-0, wayland-1, ..., so the name starts with a number far above those
-RENDERING_MANAGER_SOCKET_NAME = 'wayland-99-par-tabletop'
-
-
-def get_rendering_manager_binary_path():
-    """Return the rendering manager program's path, in the repo of its installed bridge."""
-    # Simplification: follows the --symlink-install link of the bridge's package.xml back to its
-    # repo, as local_build.sh builds it; upgrade: install the program with the bridge
-    installed_package_xml_path = os.path.join(
-        get_package_share_directory(RENDERING_MANAGER_BRIDGE_PACKAGE_NAME), 'package.xml')
-    bridge_package_path = os.path.dirname(os.path.realpath(installed_package_xml_path))
-    repo_path = os.path.dirname(bridge_package_path)
-    return os.path.join(repo_path, RENDERING_MANAGER_BINARY_RELATIVE_PATH)
 
 
 def write_rviz_config_with_camera_frustums(cameras_to_start):
@@ -166,46 +144,6 @@ def write_rviz_config_with_camera_frustums(cameras_to_start):
                                      delete=False) as rviz_config_file:
         yaml.safe_dump(rviz_config, rviz_config_file, sort_keys=False)
         return rviz_config_file.name
-
-
-# Co-authored by Claude Code: the display comes from par_launch.projector_display_id
-def create_rendering_manager_actions(params_file_paths, projector_display_id, camera_name):
-    """Create the rendering manager, fullscreen on the projector, and its ROS bridge."""
-    if not has_resource('packages', RENDERING_MANAGER_BRIDGE_PACKAGE_NAME):
-        return [LogInfo(msg='[par.launch]: rendering_manager is not installed: add its line '
-                            'from config/catalog_repos.list to config/installed_repos.list and '
-                            'run ./scripts/local_build.sh')]
-    binary_path = get_rendering_manager_binary_path()
-    if not os.path.isfile(binary_path):
-        return [LogInfo(msg=f'[par.launch]: {binary_path} is not built: run '
-                            f'./scripts/local_build.sh (it builds the rendering manager with '
-                            f'cargo)')]
-    runtime_folder_path = os.environ.get('XDG_RUNTIME_DIR')
-    if not runtime_folder_path:
-        raise RuntimeError('[par.launch]: XDG_RUNTIME_DIR is not set, so the rendering manager '
-                           'has no place for its sockets: start the launch from a desktop '
-                           'session terminal')
-
-    rendering_manager_command = [binary_path, '--socket-name', RENDERING_MANAGER_SOCKET_NAME]
-    # Without a display_id the desktop picks the display
-    if projector_display_id is not None:
-        rendering_manager_command += ['--display-id', str(projector_display_id)]
-    control_socket_path = os.path.join(runtime_folder_path,
-                                       f'{RENDERING_MANAGER_SOCKET_NAME}.control')
-    bridge_parameters = list(params_file_paths)
-    bridge_parameters.append({'control_socket_path': control_socket_path})
-    return [
-        ExecuteProcess(cmd=rendering_manager_command, name='rendering_manager', output='screen',
-                       emulate_tty=True),
-        # Starts together with the rendering manager and connects as soon as its socket exists
-        Node(package=RENDERING_MANAGER_BRIDGE_PACKAGE_NAME,
-             executable=RENDERING_MANAGER_BRIDGE_PACKAGE_NAME,
-             name='rendering_manager_bridge_node',
-             output='screen',
-             emulate_tty=True,
-             parameters=bridge_parameters,
-             remappings=create_camera_stream_remappings(camera_name)),
-    ]
 
 
 # Written by Claude Code
@@ -376,8 +314,8 @@ def launch_setup(context):
     params_file_paths = get_params_file_paths(context)
     launch_section = read_launch_section(context)
     cameras_to_start = get_cameras_to_start(context)
-    # Simplification: RViz and the rendering manager use the first camera. Upgrade: bind their
-    # inputs to cameras as for a PAR app
+    # Simplification: RViz uses the first camera. Upgrade: bind its inputs to cameras as for a
+    # PAR app
     main_camera_name = cameras_to_start[0].camera_name
     # read_profile_cameras, not launch_section: the merged section would mix par_setup.yaml's
     # default cameras into the profile's. Empty when camera:=<type> runs without a camera list
@@ -416,7 +354,7 @@ def launch_setup(context):
         projector_display_id = get_projector_display_id(context, launch_section)
     par_app_entry = None
     required_launch_switch_names = []
-    is_par_app = projector_app_name not in (PROJECTOR_APP_NONE, RENDERING_MANAGER_APP_NAME)
+    is_par_app = projector_app_name != PROJECTOR_APP_NONE
     if is_par_app:
         par_app_entry = read_par_app_entry(projector_app_name)
         required_launch_switch_names = par_app_entry['required_launch_switches']
@@ -488,9 +426,8 @@ def launch_setup(context):
     for camera_to_start in cameras_to_start:
         launch_actions += create_camera_actions(context, camera_to_start)
     if len(cameras_to_start) > 1:
-        launch_actions.append(LogInfo(msg=f'[par.launch]: RViz (image and markers) and the '
-                                          f'rendering manager use the main camera '
-                                          f'{main_camera_name} (the first of '
+        launch_actions.append(LogInfo(msg=f'[par.launch]: RViz (image and markers) uses the '
+                                          f'main camera {main_camera_name} (the first of '
                                           "par_launch.cameras); RViz draws every camera's "
                                           'frustum'))
 
@@ -592,9 +529,6 @@ def launch_setup(context):
         launch_actions += create_par_app_actions(context, projector_app_name, par_app_entry,
                                                  params_file_paths, projector_display_id,
                                                  debug_override, app_input_remappings)
-    elif projector_app_name == RENDERING_MANAGER_APP_NAME:
-        launch_actions += create_rendering_manager_actions(params_file_paths, projector_display_id,
-                                                           main_camera_name)
 
     if is_switch_enabled('rviz'):
         launch_actions.append(create_framework_node('rviz_bridge'))
@@ -647,8 +581,8 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'projector_app',
             default_value='',
-            description=f'The app on the projector: {PROJECTOR_APP_NONE}, '
-                        f'{RENDERING_MANAGER_APP_NAME} or the package of an installed PAR app '
+            description=f'The app on the projector: {PROJECTOR_APP_NONE} or the package of '
+                        f'an installed PAR app '
                         f'(ament_index par_framework_apps). Empty uses par_launch.projector_app '
                         f'from params_file.'),
         DeclareLaunchArgument(

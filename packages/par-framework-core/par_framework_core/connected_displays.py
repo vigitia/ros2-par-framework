@@ -2,10 +2,10 @@
 """
 The connected displays and how a profile recognises its projector among them.
 
-The framework's display_id is SDL's display index: surface_selector lists displays through pygame
-(SDL), and the rendering manager counts its --display-id the same way. So this module asks SDL
-too, through ctypes on the system's SDL 2 library (the one pygame uses), for each display's name,
-size and position on the desktop. SDL names only the connector (e.g. "DP-1"), so the projector's
+The framework's display_id is SDL's display index: projection_corner_selector lists displays
+through pygame (SDL), and the rendering manager counts its --display-id the same way. So this
+module asks SDL too, through ctypes on the system's SDL 2 library (the one pygame uses), for each
+display's name, size and position on the desktop. SDL names only the connector (e.g. "DP-1"), so the projector's
 make, model and serial come from its EDID, which Linux exposes under
 /sys/class/drm/<card>-<connector>/edid.
 

@@ -6805,3 +6805,137 @@ move into separate repositories a folder move.
 `install/par_framework_core` keep links to the moved files; the build of `par_framework_core` fails on them and the
 old install folder would register the camera types a second time. Delete both folders once and run
 `./scripts/local_build.sh`.
+
+## 2026-11-20: Application menu entry runs `start_setup_wizard.sh`
+
+### What changed
+
+`scripts/start_setup_wizard.sh` writes its `.desktop` file (named after the app's ID,
+`com.github.vigitia.par_setup_wizard`) as a visible application menu entry: `Exec` is the script itself, no longer
+the app's binary, and `NoDisplay` is gone. `Terminal=false`, so starting it from the menu opens only the app's window;
+the backend's output goes to `log/setup_wizard_backend.log` as before. The setup wizard README mentions the entry.
+
+### Why / alternatives
+
+Before, the entry only gave the app's window its icon, so starting the wizard from the menu needed a second,
+hand-made `.desktop` file and launcher script outside the repository that duplicated the backend start, its readiness
+check and its stop (with a weaker stop: one SIGTERM, no SIGKILL for a backend that ignores it). Now there is one start
+path, and the menu and a terminal behave the same.
+
+- *A terminal window for the menu start* (`Terminal=true`): rejected; the app is the interface, and a terminal would
+  stay open beside it the whole session. The trade-off is that a failing start from the menu shows no message; the
+  backend log and a start from a terminal show it.
+- *Writing the entry on the first start* stays: the first start may build the workspace and install Flutter's build
+  tools with `sudo`, which needs a terminal. Because the entry only appears after that first run, the menu never
+  triggers those builds.
+- *`Exec` in quotes*: the desktop entry specification splits an unquoted command at spaces, so a repository path with
+  a space would break the entry.
+
+## 2026-11-20: Remove `scripts/focus_preview.py`; fix two script messages
+
+### What changed
+
+- `scripts/focus_preview.py` is deleted. It subscribed to `/camera/image_raw`, but every camera now publishes in its
+  own namespace (`/cameras/<name>/image_raw`), so it received no frames. The comments in
+  `setup_wizard/backend/cameras/focus_api.py` and `setup_wizard/backend/shared/image_conversion.py` that pointed to it
+  are gone; the focus measure is described there on its own.
+- `scripts/sync_nodes.sh`: when a clone fails, the hint names the branch only when the list entry has one. Before, an
+  entry without a branch printed the placeholder (`branch '-'`).
+- `scripts/local_build.sh`: the comment on the `sudo rosdep init` check describes the `-z` test the code uses.
+
+### Why / alternatives
+
+The setup wizard's focus step (`focus_api.py`) measures the same score on the camera the wizard previews, and focusing
+belongs where cameras are set up. Keeping two copies of the same tool means keeping both in step with the camera
+layout, which the script already failed at.
+
+- *Fix the script* (take a camera name like `run_cameracalibrator.sh` and subscribe to `/cameras/<name>/image_raw`):
+  rejected; it would keep a second focus tool that the wizard already covers.
+
+## 2026-11-20: Clearer variable names in `scripts/`
+
+### What changed
+
+Renamed for names that are clear on their own: `dir` → `repo_dir_name` and `target` → `repo_checkout_path`
+(`scripts/sync_nodes.sh`, `scripts/common.sh`), `list` → `list_path` (the list parsers in `scripts/common.sh`),
+`has_commits` → `check_repo_has_commits` (it also warns and records a failure), `ros_setup` →
+`ros_setup_script_path` (`scripts/local_build.sh`, `scripts/start_setup_wizard.sh`), `board_size` →
+`board_inner_corners` (`scripts/run_cameracalibrator.sh`). No behaviour change; all names are local to their script.
+
+### Why / alternatives
+
+A generic name like `dir` or `target` says nothing in a grep or an error trace. Rejected: leaving them, since the
+functions are short; the names also appear in messages and calls across the script.
+
+## 2026-11-20: Rust programs are built by their own repository's package, not by `local_build.sh`
+
+### What changed
+
+- `scripts/local_build.sh` no longer has a cargo step or its own check for `cargo`. The rendering manager's repository
+  builds its compositor in a new `ament_cmake` package, `rendering_manager_compositor`, which runs `cargo build
+  --release` and installs the program into `lib/rendering_manager_compositor/`. Its `package.xml` declares `cargo` and
+  `libxkbcommon-dev`, so rosdep installs them like any node's dependencies.
+- `par.launch.py` finds the program with `get_package_prefix('rendering_manager_compositor')`; when that package is
+  not installed it logs what to do, as it does for a missing bridge.
+- `scripts/run_cameracalibrator.sh`: a comment no longer names a camera model.
+
+### Why / alternatives
+
+The rendering manager is an optional repository (`config/catalog_repos.list`), and core should not know how an
+optional repository builds. Before, core held a cargo step and a cargo check for this one repository, the
+compositor's system library (`libxkbcommon`) was declared nowhere, rebuilding one package skipped cargo, and the
+launch file followed the bridge's `--symlink-install` link back into the source tree to find the program. Now colcon
+builds it like any package, including `./scripts/local_build.sh <package>`, and the program is found in the install
+folder the ROS way.
+
+- *Keep the cargo step and only declare the dependencies*: rejected; core would still carry a build step for one
+  optional repository, and the program would still live in the source tree.
+- *The `colcon-cargo` extension*: rejected; a new build dependency, and it targets Rust ROS packages, not a standalone
+  program next to a Python package.
+- cargo writes into colcon's build folder (`build/rendering_manager_compositor/cargo_target`), not the repository's
+  `target/`, so a colcon build does not touch the output of `cargo run`/`cargo test` during development. The cost is
+  one extra full compile.
+
+## 2026-11-20: rosdep runs without `--skip-keys K4A`
+
+### What changed
+
+`scripts/local_build.sh` no longer passes `--skip-keys K4A` to rosdep. The Azure Kinect driver fork
+(`azure_kinect_ros_driver`, `config/catalog_repos.list`) no longer declares the SDK key `K4A` in its `package.xml`;
+its `CMakeLists.txt` stops with a message naming the SDK when it is missing, and its `docs/building.md` says the SDK is
+installed by hand. `CLAUDE.md` follows.
+
+### Why / alternatives
+
+The skip was the last place where core's build script knew one optional camera. The Azure Kinect Sensor SDK has no
+rosdep rule and is installed by hand, and one unresolvable key makes `rosdep install` fail for the whole workspace, so
+the driver's own `package.xml` is the right place to leave it out.
+
+- *The driver downloads the SDK in its own build* (as `spinnaker_camera_driver` does): rejected; it depends on download
+  URLs of a discontinued product, for a lot of work.
+- *A generic mechanism in core* (repositories ship rosdep rules or a skip list): rejected; code in core for one case.
+
+## 2026-11-20: The rendering manager is a PAR app like any other
+
+### What changed
+
+- `par.launch.py` no longer has code for the rendering manager (`create_rendering_manager_actions`, its binary path,
+  socket name and package constants). `projector_app` is `none` or an installed PAR app; the rendering manager
+  repository registers `rendering_manager` in the ament index (`par_framework_apps`) with its own launch file, which
+  starts the compositor and its bridge.
+- `launch_helpers.RENDERING_MANAGER_APP_NAME` is gone, and with it the special cases in the setup wizard backend
+  (`apps/apps_api.py` listed it by hand, `sensor_nodes/sensor_nodes_api.py` excluded it from PAR apps). The wizard
+  now finds it through the index, with the text from its entry.
+- Comments in `par_setup.yaml` and `templates/par_app/README.md` follow.
+
+### Why / alternatives
+
+Core knew how to start one optional repository: its program path, its Wayland socket name and its bridge's
+parameters. As a PAR app, the repository describes this itself, and the framework's generic app handling gives it
+what it lacked before: its required framework nodes (`fiducials_detector`, `page_locator`) are switched on with it,
+and its camera input is bound through `par_launch.app_inputs` like every app's.
+
+- *The entry in the bridge package*: rejected; the app name would become `rendering_manager_bridge`, and every profile
+  with `projector_app: rendering_manager` would need changing. The package that builds the compositor is named
+  `rendering_manager` and carries the entry, so existing profiles keep working.
+- *A third package only for the entry and launch file*: rejected; one more package without a reason.

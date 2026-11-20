@@ -5,7 +5,8 @@
 #   1. checks that ROS 2 is installed and that GitHub accepts this machine's SSH key (for git@ URLs)
 #   2. builds the workspace with local_build.sh when the backend's packages are not built yet
 #   3. builds the wizard app when its bundle is missing (installs Flutter's Linux build tools)
-#   4. registers the app's icon with the desktop (a hidden .desktop file in ~/.local/share/applications)
+#   4. adds the wizard to the application menu (a .desktop file in ~/.local/share/applications that runs
+#      this script and gives the app's window its icon)
 #   5. starts the backend unless one already answers, then the app; closing the app stops the
 #      backend this script started
 #   ./scripts/start_setup_wizard.sh
@@ -32,7 +33,7 @@ SETUP_WIZARD_APP_ICON_PATH="${SETUP_WIZARD_APP_FOLDER_PATH}/assets/app_icon.svg"
 # The user's application folder (XDG base directory spec): $XDG_DATA_HOME, by default ~/.local/share
 SETUP_WIZARD_DESKTOP_ENTRY_PATH="${XDG_DATA_HOME:-${HOME}/.local/share}/applications/${SETUP_WIZARD_APPLICATION_ID}.desktop"
 
-ros_setup="/opt/ros/${ROS_DISTRO}/setup.bash"
+ros_setup_script_path="/opt/ros/${ROS_DISTRO}/setup.bash"
 
 # Co-authored by Claude Code
 # True when the backend answers its status request. Uses Python instead of curl, which a fresh
@@ -120,30 +121,35 @@ stop_setup_wizard_backend() {
 }
 
 # Co-authored by Claude Code
-# Write the .desktop file that gives the app's window its icon, when it is missing or names other paths (e.g.
-# after the repository moved). NoDisplay keeps it out of the application menu: it starts only the app, without
-# the backend, so the start stays with this script.
+# Write the .desktop file that puts the wizard into the application menu and gives the app's window its icon,
+# when it is missing or names other paths (e.g. after the repository moved). It runs this script, so the menu
+# starts the backend and the app the same way as a terminal does. No terminal window: the backend logs to
+# SETUP_WIZARD_BACKEND_LOG_PATH, and the entry only exists after this script ran once, so the first-start
+# builds (which may ask for a sudo password) have already happened in a terminal.
+# Exec is quoted because the desktop entry spec splits unquoted paths at spaces.
 write_setup_wizard_desktop_entry() {
     local desktop_entry_text
     desktop_entry_text="[Desktop Entry]
 Type=Application
 Name=PAR setup wizard
-Exec=${SETUP_WIZARD_APP_EXECUTABLE_PATH}
+Comment=Set up the projected augmented reality framework (starts the backend and the app)
+Exec=\"${REPO_ROOT}/scripts/start_setup_wizard.sh\"
 Icon=${SETUP_WIZARD_APP_ICON_PATH}
 StartupWMClass=${SETUP_WIZARD_APPLICATION_ID}
-NoDisplay=true"
+Terminal=false
+Categories=Development;"
     if [[ -f "$SETUP_WIZARD_DESKTOP_ENTRY_PATH" && "$(cat "$SETUP_WIZARD_DESKTOP_ENTRY_PATH")" == "$desktop_entry_text" ]]; then
         return
     fi
     mkdir -p "$(dirname "$SETUP_WIZARD_DESKTOP_ENTRY_PATH")"
     printf '%s\n' "$desktop_entry_text" > "$SETUP_WIZARD_DESKTOP_ENTRY_PATH"
-    ok "app icon registered (${SETUP_WIZARD_DESKTOP_ENTRY_PATH})"
+    ok "added to the application menu (${SETUP_WIZARD_DESKTOP_ENTRY_PATH})"
 }
 
 # 1. Prerequisites
 step "Checking prerequisites"
-if [[ ! -f "$ros_setup" ]]; then
-    die "ROS 2 '${ROS_DISTRO}' not found at ${ros_setup} -- install it with the guide at https://docs.ros.org (ros-${ROS_DISTRO}-desktop), or set ROS_DISTRO to the installed one"
+if [[ ! -f "$ros_setup_script_path" ]]; then
+    die "ROS 2 '${ROS_DISTRO}' not found at ${ros_setup_script_path} -- install it with the guide at https://docs.ros.org (ros-${ROS_DISTRO}-desktop), or set ROS_DISTRO to the installed one"
 fi
 ok "ROS 2 ${ROS_DISTRO}"
 check_github_ssh_access
@@ -164,7 +170,7 @@ else
     build_setup_wizard_app
 fi
 
-# 4. App icon
+# 4. Application menu entry
 write_setup_wizard_desktop_entry
 
 # 5. Backend and app
@@ -178,7 +184,7 @@ else
     # exec replaces the subshell with Python, so the PID below is the backend's own.
     (
         set +u
-        source "$ros_setup"
+        source "$ros_setup_script_path"
         source "${REPO_ROOT}/install/setup.bash"
         exec .venv/bin/python "$SETUP_WIZARD_BACKEND_SCRIPT_PATH"
     ) > "$SETUP_WIZARD_BACKEND_LOG_PATH" 2>&1 &

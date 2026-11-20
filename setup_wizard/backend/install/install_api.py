@@ -235,7 +235,7 @@ def get_catalog() -> CatalogState:
     for camera_type in camera_types:
         if camera_type.is_installed:
             installed_camera_types.add(camera_type.camera_type)
-    # The Apps area's list, so apps without an index entry (RViz, the rendering manager) count too
+    # The Apps area's list, so RViz, which has no index entry, counts too
     installed_app_names = set()
     for installed_app in apps_api.get_installed_app_list().installed_apps:
         installed_app_names.add(installed_app.app_name)
