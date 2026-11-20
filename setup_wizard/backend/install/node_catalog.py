@@ -19,10 +19,15 @@ from typing import NamedTuple
 import xml.etree.ElementTree as ElementTree
 
 from par_framework_core.ament_index_entries import parse_ament_index_entry_text
-from par_framework_core.camera_types import (CAMERA_ENTRY_REQUIRED_PACKAGES_KEY,
+from par_framework_core.camera_types import (CAMERA_ENTRY_FORMAT_DOCUMENTATION_TEXT,
+                                             CAMERA_ENTRY_REQUIRED_PACKAGES_KEY,
                                              CAMERA_RESOURCE_TYPE, check_camera_entry)
-from par_framework_core.par_apps import check_par_app_entry, PAR_APP_RESOURCE_TYPE
-from par_framework_core.sensor_nodes import check_sensor_node_entry, SENSOR_NODE_RESOURCE_TYPE
+from par_framework_core.par_apps import (check_par_app_entry,
+                                         PAR_APP_ENTRY_FORMAT_DOCUMENTATION_TEXT,
+                                         PAR_APP_RESOURCE_TYPE)
+from par_framework_core.sensor_nodes import (check_sensor_node_entry,
+                                             SENSOR_NODE_ENTRY_FORMAT_DOCUMENTATION_TEXT,
+                                             SENSOR_NODE_RESOURCE_TYPE)
 from pydantic import BaseModel
 
 # The repository this backend belongs to: setup_wizard/backend/install/ -> three folders up
@@ -501,20 +506,22 @@ def _read_catalog_offer(cache_path: str, entry_file_path: str, resource_type: st
                          repository_directory_name=repository_name)
     if offer_kind == OFFER_KIND_APP:
         checked_entry = check_par_app_entry(
-            parse_ament_index_entry_text(entry_text, error_start_text, 'templates/par_app/'),
+            parse_ament_index_entry_text(entry_text, error_start_text,
+                                         PAR_APP_ENTRY_FORMAT_DOCUMENTATION_TEXT),
             error_start_text)
         offer.required_package_names = checked_entry['required_launch_switches']
         offer.version_package_name = entry_name
     elif offer_kind == OFFER_KIND_SENSOR_NODE:
         checked_entry = check_sensor_node_entry(
             parse_ament_index_entry_text(entry_text, error_start_text,
-                                         'templates/sensor_processing_node_entry.yaml'),
+                                         SENSOR_NODE_ENTRY_FORMAT_DOCUMENTATION_TEXT),
             error_start_text)
         offer.required_package_names = checked_entry['required_sensor_nodes']
         offer.version_package_name = entry_name
     else:
         checked_entry = check_camera_entry(
-            parse_ament_index_entry_text(entry_text, error_start_text, 'templates/par_camera/'),
+            parse_ament_index_entry_text(entry_text, error_start_text,
+                                         CAMERA_ENTRY_FORMAT_DOCUMENTATION_TEXT),
             error_start_text)
         # The launch file's package is usually this repository's own; a released driver comes
         # through required_packages

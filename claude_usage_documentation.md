@@ -7062,3 +7062,29 @@ packages.
 - *`projection_corners.launch.py`*, because the old name `calibration.launch.py` did not say which calibration it
   runs; the new one matches the file it stores (`projection_corners_<camera>.yaml`) and its node
   (`projection_corner_selector`).
+
+## 2026-11-20: entry formats in the core README, `templates/` off `develop`
+
+### What changed
+
+- `templates/` (blueprints of a camera type, a PAR app and a sensor processing node) is removed from `develop`,
+  because the blueprints are still work in progress and the branch prepares a public release. It lives on in the
+  branch `feature/templates`, which restores the folder, so merging that branch brings it back.
+- The entry formats the framework relies on (`par_framework_cameras`, `par_framework_apps`,
+  `par_framework_sensor_nodes`: keys, what core does with an entry, a camera launch file's job, how an app is started)
+  move into `packages/par-framework-core/README.md`.
+- Every pointer to `templates/` (error messages, module docstrings, comments in the camera adapters, `par_setup.yaml`,
+  README, `CLAUDE.md`) now names that README. The error messages take it from one constant per entry kind
+  (`CAMERA_ENTRY_FORMAT_DOCUMENTATION_TEXT`, `PAR_APP_ENTRY_FORMAT_DOCUMENTATION_TEXT`,
+  `SENSOR_NODE_ENTRY_FORMAT_DOCUMENTATION_TEXT`), shared by core and the setup wizard's node catalog;
+  `ament_index_entries`' parameter `blueprint_path` is now `format_documentation_text`.
+
+### Why / alternatives
+
+- *Formats kept in core*, because core and the wizard check every entry and their error messages must point to a
+  description that exists. Removing only the pointers was rejected: the formats would then be documented nowhere.
+  Leaving the pointers dangling until the templates return was rejected for the same reason.
+- *The core package's README*, because `par_framework_core` is the package that reads and checks the entries.
+  `packages/par_camera_adapters/README.md` was rejected as the place for the camera format: drivers outside the
+  framework register camera types too, and apps and sensor nodes have nothing to do with the adapters.
+- *A branch instead of deleting*, so the work in progress is not lost and comes back with one merge.

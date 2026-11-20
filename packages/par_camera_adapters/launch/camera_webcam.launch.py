@@ -3,7 +3,8 @@
 Start a generic UVC webcam with v4l2_camera as a PAR framework camera (camera type webcam).
 
 The framework includes this file for the camera type's entry (resource/par_framework_cameras/
-webcam) and passes the arguments every camera launch file declares (templates/par_camera/).
+webcam) and passes the arguments every camera launch file declares
+(README.md of par_framework_core).
 Started alone, e.g. to check it, it needs at least namespace and camera_name, e.g.
 namespace:=/cameras/webcam camera_name:=webcam.
 

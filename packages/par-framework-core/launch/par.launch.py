@@ -33,9 +33,9 @@ gestures: camera:=kinect hand_landmarks:=true gesture_detector:=true debug:=true
 
 par_launch.projector_app (or projector_app:=<name>) chooses the one app that owns the projector,
 on par_launch.projector_display_id: none, an installed PAR app (a package registered in the ament
-index under par_framework_apps, see templates/par_app/; the framework nodes it requires are
-started too; the rendering manager is one). A PAR app reads the cameras its entry's inputs
-name: par_launch.app_inputs binds each input to a camera, e.g.
+index under par_framework_apps, see README.md of par_framework_core; the framework nodes it
+requires are started too; the rendering manager is one). A PAR app reads the cameras its entry's
+inputs name: par_launch.app_inputs binds each input to a camera, e.g.
 app_inputs: {demo_app: {camera: overhead}}; an input left unbound reads the only camera of the run.
 The app's required sensor nodes run on its bound cameras.
 A run with a PAR app starts only what the app depends on: the cameras its inputs read (for an
@@ -176,9 +176,9 @@ def create_par_app_actions(context, app_package_name, par_app_entry, params_file
     if not os.path.isfile(launch_file_path):
         raise RuntimeError(f'[par.launch]: the PAR app {app_package_name} names the launch file '
                            f'{launch_file_path}, which is not installed: install launch/ in its '
-                           f'setup.py data_files (templates/par_app/) and run '
+                           f'setup.py data_files (README.md of par_framework_core) and run '
                            f'./scripts/local_build.sh')
-    # The arguments every app launch file declares (templates/par_app/launch/)
+    # The arguments every app launch file declares (README.md of par_framework_core)
     app_launch_arguments = {
         'params_file': LaunchConfiguration('params_file').perform(context),
         'profile': get_profile_name(context),

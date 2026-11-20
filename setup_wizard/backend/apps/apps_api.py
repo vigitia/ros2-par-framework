@@ -4,10 +4,10 @@ Apps API of the setup wizard backend: the installed apps a profile can offer, mo
 put on the projector, RViz to run next to that app, and which of them a profile offers, puts on the
 projector and feeds from which camera (par_launch.apps, projector_app, app_inputs).
 
-Every installed PAR app registers in the ament index under par_framework_apps (blueprint:
-templates/par_app/), so a new app shows up here without a change to the wizard. Its entry is
-read and checked by the same par_apps function par.launch.py starts it with. Their settings
-are read and saved by node_settings_api.py. RViz is not a PAR app (it does not draw on the
+Every installed PAR app registers in the ament index under par_framework_apps (format:
+README.md of par_framework_core), so a new app shows up here without a change to the wizard.
+Its entry is read and checked by the same par_apps function par.launch.py starts it with. Their
+settings are read and saved by node_settings_api.py. RViz is not a PAR app (it does not draw on the
 projector): it is listed with uses_projector false and stored as par.launch.py's rviz switch.
 """
 

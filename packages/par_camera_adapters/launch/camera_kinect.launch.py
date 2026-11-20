@@ -3,7 +3,8 @@
 Start an Azure Kinect with azure_kinect_ros_driver as a PAR framework camera (camera type kinect).
 
 The framework includes this file for the camera type's entry (resource/par_framework_cameras/
-kinect) and passes the arguments every camera launch file declares (templates/par_camera/).
+kinect) and passes the arguments every camera launch file declares
+(README.md of par_framework_core).
 The driver publishes its factory calibration, so camera_info_url is ignored. Settings under
 /cameras/*/k4a_ros_device_node in the parameter files.
 """

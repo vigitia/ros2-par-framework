@@ -3,11 +3,11 @@
 Start an event camera with metavision_driver as a PAR framework camera (camera type event).
 
 The framework includes this file for the camera type's entry (resource/par_framework_cameras/
-event) and passes the arguments every camera launch file declares (templates/par_camera/). Next
-to the driver, event_camera_renderer collects the events into images, which become the camera's
-image_raw; the raw events are on events. No intrinsics: the driver has no calibration, so
-camera_info_url is ignored. Settings (serial, biases) under /cameras/*/event and
-/cameras/*/event_renderer in the parameter files.
+event) and passes the arguments every camera launch file declares
+(README.md of par_framework_core). Next to the driver, event_camera_renderer collects the events
+into images, which become the camera's image_raw; the raw events are on events. No intrinsics:
+the driver has no calibration, so camera_info_url is ignored. Settings (serial, biases) under
+/cameras/*/event and /cameras/*/event_renderer in the parameter files.
 """
 
 import os

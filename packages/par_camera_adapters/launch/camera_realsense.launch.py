@@ -3,7 +3,8 @@
 Start an Intel RealSense (e.g. D435) with realsense2_camera as a PAR framework camera (realsense).
 
 The framework includes this file for the camera type's entry (resource/par_framework_cameras/
-realsense) and passes the arguments every camera launch file declares (templates/par_camera/).
+realsense) and passes the arguments every camera launch file declares
+(README.md of par_framework_core).
 The driver publishes its factory calibration, so camera_info_url is ignored. Settings under
 /cameras/*/realsense in the parameter files.
 """

@@ -4,7 +4,7 @@ The PAR apps registered in the ament index, their entries, and which cameras the
 
 A PAR app registers an installed marker file
 share/ament_index/resource_index/par_framework_apps/<package> whose content is the app's entry, a
-YAML mapping (blueprint and format: templates/par_app/ of ros2-par-framework).
+YAML mapping (format: README.md of par_framework_core).
 """
 
 import re
@@ -16,6 +16,8 @@ from par_framework_core.ament_index_entries import (check_entry_has_only_known_k
 
 
 PAR_APP_RESOURCE_TYPE = 'par_framework_apps'
+# Where the entry format is documented, named in error messages
+PAR_APP_ENTRY_FORMAT_DOCUMENTATION_TEXT = 'packages/par-framework-core/README.md (PAR apps)'
 PAR_APP_ENTRY_TEXT_KEYS = ('display_name', 'description')
 # executable and launch_file: a plain name in the app's package (PLAIN_NAME_PATTERN)
 PAR_APP_ENTRY_START_KEYS = ('executable', 'launch_file')
@@ -79,7 +81,7 @@ def read_par_app_entry(app_package_name):
     """
     entry, error_start_text = read_ament_index_entry(
         PAR_APP_RESOURCE_TYPE, app_package_name, 'PAR app', get_par_app_package_names(),
-        'templates/par_app/')
+        PAR_APP_ENTRY_FORMAT_DOCUMENTATION_TEXT)
     return check_par_app_entry(entry, error_start_text)
 
 

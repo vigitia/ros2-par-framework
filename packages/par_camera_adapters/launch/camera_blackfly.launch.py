@@ -3,7 +3,8 @@
 Start a FLIR Blackfly S with spinnaker_camera_driver as a PAR framework camera (type blackfly).
 
 The framework includes this file for the camera type's entry (resource/par_framework_cameras/
-blackfly) and passes the arguments every camera launch file declares (templates/par_camera/).
+blackfly) and passes the arguments every camera launch file declares
+(README.md of par_framework_core).
 Started alone, e.g. to check one unit, it needs at least namespace and camera_name, e.g.
 namespace:=/cameras/blackfly camera_name:=blackfly serial:=22260470.
 

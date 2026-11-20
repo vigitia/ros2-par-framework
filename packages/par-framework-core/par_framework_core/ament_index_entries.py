@@ -19,7 +19,7 @@ PLAIN_NAME_PATTERN = re.compile(r'[A-Za-z0-9_-][A-Za-z0-9_.-]*')
 
 
 def read_ament_index_entry(resource_type, package_name, entry_kind_text, installed_names,
-                           blueprint_path):
+                           format_documentation_text):
     """
     Return a package's entry under resource_type as (YAML mapping, error start text).
 
@@ -36,13 +36,13 @@ def read_ament_index_entry(resource_type, package_name, entry_kind_text, install
                            f'run ./scripts/local_build.sh')
     error_start_text = (f'[ament_index_entries]: the {entry_kind_text} entry of {package_name} '
                         f'(share/ament_index/resource_index/{resource_type}/{package_name})')
-    entry = parse_ament_index_entry_text(entry_text, error_start_text, blueprint_path)
+    entry = parse_ament_index_entry_text(entry_text, error_start_text, format_documentation_text)
     return entry, error_start_text
 
 
 # Separate from read_ament_index_entry, so the setup wizard checks entries read from a repository
 # that is not installed yet the same way
-def parse_ament_index_entry_text(entry_text, error_start_text, blueprint_path):
+def parse_ament_index_entry_text(entry_text, error_start_text, format_documentation_text):
     """
     Return an ament index entry's text loaded as a YAML mapping.
 
@@ -56,7 +56,8 @@ def parse_ament_index_entry_text(entry_text, error_start_text, blueprint_path):
     except yaml.YAMLError as error:
         raise RuntimeError(f'{error_start_text} is no valid YAML: {error}')
     if not isinstance(entry, dict):
-        raise RuntimeError(f'{error_start_text} must be a YAML mapping, see {blueprint_path}')
+        raise RuntimeError(f'{error_start_text} must be a YAML mapping, see '
+                           f'{format_documentation_text}')
     return entry
 
 

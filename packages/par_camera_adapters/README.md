@@ -4,7 +4,7 @@
 Camera types of the PAR framework for **third-party ROS 2 camera drivers**, which cannot register themselves with
 the framework. Each type is an entry in the ament index (`resource/par_framework_cameras/<type>`) plus a launch file
 (`launch/camera_<type>.launch.py`) that starts the driver in the camera's namespace and maps its names onto the
-framework's. Format and rules: `templates/par_camera/README.md`. Drivers we maintain ourselves ship their entry in
+framework's. Format and rules: `packages/par-framework-core/README.md`. Drivers we maintain ourselves ship their entry in
 their own repo instead (`logitech_brio`, `see3cam_cu40`).
 
 | Camera type | Driver | Launch file |

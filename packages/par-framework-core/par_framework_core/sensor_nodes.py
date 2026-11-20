@@ -4,9 +4,8 @@ The sensor processing nodes registered in the ament index, and which of them run
 
 Sensor processing nodes (detectors, page_locator, projection_mask, ...) register a marker file
 share/ament_index/resource_index/par_framework_sensor_nodes/<package> whose content is the node's
-entry, a YAML mapping (blueprint: templates/sensor_processing_node_entry.yaml of
-ros2-par-framework). The package name is its par_launch switch; par.launch.py starts its
-executable of the same name as node <package>_node.
+entry, a YAML mapping (format: README.md of par_framework_core). The package name is its
+par_launch switch; par.launch.py starts its executable of the same name as node <package>_node.
 """
 
 from ament_index_python.resources import get_resources
@@ -16,6 +15,9 @@ from par_framework_core.ament_index_entries import (check_entry_has_only_known_k
 
 
 SENSOR_NODE_RESOURCE_TYPE = 'par_framework_sensor_nodes'
+# Where the entry format is documented, named in error messages
+SENSOR_NODE_ENTRY_FORMAT_DOCUMENTATION_TEXT = ('packages/par-framework-core/README.md '
+                                               '(Sensor processing nodes)')
 SENSOR_NODE_ENTRY_TEXT_KEYS = ('display_name', 'description')
 SENSOR_NODE_ENTRY_LIST_KEYS = ('required_sensor_nodes',)
 
@@ -39,7 +41,8 @@ def read_sensor_node_entry(sensor_node_package_name):
     """
     entry, error_start_text = read_ament_index_entry(
         SENSOR_NODE_RESOURCE_TYPE, sensor_node_package_name, 'sensor node',
-        get_sensor_node_package_names(), 'templates/sensor_processing_node_entry.yaml')
+        get_sensor_node_package_names(),
+        SENSOR_NODE_ENTRY_FORMAT_DOCUMENTATION_TEXT)
     return check_sensor_node_entry(entry, error_start_text)
 
 

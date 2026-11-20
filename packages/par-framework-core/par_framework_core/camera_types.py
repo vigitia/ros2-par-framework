@@ -3,9 +3,9 @@
 The camera types registered in the ament index and their entries.
 
 A camera type registers a marker file share/ament_index/resource_index/par_framework_cameras/
-<camera type> whose content is the type's entry, a YAML mapping (blueprint and format:
-templates/par_camera/ of ros2-par-framework). The entry names the launch file that starts the
-driver; core never knows a driver itself.
+<camera type> whose content is the type's entry, a YAML mapping (format:
+README.md of par_framework_core). The entry names the launch file that starts the driver; core
+never knows a driver itself.
 """
 
 import os
@@ -27,6 +27,8 @@ CAMERA_STREAM_NAMES = ('image_raw', 'image_raw/compressed', 'camera_info', 'set_
                        'depth_sensor/depth/image_raw', 'depth_sensor/camera_info', 'events')
 
 CAMERA_RESOURCE_TYPE = 'par_framework_cameras'
+# Where the entry format is documented, named in error messages
+CAMERA_ENTRY_FORMAT_DOCUMENTATION_TEXT = 'packages/par-framework-core/README.md (Camera types)'
 CAMERA_ENTRY_TEXT_KEYS = ('display_name', 'description')
 # package and launch_file: the launch file is share/<package>/launch/<launch_file>
 CAMERA_ENTRY_NAME_KEYS = ('package', 'launch_file')
@@ -89,7 +91,7 @@ def read_camera_entry(camera_type):
     """
     entry, error_start_text = read_ament_index_entry(
         CAMERA_RESOURCE_TYPE, camera_type, 'camera type', get_camera_type_names(),
-        'templates/par_camera/')
+        CAMERA_ENTRY_FORMAT_DOCUMENTATION_TEXT)
     return check_camera_entry(entry, error_start_text)
 
 
@@ -240,7 +242,8 @@ def get_camera_launch_file_path(camera_type, camera_entry):
         raise RuntimeError(f'[camera_types]: the camera type {camera_type} names the launch file '
                            f'{launch_file_path}, which is not installed: install launch/ in the '
                            f'setup.py data_files of {camera_entry["package"]} '
-                           f'(templates/par_camera/) and run ./scripts/local_build.sh')
+                           f'({CAMERA_ENTRY_FORMAT_DOCUMENTATION_TEXT}) and run '
+                           f'./scripts/local_build.sh')
     return launch_file_path
 
 

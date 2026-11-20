@@ -120,9 +120,9 @@ detects there and moves the landmarks into the colour image).
 `object_detector` and `fiducials_detector` with `use_compressed` take `/camera/image_raw/compressed` instead
 (`par.launch.py` sets it for the Brio, the only driver publishing JPEGs). Drivers keep their own topics; launch files
 remap them with `launch_helpers.CAMERA_DRIVER_REMAPPINGS`, the only place that knows them. A new camera = a camera
-type (entry + launch file, `templates/par_camera/`) in the driver's repo, or in `packages/par_camera_adapters/`
-for a third-party driver. Nodes hard-code the neutral names; another topic is chosen by
-remapping, not by parameter. The event camera (`camera:=event`) has no frames: `event_camera_renderer` collects its
+type (entry + launch file, format in `packages/par-framework-core/README.md`) in the driver's repo, or in
+`packages/par_camera_adapters/` for a third-party driver. Nodes hard-code the neutral names; another topic is chosen
+by remapping, not by parameter. The event camera (`camera:=event`) has no frames: `event_camera_renderer` collects its
 events into `/camera/image_raw`, the raw events are on `/camera/events`, and there is no `camera_info`.
 
 Intrinsics: `config/calibration/intrinsics/<profile>/camera_info_<camera>.yaml` (gitignored; without a profile the

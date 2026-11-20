@@ -43,7 +43,7 @@ from par_framework_core.setup_files import (check_profile_name, create_folder_of
 # namespace, because corners and mapping hold for one camera only (relative names, as the streams)
 CAMERA_PROJECTION_CALIBRATION_NAMES = ('projection_corners', 'projection_mapping',
                                        'set_projection_corners', 'set_projection_mapping')
-# The launch arguments every camera launch file declares (templates/par_camera/)
+# The launch arguments every camera launch file declares (README.md of par_framework_core)
 CAMERA_LAUNCH_ARGUMENT_NAMES = ('namespace', 'camera_name', 'serial', 'camera_info_url',
                                 'params_files')
 # The camera launch arguments with a default, so a camera launch file can also be started alone

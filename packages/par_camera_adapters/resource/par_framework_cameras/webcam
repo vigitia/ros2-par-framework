@@ -1,6 +1,6 @@
 # Written by Claude Code
 # Camera type entry in the ament index (resource type par_framework_cameras); format:
-# templates/par_camera/ of ros2-par-framework. The file name is the camera type.
+# README.md of par_framework_core. The file name is the camera type.
 display_name: Webcam
 description: Any UVC camera through v4l2_camera.
 package: par_camera_adapters
