@@ -6981,3 +6981,84 @@ driver, so they moved to `par_camera_adapters`, next to the launch files that st
   either, and which camera a setup has is the profile's choice.
 - *Write an empty `cameras: {}`*: rejected; leaving the key out gives the same message and keeps the file free of an
   empty mapping that every node's parameter parser reads.
+
+## 2026-11-20: `launch_helpers.py` split into modules per concept, without the launch context
+
+### What changed
+
+`par_framework_core/launch_helpers.py` held six concerns in one module of about 1300 lines. It is split into
+modules that import nothing from `launch`:
+
+- `setup_files.py`: the config folder, profiles, reading and merging the parameter files (`read_params_file`,
+  `read_merged_parameters`, `read_launch_section`), and the intrinsics and extrinsics paths.
+- `ament_index_entries.py`: reading an ament index entry and the key checks the three entry formats share
+  (`check_entry_has_only_known_keys`, `check_entry_text_keys`, `is_list_of_texts`, `PLAIN_NAME_PATTERN`).
+- `camera_types.py`: camera type entries, their serial lookups, their launch file and default parameter file.
+- `par_launch_cameras.py`: `par_launch.cameras` (`ProfileCamera`, `read_profile_cameras`,
+  `parse_camera_unit_text`) and the camera namespaces.
+- `camera_poses.py`: measured and placeholder camera poses and their checks.
+- `par_apps.py` and `sensor_nodes.py`: the PAR app and sensor node entries, the binding of app inputs to cameras,
+  and which sensor nodes run on which camera.
+- `connected_displays.py` gained the projector lookup by its stored identity (`find_profile_projector_display_id`,
+  `read_projector_identity`, `read_stored_projector_display_id`).
+
+`launch_helpers.py` keeps only what needs the launch context: the launch arguments, reading them
+(`get_profile_name`, `get_params_file_paths`, `get_cameras_to_start`, `get_projector_display_id`) and creating
+launch actions (cameras, transform publishers, the projection calibration server).
+
+The functions in the new modules take what they use, `profile_name` and `params_file_paths`, instead of the
+launch context. The setup wizard therefore no longer builds a fake `LaunchContext`;
+`profile_files.get_profile_params_file_paths(profile_name)` replaces `create_profile_launch_context`. Every
+importer in this repository imports from the new modules. Smaller cleanups on the way: `create_mount_tf_publisher`
+takes the camera name instead of deriving it from the publisher name, `get_camera_id` is
+`get_camera_unit_id(camera_type, serial)`, entries share one `PLAIN_NAME_PATTERN` instead of borrowing the PAR
+app pattern, and error messages name the module that raised them.
+
+The old and new code were compared on every installed entry and every profile (cameras, poses, calibration
+paths, launch section, apps, projector identity, error messages included), and every launch file's setup
+function ran against every profile.
+
+### Why / alternatives
+
+- *Plain arguments instead of the launch context*, chosen because the context was used only to read
+  `params_file` and `profile`. Passing it forced the setup wizard to fake a launch, which breaks at runtime as
+  soon as a helper reads one more launch argument. Keeping the context and only moving code was rejected for
+  that reason.
+- *One module per concept*, chosen so that each module stays short enough to read in one go and the wizard
+  imports the concept it needs. A coarse split into three modules was rejected because the entries module would
+  have stayed at about 500 lines.
+- *`par_launch_cameras.py` separate from `setup_files.py`*, because parsing a camera unit needs `camera_types`,
+  which itself needs `setup_files`; one module would make an import cycle.
+- *Importers updated, no re-exports.* Re-exporting every moved name from `launch_helpers` would keep old imports
+  working but give every name two import paths and hide the structure. `create_profile_launch_argument` and
+  `get_params_file_paths(context)` stay in `launch_helpers` because they are launch helpers, so the app repos
+  and `templates/par_app/` that import only these two need no change.
+
+## 2026-11-20: Calibration launch files moved to ros2-par-framework-calibration
+
+### What changed
+
+The four calibration launch files left `packages/par-framework-core/launch/` for the packages whose nodes they
+start, in `ros2-par-framework-calibration`:
+
+- `camera_pose_calibration_sheet.launch.py` and `camera_pose_calibration_depth.launch.py` → `camera_pose_calibrator`
+- `projection_calibration.launch.py` → `projection_calibration`
+- `calibration.launch.py` → `projection_calibration`, renamed `projection_corners.launch.py`
+
+`par_framework_core` keeps `par.launch.py` only. The setup wizard's `camera_launch_session.start_camera_launch` takes
+the launch package as a parameter (`CORE_LAUNCH_PACKAGE_NAME` for previews and sensor node runs, the calibration
+packages in `extrinsics_api.py`). README, `CLAUDE.md`, `par_setup.yaml` and the `par_geometry` README name the new
+packages.
+
+### Why / alternatives
+
+- *Moved*, because core holds framework infrastructure and the calibration is a capability with its own repository
+  (the placement rule in `CLAUDE.md`). Apart from the camera, which they start through `launch_helpers`, the files
+  start only nodes of that repository, so a change to a calibration node and its launch file now lands in one
+  commit, and the launch files exist exactly when the calibration is installed. Keeping them in core was rejected
+  for these reasons; it also contradicted "calibration is optional", since they failed without the repository.
+- *With their nodes instead of a new bringup package*, chosen because each launch file belongs to one package; a
+  separate `par_calibration_bringup` package pays off only once launch files combine several.
+- *`projection_corners.launch.py`*, because the old name `calibration.launch.py` did not say which calibration it
+  runs; the new one matches the file it stores (`projection_corners_<camera>.yaml`) and its node
+  (`projection_corner_selector`).

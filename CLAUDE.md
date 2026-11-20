@@ -27,8 +27,10 @@ no nodes and no camera types. Camera types for third-party drivers are in `packa
 
 **Calibration is optional.** The framework runs uncalibrated, in camera pixels. Camera pose, projection corners,
 projection mapping and the server that publishes them latched live in `ros2-par-framework-calibration` (packages
-`projection_calibration`, `camera_pose_calibrator`, `projection_calibration_server`, one level down); the calibration
-launch files here need that repo. A node that can work without calibration must: publish camera pixels always, add
+`projection_calibration`, `camera_pose_calibrator`, `projection_calibration_server`, one level down), together with
+the calibration launch files (`projection_corners.launch.py` and `projection_calibration.launch.py` in
+`projection_calibration`, `camera_pose_calibration_{sheet,depth}.launch.py` in `camera_pose_calibrator`); they build on
+`launch_helpers`. A node that can work without calibration must: publish camera pixels always, add
 table or projector coordinates only when calibrated (e.g. `gesture_detector`: `pixel` always, `position` with
 `position_valid`). Camera intrinsics are not part of this split, they belong to the camera (`camera_info`), so
 `launch_helpers` (`camera_info_url`) and `scripts/run_cameracalibrator.sh` stay here.
@@ -44,7 +46,7 @@ Everything runs on the host, in bash (ROS's setup scripts only source there).
 source /opt/ros/lyrical/setup.bash && source .venv/bin/activate && source install/setup.bash
 export FASTDDS_BUILTIN_TRANSPORTS=LARGE_DATA
 ros2 launch par_framework_core par.launch.py camera:=kinect rviz:=true   # one entry point; args override par_launch per run
-ros2 launch par_framework_core calibration.launch.py display_id:=1
+ros2 launch projection_calibration projection_corners.launch.py projector_display_id:=1
 ```
 
 Tests are the `ament` lint suite each package carries (`test_flake8`, `test_pep257`, `test_copyright`):
@@ -95,7 +97,7 @@ defaults the framework needs as its entry's `parameters_file` (`packages/par_cam
 `placeholder_camera_pose`. A profile overrides any of them, keyed by node name. A namespaced node needs its full name (e.g. `/camera/brio/logitech_brio_node`); a
 bare name is silently ignored. Another physical setup is a **profile** (`profile:=<name>`): `config/profiles/<name>.yaml`
 (gitignored) holds only the keys that differ, nodes get `[params_file, profile]` (ROS merges, later wins), and what
-the launch files read themselves (`par_launch`, placeholder poses) goes through `launch_helpers.read_merged_parameters`.
+the launch files read themselves (`par_launch`, placeholder poses) goes through `setup_files.read_merged_parameters`.
 Calibrations are per profile: extrinsics in `calibration/extrinsics/<profile>/`, intrinsics in
 `calibration/intrinsics/<profile>/`, named per camera unit (a Brio with `serial`: `camera_info_brio_<serial>.yaml`;
 a profile pins its camera's serial). Launch code takes parameter files from `get_params_file_paths`, never from
@@ -148,9 +150,9 @@ convert locally with `par_geometry`, the one place for this math (no service per
 - table ↔ projector pixels: `table_to_projector` / `projector_to_table`, with the homography on the latched
   `/projection_mapping` (`ProjectionMapping`).
 
-The mapping comes from `projection_calibration.launch.py`: the projector shows ArUco ids 0–8 (`marker_ids`; must
-not clash with the document pages' 96–99), `fiducials_detector` finds them, `projection_calibrator` (in
-`projection_calibration`) fits the homography, and `projection_calibration_server_node` stores it as
+The mapping comes from `ros2 launch projection_calibration projection_calibration.launch.py`: the projector shows
+ArUco ids 0–8 (`marker_ids`; must not clash with the document pages' 96–99), `fiducials_detector` finds them,
+`projection_calibrator` (in `projection_calibration`) fits the homography, and `projection_calibration_server_node` stores it as
 `config/calibration/extrinsics/projection_mapping_<camera>.yaml`, next to `camera_pose_<camera>.yaml` and the
 projection corners. One file per camera, because while the poses are placeholders each camera has its own table plane.
 
@@ -159,7 +161,7 @@ does). Points above the table (hands) land offset by parallax. A second run,
 `projection_calibration.launch.py camera:=kinect projector_center:=true`, adds the projector's optical centre
 (`projector_center`, valid when `projector_center_valid`) from marker rays located in 3D by the depth camera; with it,
 `par_geometry.project_to_table` moves a raised point along its projector ray onto the table. Re-running the homography
-clears the centre. The quick path, `calibration.launch.py` (`projection_corner_selector`), stores the clicked
+clears the centre. The quick path, `projection_corners.launch.py` (`projection_corner_selector`), stores the clicked
 `/projection_corners` (camera pixels, the projector image's top left first) and a mapping computed from them, exact
 at the four corners only. Whichever ran last owns the mapping; the calibration repo's README lists the levels.
 

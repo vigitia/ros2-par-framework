@@ -18,8 +18,7 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, ExecuteProcess, OpaqueFunction
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
-from par_framework_core.launch_helpers import (create_profile_launch_argument,
-                                               get_params_file_paths)
+from par_framework_core.launch_helpers import create_profile_launch_argument, get_params_file_paths
 
 PACKAGE_NAME = 'example_app'
 NODE_NAME = 'example_app_node'

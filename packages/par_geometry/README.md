@@ -83,7 +83,7 @@ Table points (x/y in metres) to projector pixels.
 **`projector_to_table(table_to_projector_homography, projector_pixels)`** → N×2 array, metres
 Projector pixels to table points, with the inverse of the homography (inverted on every call).
 
-The homography is valid for the table plane only. It is measured by `projection_calibration.launch.py` and
+The homography is valid for the table plane only. It is measured by `projection_calibration.launch.py` (package `projection_calibration`) and
 published latched on `/projection_mapping`; subscribe with `QoSDurabilityPolicy.TRANSIENT_LOCAL`.
 
 ### Camera pixels → projector pixels without intrinsics
@@ -91,7 +91,7 @@ published latched on `/projection_mapping`; subscribe with `QoSDurabilityPolicy.
 **`compute_camera_to_projector_homography(projection_corners_msg, projector_width_px, projector_height_px)`** → 3×3
 array
 The homography from raw camera pixels directly to projector pixels, from the four corners of a `ProjectionCorners`
-message (latched on `/cameras/<camera>/projection_corners`, clicked with `calibration.launch.py`). Needs no camera
+message (latched on `/cameras/<camera>/projection_corners`, clicked with `projection_corners.launch.py`). Needs no camera
 intrinsics and no camera pose, so it works for a camera that has neither. Map points with `apply_homography`.
 Valid on the table plane only and exact at the four corners; the camera's lens distortion is not removed, so the
 error is largest between the corners. Raises `ValueError` when three corners lie on one line. With intrinsics and a

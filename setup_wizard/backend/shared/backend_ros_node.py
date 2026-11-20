@@ -13,7 +13,7 @@ import re
 import threading
 import time
 
-from par_framework_core.launch_helpers import CAMERAS_NAMESPACE
+from par_framework_core.par_launch_cameras import CAMERAS_NAMESPACE
 from rclpy.node import Node
 from rclpy.qos import QoSHistoryPolicy, QoSProfile, QoSReliabilityPolicy
 from sensor_msgs.msg import Image

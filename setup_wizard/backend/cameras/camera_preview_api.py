@@ -16,7 +16,7 @@ The router's lifespan starts and stops the backend's ROS node and the camera lau
 """
 
 from calibration.intrinsics_api import start_copying_factory_camera_info
-from cameras.camera_launch_session import (check_camera_process_runs,
+from cameras.camera_launch_session import (check_camera_process_runs, CORE_LAUNCH_PACKAGE_NAME,
                                            create_profile_preview_camera,
                                            find_own_camera_driver_node_name,
                                            get_camera_launch_session, get_driver_parameter_client,
@@ -101,8 +101,8 @@ def start_camera_preview(request: CameraPreviewStartRequest) -> CameraPreviewSta
     # The camera's sections (image, lens, pose) each show a preview: switching between them keeps
     # the running camera instead of restarting it
     preview_id = start_camera_launch(preview_camera, request.profile_name,
-                                     CAMERA_PREVIEW_LAUNCH_FILE_NAME, ['camera_only:=true'],
-                                     may_keep_same_launch=True)
+                                     CORE_LAUNCH_PACKAGE_NAME, CAMERA_PREVIEW_LAUNCH_FILE_NAME,
+                                     ['camera_only:=true'], may_keep_same_launch=True)
     # A camera with a factory calibration publishes it only while it runs: keep a copy for the
     # setup drawing
     start_copying_factory_camera_info(request.profile_name, preview_camera)

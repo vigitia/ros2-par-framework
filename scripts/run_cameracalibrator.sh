@@ -35,7 +35,7 @@ board_inner_corners="$2"
 square_size_m="$3"
 shift 3    # the remaining arguments are passed on to cameracalibrator
 
-# Same rule as a camera name in par_launch.cameras (CAMERA_NAME_PATTERN in launch_helpers.py)
+# Same rule as a camera name in par_launch.cameras (CAMERA_NAME_PATTERN in par_launch_cameras.py)
 if [[ "$camera_argument" == /* ]]; then
     camera_namespace="$camera_argument"
 elif [[ "$camera_argument" =~ ^[a-z][a-z0-9_]*$ ]]; then

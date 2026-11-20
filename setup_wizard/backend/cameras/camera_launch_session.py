@@ -2,9 +2,10 @@
 """
 Camera launch session of the setup wizard backend: the one camera launch the backend runs.
 
-A camera launch is `ros2 launch par_framework_core <launch file> camera:=<camera>
-profile:=<name> ...` in its own process group: the preview's par.launch.py with camera_only:=true,
-a calibration launch that starts the camera itself, or a sensor node run. Its camera is a saved
+A camera launch is `ros2 launch <package> <launch file> camera:=<camera> profile:=<name> ...` in
+its own process group: the preview's par.launch.py (par_framework_core) with camera_only:=true,
+a calibration launch of ros2-par-framework-calibration that starts the camera itself, or a sensor
+node run. Its camera is a saved
 profile's camera by its name; its streams are in /cameras/<camera name>/. Whatever launch it is,
 its frames, settings, stop and watchdog work alike for the APIs built on it (previews, focus,
 intrinsics, extrinsics, sensor node runs, settings reads).
@@ -32,7 +33,7 @@ import time
 
 from cameras.camera_types import read_installed_camera_entry
 from fastapi import HTTPException
-from par_framework_core.launch_helpers import CAMERAS_NAMESPACE, get_camera_namespace
+from par_framework_core.par_launch_cameras import CAMERAS_NAMESPACE, get_camera_namespace
 from profiles.profile_files import (check_profile_exists, find_profile_camera,
                                     read_profile_cameras_or_raise)
 from profiles.profile_run_state import is_profile_running, profile_run_lock
@@ -46,6 +47,8 @@ from shared.process_groups import LAUNCH_STOP_SIGNALS, stop_process_group
 
 # How long the camera's launch may take to end after SIGINT, and again after SIGTERM.
 CAMERA_PROCESS_STOP_TIMEOUT_S = 10.0
+# The package of par.launch.py, which previews and sensor node runs start
+CORE_LAUNCH_PACKAGE_NAME = 'par_framework_core'
 # The launch's output, read back when the camera process ends early (e.g. camera not connected).
 CAMERA_PROCESS_LOG_PATH = os.path.join(tempfile.gettempdir(),
                                        'par_setup_wizard_camera_preview.log')
@@ -190,10 +193,12 @@ def get_preview_topic_name(session, stream_name):
     return f'{get_camera_namespace(session.preview_camera.camera_name)}/{stream_name}'
 
 
-def start_camera_launch(preview_camera, profile_name, launch_file_name, launch_arguments,
-                        may_keep_same_launch=False):
+def start_camera_launch(preview_camera, profile_name, launch_package_name, launch_file_name,
+                        launch_arguments, may_keep_same_launch=False):
     """
-    Start a launch file of par_framework_core that starts the camera, as the preview's camera.
+    Start a launch file that starts the camera, as the preview's camera.
+
+    launch_file_name is a launch file of the ROS package launch_package_name.
 
     Stops the camera of an earlier launch first. launch_arguments: ['name:=value', ...]; camera:=
     is added from preview_camera, profile:= from profile_name. Returns the new preview id. 409
@@ -215,8 +220,8 @@ def start_camera_launch(preview_camera, profile_name, launch_file_name, launch_a
                                 detail='A profile is running: stop the running profile first')
         with session.camera_launch_lock:
             camera_launch_command = _create_camera_launch_command(
-                preview_camera, profile_name, ros2_executable_path, launch_file_name,
-                launch_arguments)
+                preview_camera, profile_name, ros2_executable_path, launch_package_name,
+                launch_file_name, launch_arguments)
             if may_keep_same_launch:
                 with session.session_lock:
                     if _is_launch_running(session, camera_launch_command):
@@ -231,9 +236,9 @@ def start_camera_launch(preview_camera, profile_name, launch_file_name, launch_a
 
 
 def _create_camera_launch_command(preview_camera, profile_name, ros2_executable_path,
-                                  launch_file_name, launch_arguments):
+                                  launch_package_name, launch_file_name, launch_arguments):
     """Return the command line of the camera launch, as a list."""
-    camera_launch_command = [ros2_executable_path, 'launch', 'par_framework_core',
+    camera_launch_command = [ros2_executable_path, 'launch', launch_package_name,
                              launch_file_name, *launch_arguments]
     if preview_camera.camera_argument:
         camera_launch_command.append(f'camera:={preview_camera.camera_argument}')

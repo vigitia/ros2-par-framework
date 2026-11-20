@@ -29,8 +29,7 @@ abstract final class WizardStrings {
 
   // Backend errors
   static const String backendNotAnsweringErrorText =
-      'The Backend is currently not available. Check that it is switched on and its setup service is running, then try '
-      'again.';
+      'The Backend is currently not available. Please restart the App and try again.';
   static const String backendInvalidInputErrorText = 'That input is not valid. Please check it and try again.';
   static const String backendNotFoundErrorText = 'Not found. Go back, reload and try again.';
   static const String backendBusyErrorText =
@@ -78,7 +77,7 @@ abstract final class WizardStrings {
   }
 
   static String getProfileNameTakenText({required String profileName}) {
-    return 'A profile "$profileName" exists already. Choose another name.';
+    return 'A profile named "$profileName" already exists. Choose another name.';
   }
 
   static const String copyButtonLabel = 'Copy';
@@ -106,8 +105,7 @@ abstract final class WizardStrings {
   static const String newProfileMenuLabel = 'New profile';
   static const String newProfileDialogTitle = 'New profile';
   static const String newProfileDialogText =
-      'A profile is one hardware setup: its cameras, projector, calibrations and apps. After creating it, its '
-      'Overview lists what is still to do.';
+      'A profile is one setup: its cameras, projector, calibrations and apps.';
   static const String createButtonLabel = 'Create';
   static String getCopyProfileMenuLabel({required String copyableProfileName}) {
     return 'Copy $copyableProfileName …';

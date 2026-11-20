@@ -14,7 +14,7 @@ import 'setup_wizard_backend_client.dart';
 /// SIGKILL), so these requests wait longer than backendRequestTimeout.
 const Duration cameraPreviewStartStopTimeout = Duration(seconds: 35);
 
-/// The namespace every camera runs in, `/cameras/<camera name>` (launch_helpers.CAMERAS_NAMESPACE).
+/// The namespace every camera runs in, `/cameras/<camera name>` (par_launch_cameras.CAMERAS_NAMESPACE).
 const String camerasNamespace = '/cameras';
 
 /// The camera a preview starts: a saved profile's camera by its name; it starts with the profile's settings.

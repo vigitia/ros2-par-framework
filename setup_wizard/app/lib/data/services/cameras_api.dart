@@ -5,7 +5,7 @@
 
 import 'setup_wizard_backend_client.dart';
 
-/// What a camera name may hold, as the backend checks it (launch_helpers.CAMERA_NAME_PATTERN): it becomes part of
+/// What a camera name may hold, as the backend checks it (par_launch_cameras.CAMERA_NAME_PATTERN): it becomes part of
 /// `/cameras/<name>`, TF frames and calibration file names.
 final RegExp cameraNamePattern = RegExp(r'^[a-z][a-z0-9_]*$');
 

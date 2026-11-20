@@ -10,24 +10,21 @@ the way a launch finds it (by the projector's stored identity). The profile endp
 
 import os
 
-from launch import LaunchContext
+from par_framework_core.camera_poses import get_invalid_pose_keys, read_published_camera_pose
+from par_framework_core.camera_types import (CAMERA_ENTRY_INTRINSICS_KEY,
+                                             CAMERA_INTRINSICS_SOURCE_FACTORY,
+                                             CAMERA_INTRINSICS_SOURCE_NONE, read_camera_entry)
 from par_framework_core.connected_displays import (
     ConnectedDisplay, find_projector_display_ids, get_display_mode_text, get_display_title_text,
     get_projector_display_mode, get_projector_identity_title_text,
-    PROJECTOR_DISPLAY_MODE_PARAMETER_NAME_BY_ATTRIBUTE, read_connected_displays)
-from par_framework_core.launch_helpers import (CAMERA_ENTRY_INTRINSICS_KEY,
-                                               CAMERA_INTRINSICS_SOURCE_FACTORY,
-                                               CAMERA_INTRINSICS_SOURCE_NONE,
-                                               get_extrinsics_relative_path,
-                                               get_invalid_pose_keys,
-                                               get_path_in_config_folder,
-                                               get_unit_intrinsics_file_path, ProfileCamera,
-                                               PROJECTOR_APP_NONE, read_camera_entry,
-                                               read_launch_section,
-                                               read_projector_identity,
-                                               read_published_camera_pose,
-                                               read_stored_projector_display_id)
-from profiles.profile_files import (create_profile_launch_context, PROFILE_READ_ERROR_TYPES,
+    PROJECTOR_DISPLAY_MODE_PARAMETER_NAME_BY_ATTRIBUTE, read_connected_displays,
+    read_projector_identity, read_stored_projector_display_id)
+from par_framework_core.par_apps import PROJECTOR_APP_NONE
+from par_framework_core.par_launch_cameras import ProfileCamera
+from par_framework_core.setup_files import (get_extrinsics_relative_path,
+                                            get_path_in_config_folder,
+                                            get_unit_intrinsics_file_path, read_launch_section)
+from profiles.profile_files import (get_profile_params_file_paths, PROFILE_READ_ERROR_TYPES,
                                     read_camera_name_by_input_by_app, read_enabled_app_names,
                                     read_profile_cameras_allowing_none,
                                     read_profile_own_launch_parameters)
@@ -120,16 +117,15 @@ def read_profile_summary(profile_name: str, connected_displays: list[ConnectedDi
 
     connected_displays is empty and displays_error_text says why when they cannot be read.
     """
-    profile_launch_context = create_profile_launch_context(profile_name)
     try:
-        launch_section = read_launch_section(profile_launch_context)
+        launch_section = read_launch_section(get_profile_params_file_paths(profile_name))
         enabled_app_names = read_enabled_app_names(launch_section)
         projector_display_summary = _create_projector_display_summary(
             profile_name, launch_section, connected_displays, displays_error_text)
         cameras = []
         profile_cameras = read_profile_cameras_allowing_none(profile_name)
         for camera_index, profile_camera in enumerate(profile_cameras):
-            cameras.append(_create_camera_summary(profile_launch_context, profile_camera,
+            cameras.append(_create_camera_summary(profile_name, profile_camera,
                                                   camera_index == 0))
     except PROFILE_READ_ERROR_TYPES as error:
         # A profile is written by hand: one broken file must not hide the other profiles.
@@ -232,7 +228,7 @@ def _compare_projector_display_mode(launch_section: dict,
     return display_mode_comparison
 
 
-def _create_camera_summary(profile_launch_context: LaunchContext, profile_camera: ProfileCamera,
+def _create_camera_summary(profile_name: str, profile_camera: ProfileCamera,
                            is_main_camera: bool) -> CameraCalibrationSummary:
     """Return the calibration state of a profile's camera."""
     return CameraCalibrationSummary(
@@ -240,13 +236,13 @@ def _create_camera_summary(profile_launch_context: LaunchContext, profile_camera
         camera_type=profile_camera.camera_type,
         serial=profile_camera.serial,
         is_main_camera=is_main_camera,
-        intrinsics_state=_read_camera_intrinsics_state(profile_launch_context, profile_camera),
-        pose_state=_read_camera_pose_state(profile_launch_context, profile_camera.camera_name),
-        has_projection_mapping=_has_projection_mapping(profile_launch_context,
+        intrinsics_state=_read_camera_intrinsics_state(profile_name, profile_camera),
+        pose_state=_read_camera_pose_state(profile_name, profile_camera.camera_name),
+        has_projection_mapping=_has_projection_mapping(profile_name,
                                                        profile_camera.camera_name))
 
 
-def _read_camera_intrinsics_state(profile_launch_context: LaunchContext,
+def _read_camera_intrinsics_state(profile_name: str,
                                   profile_camera: ProfileCamera) -> str:
     """Return whether the camera's unit has its lens calibration (INTRINSICS_STATE_*)."""
     intrinsics_source = read_camera_entry(profile_camera.camera_type)[CAMERA_ENTRY_INTRINSICS_KEY]
@@ -256,7 +252,7 @@ def _read_camera_intrinsics_state(profile_launch_context: LaunchContext,
         return INTRINSICS_STATE_UNSUPPORTED
     # Simplification: only checks that the file exists, not that it holds a valid calibration.
     # The same file launch_helpers.get_camera_info_url gives the driver
-    intrinsics_path = get_unit_intrinsics_file_path(profile_launch_context,
+    intrinsics_path = get_unit_intrinsics_file_path(profile_name,
                                                     profile_camera.camera_type,
                                                     profile_camera.serial)
     if os.path.exists(intrinsics_path):
@@ -264,18 +260,19 @@ def _read_camera_intrinsics_state(profile_launch_context: LaunchContext,
     return INTRINSICS_STATE_MISSING
 
 
-def _has_projection_mapping(profile_launch_context: LaunchContext, camera_name: str) -> bool:
+def _has_projection_mapping(profile_name: str, camera_name: str) -> bool:
     """Return whether the profile has a projection mapping for the named camera."""
     # Simplification: only checks that the file exists, as for the intrinsics. The same file
     # setup_geometry_api reads for the drawing
     mapping_path = get_path_in_config_folder(get_extrinsics_relative_path(
-        profile_launch_context, 'projection_mapping', camera_name))
+        profile_name, 'projection_mapping', camera_name))
     return os.path.exists(mapping_path)
 
 
-def _read_camera_pose_state(profile_launch_context: LaunchContext, camera_name: str) -> str:
+def _read_camera_pose_state(profile_name: str, camera_name: str) -> str:
     """Return whether the profile has a measured pose for the named camera (POSE_STATE_*)."""
-    camera_pose, _, is_pose_measured = read_published_camera_pose(profile_launch_context,
+    params_file_paths = get_profile_params_file_paths(profile_name)
+    camera_pose, _, is_pose_measured = read_published_camera_pose(params_file_paths, profile_name,
                                                                   camera_name)
     if not is_pose_measured:
         return POSE_STATE_PLACEHOLDER

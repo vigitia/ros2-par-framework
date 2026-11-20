@@ -21,18 +21,17 @@ import os
 
 from calibration.intrinsics_api import get_factory_camera_info_file_path
 from fastapi import APIRouter
-from launch import LaunchContext
 import numpy as np
-from par_framework_core.launch_helpers import (CAMERA_POSE_KEYS,
-                                               get_extrinsics_relative_path,
-                                               get_invalid_pose_keys,
-                                               get_path_in_config_folder,
-                                               get_unit_intrinsics_file_path,
-                                               OPTICAL_FRAME_ROTATION_QUATERNION_XYZW,
-                                               ProfileCamera, read_published_camera_pose)
+from par_framework_core.camera_poses import (CAMERA_POSE_KEYS, get_invalid_pose_keys,
+                                             OPTICAL_FRAME_ROTATION_QUATERNION_XYZW,
+                                             read_published_camera_pose)
+from par_framework_core.par_launch_cameras import ProfileCamera
+from par_framework_core.setup_files import (get_extrinsics_relative_path,
+                                            get_path_in_config_folder,
+                                            get_unit_intrinsics_file_path)
 from par_geometry.par_geometry import (pixels_to_table, projector_to_table,
                                        quaternion_to_rotation_matrix)
-from profiles.profile_files import (check_profile_exists, create_profile_launch_context,
+from profiles.profile_files import (check_profile_exists, get_profile_params_file_paths,
                                     read_profile_cameras_or_raise)
 from pydantic import BaseModel
 from shared.backend_helpers import read_yaml_file
@@ -100,14 +99,13 @@ class SetupGeometryResponse(BaseModel):
 def get_setup_geometry(profile_name: str) -> SetupGeometryResponse:
     """Return where the profile's cameras and projector are, in metres in world."""
     check_profile_exists(profile_name)
-    profile_launch_context = create_profile_launch_context(profile_name)
     profile_cameras = read_profile_cameras_or_raise(profile_name)
     cameras = []
     geometry_error_texts = []
     for camera_index, profile_camera in enumerate(profile_cameras):
         is_main_camera = camera_index == 0
         try:
-            cameras.append(_read_camera_geometry(profile_launch_context, profile_camera,
+            cameras.append(_read_camera_geometry(profile_name, profile_camera,
                                                  is_main_camera))
         except (OSError, ValueError, KeyError, TypeError, yaml.YAMLError) as error:
             geometry_error_texts.append(f'{profile_camera.camera_name}: {error}')
@@ -116,13 +114,13 @@ def get_setup_geometry(profile_name: str) -> SetupGeometryResponse:
     # The projection mapping belongs to the main camera, so without a camera there is none
     if profile_cameras:
         try:
-            projector = _read_projector_geometry(profile_launch_context,
+            projector = _read_projector_geometry(profile_name,
                                                  profile_cameras[0].camera_name)
         except (OSError, ValueError, KeyError, TypeError, yaml.YAMLError) as error:
             geometry_error_texts.append(f'projection mapping: {error}')
     if projector is not None and projector.center_m is None:
         projector.center_m = _read_other_camera_projector_center(
-            profile_launch_context, profile_cameras[1:], geometry_error_texts)
+            profile_name, profile_cameras[1:], geometry_error_texts)
     front_view_right_direction, front_view_reference_text = _choose_front_view_right_direction(
         projector, cameras)
     return SetupGeometryResponse(cameras=cameras, projector=projector,
@@ -163,10 +161,10 @@ def _normalize_table_direction(direction: np.ndarray) -> list[float] | None:
     return (table_direction / direction_length).tolist()
 
 
-def _read_camera_geometry(profile_launch_context: LaunchContext, profile_camera: ProfileCamera,
+def _read_camera_geometry(profile_name: str, profile_camera: ProfileCamera,
                           is_main_camera: bool) -> CameraGeometry:
     """Return the camera's position, optical axis and field of view on the table."""
-    camera_pose, is_pose_measured = _read_camera_pose(profile_launch_context,
+    camera_pose, is_pose_measured = _read_camera_pose(profile_name,
                                                       profile_camera.camera_name)
     translation_m = np.array([float(camera_pose[f'translation.{axis}']) for axis in 'xyz'])
     body_rotation = quaternion_to_rotation_matrix(
@@ -182,7 +180,7 @@ def _read_camera_geometry(profile_launch_context: LaunchContext, profile_camera:
         optical_axis_table_hit_m = [float(axis_hit_m[0]), float(axis_hit_m[1])]
 
     table_footprint_m = None
-    camera_info = _read_camera_info(profile_launch_context, profile_camera)
+    camera_info = _read_camera_info(profile_name, profile_camera)
     if camera_info is not None:
         camera_matrix, distortion_coefficients, image_width_px, image_height_px = camera_info
         border_pixels = _create_image_border_pixels(image_width_px, image_height_px)
@@ -203,11 +201,11 @@ def _read_camera_geometry(profile_launch_context: LaunchContext, profile_camera:
                           image_right_direction=image_right_direction)
 
 
-def _read_camera_pose(profile_launch_context: LaunchContext,
+def _read_camera_pose(profile_name: str,
                       camera_name: str) -> tuple[dict, bool]:
     """Return the pose the launch would publish and whether it is measured, as (pose, bool)."""
     camera_pose, pose_source_text, is_pose_measured = read_published_camera_pose(
-        profile_launch_context, camera_name)
+        get_profile_params_file_paths(profile_name), profile_name, camera_name)
     invalid_pose_keys = get_invalid_pose_keys(camera_pose)
     if invalid_pose_keys:
         raise ValueError(f'{pose_source_text} has no finite number for '
@@ -218,7 +216,7 @@ def _read_camera_pose(profile_launch_context: LaunchContext,
     return pose_by_key, is_pose_measured
 
 
-def _read_camera_info(profile_launch_context: LaunchContext, profile_camera: ProfileCamera):
+def _read_camera_info(profile_name: str, profile_camera: ProfileCamera):
     """
     Return the unit's intrinsics from its file in the profile, None without one.
 
@@ -226,11 +224,11 @@ def _read_camera_info(profile_launch_context: LaunchContext, profile_camera: Pro
     file the driver loads (camera_calibration's YAML format), else from the copy of its factory
     calibration the wizard keeps once the camera ran in it.
     """
-    intrinsics_path = get_unit_intrinsics_file_path(profile_launch_context,
+    intrinsics_path = get_unit_intrinsics_file_path(profile_name,
                                                     profile_camera.camera_type,
                                                     profile_camera.serial)
     if not os.path.exists(intrinsics_path):
-        intrinsics_path = get_factory_camera_info_file_path(profile_launch_context,
+        intrinsics_path = get_factory_camera_info_file_path(profile_name,
                                                             profile_camera.camera_type,
                                                             profile_camera.serial)
     if not os.path.exists(intrinsics_path):
@@ -261,7 +259,7 @@ def _create_image_border_pixels(image_width_px: int, image_height_px: int) -> np
     return np.array(border_pixels, np.float64)
 
 
-def _read_other_camera_projector_center(profile_launch_context: LaunchContext,
+def _read_other_camera_projector_center(profile_name: str,
                                         other_profile_cameras: list,
                                         geometry_error_texts: list[str]) -> list[float] | None:
     """
@@ -274,7 +272,7 @@ def _read_other_camera_projector_center(profile_launch_context: LaunchContext,
     """
     for other_profile_camera in other_profile_cameras:
         try:
-            other_projector = _read_projector_geometry(profile_launch_context,
+            other_projector = _read_projector_geometry(profile_name,
                                                        other_profile_camera.camera_name)
         except (OSError, ValueError, KeyError, TypeError, yaml.YAMLError) as error:
             geometry_error_texts.append(
@@ -285,11 +283,11 @@ def _read_other_camera_projector_center(profile_launch_context: LaunchContext,
     return None
 
 
-def _read_projector_geometry(profile_launch_context: LaunchContext,
+def _read_projector_geometry(profile_name: str,
                              camera_name: str) -> ProjectorGeometry | None:
     """Return the projection area and projector centre from the camera's projection mapping."""
     mapping_path = get_path_in_config_folder(get_extrinsics_relative_path(
-        profile_launch_context, 'projection_mapping', camera_name))
+        profile_name, 'projection_mapping', camera_name))
     if not os.path.exists(mapping_path):
         return None
     projection_mapping = read_yaml_file(mapping_path)

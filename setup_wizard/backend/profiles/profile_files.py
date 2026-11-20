@@ -4,8 +4,8 @@ Profile files for the setup wizard backend: reading and writing config/profiles/
 
 A profile holds only what differs from the defaults (the nodes' own, the camera types'
 parameters_file and par_setup.yaml), as ROS 2 parameter file sections keyed by node name.
-Reading goes through launch_helpers wherever a launch reads the same (par_launch, the cameras), so
-the wizard sees a profile exactly as `par.launch.py profile:=<name>` does. Writing
+Reading goes through par_framework_core wherever a launch reads the same (par_launch, the
+cameras), so the wizard sees a profile exactly as `par.launch.py profile:=<name>` does. Writing
 (write_node_settings_into_profile) keeps a key only where it differs from the defaults and
 rewrites the file with ruamel.yaml's round trip, keeping the comments, quotes and layout of a
 hand-written profile; the helpers below it move the empty lines and comments ruamel.yaml stores
@@ -22,17 +22,16 @@ import tempfile
 import threading
 
 from fastapi import HTTPException
-from launch import LaunchContext
-from par_framework_core.launch_helpers import (FILE_NAME_PART_PATTERN, FOLDER_PATH_PROFILES,
-                                               get_camera_namespace,
-                                               get_camera_type_names,
-                                               get_camera_type_params_file_paths,
-                                               get_installed_par_setup_path,
-                                               get_path_in_config_folder, get_profile_file_path,
-                                               PAR_LAUNCH_APP_INPUTS_KEY,
-                                               PAR_LAUNCH_CAMERAS_KEY, ProfileCamera,
-                                               PROFILE_FILE_EXTENSION, read_camera_entry,
-                                               read_launch_section, read_profile_cameras)
+from par_framework_core.camera_types import (get_camera_type_names,
+                                             get_camera_type_params_file_paths, read_camera_entry)
+from par_framework_core.par_apps import PAR_LAUNCH_APP_INPUTS_KEY
+from par_framework_core.par_launch_cameras import (get_camera_namespace, PAR_LAUNCH_CAMERAS_KEY,
+                                                   ProfileCamera, read_profile_cameras)
+from par_framework_core.setup_files import (FILE_NAME_PART_PATTERN, FOLDER_PATH_PROFILES,
+                                            get_installed_par_setup_path,
+                                            get_params_file_paths_of_profile,
+                                            get_path_in_config_folder, get_profile_file_path,
+                                            PROFILE_FILE_EXTENSION, read_launch_section)
 from pydantic import BaseModel
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap, CommentedSeq
@@ -52,7 +51,7 @@ DELETED_NODE_SECTIONS_FILE_NAME = 'node_sections.yaml'
 PROFILE_READ_ERROR_TYPES = (RuntimeError, KeyError, OSError, yaml.YAMLError)
 
 # Why a profile without cameras cannot run; a launch refuses it too
-# (launch_helpers.read_profile_cameras)
+# (par_launch_cameras.read_profile_cameras)
 NO_CAMERA_TO_RUN_TEXT = 'The profile has no camera yet: add one in the Cameras area first'
 
 # par.launch.py's switch for RViz with rviz_bridge. The Apps area lists RViz as an app under this
@@ -114,24 +113,21 @@ def check_profile_exists(profile_name: str) -> None:
         raise HTTPException(status_code=404, detail=f'No profile named {profile_name!r}')
 
 
-def create_profile_launch_context(profile_name: str) -> LaunchContext:
-    """Return a launch context like `ros2 launch ... par.launch.py profile:=<profile_name>`."""
-    # So launch_helpers merges par_setup.yaml and the profile exactly as a launch does.
-    profile_launch_context = LaunchContext()
-    default_params_file_path = get_installed_par_setup_path()
-    profile_launch_context.launch_configurations['params_file'] = default_params_file_path
-    profile_launch_context.launch_configurations['profile'] = profile_name
-    # No per-run override, as in a launch without projector_display_id:=
-    profile_launch_context.launch_configurations['projector_display_id'] = ''
-    return profile_launch_context
+def get_profile_params_file_paths(profile_name: str) -> list[str]:
+    """
+    Return the profile's parameter files as `par.launch.py profile:=<profile_name>` reads them.
+
+    par_setup.yaml, then the profile's file, so the wizard merges them exactly as a launch does.
+    Raises RuntimeError when the profile's file does not exist.
+    """
+    return get_params_file_paths_of_profile(get_installed_par_setup_path(), profile_name)
 
 
 def read_profile_launch_section(profile_name: str) -> dict:
     """Return the profile's par_launch section as a launch reads it; 404 or 409 when it cannot."""
     check_profile_exists(profile_name)
-    profile_launch_context = create_profile_launch_context(profile_name)
     try:
-        return read_launch_section(profile_launch_context)
+        return read_launch_section(get_profile_params_file_paths(profile_name))
     except PROFILE_READ_ERROR_TYPES as error:
         raise HTTPException(status_code=409,
                             detail=f'Cannot read the profile {profile_name}: {error}') from error
@@ -152,14 +148,15 @@ def read_profile_cameras_allowing_none(profile_name: str) -> list[ProfileCamera]
     Return the profile's cameras, the main one first; [] when the profile names none yet.
 
     A new profile starts with an empty par_launch.cameras and gets its cameras in the Cameras
-    area. A launch refuses such a profile (launch_helpers.read_profile_cameras), so the wizard
-    reads that case itself and leaves every other one, broken files included, to launch_helpers.
+    area. A launch refuses such a profile (par_launch_cameras.read_profile_cameras), so the
+    wizard reads that case itself and leaves every other one, broken files included, to
+    par_framework_core.
     Raises PROFILE_READ_ERROR_TYPES like read_profile_cameras.
     """
     profile_launch_parameters = read_profile_own_launch_parameters(profile_name)
     if profile_launch_parameters.get(PAR_LAUNCH_CAMERAS_KEY) == {}:
         return []
-    return read_profile_cameras(create_profile_launch_context(profile_name))
+    return read_profile_cameras(get_profile_params_file_paths(profile_name))
 
 
 def read_profile_own_launch_parameters(profile_name: str) -> dict:
@@ -167,7 +164,7 @@ def read_profile_own_launch_parameters(profile_name: str) -> dict:
     Return the par_launch parameters the profile's own file sets, without par_setup.yaml's.
 
     {} when it sets none or its par_launch section is not a mapping; a broken file is left to the
-    readers that go through launch_helpers. Raises OSError or yaml.YAMLError when unreadable.
+    readers that go through par_framework_core. Raises OSError or yaml.YAMLError when unreadable.
     """
     with open(get_profile_file_path(profile_name)) as profile_file:
         profile_document = yaml.safe_load(profile_file) or {}

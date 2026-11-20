@@ -12,7 +12,7 @@ import '../../config/wizard_strings.dart';
 const String fallbackInternalProfileName = 'profile';
 
 /// Turns a friendly name into an internal one: 'Labor Neu' -> 'labor_neu', 'Büro Süd' -> 'buero_sued'. The result
-/// holds only characters profile:= accepts (launch_helpers.FILE_NAME_PART_PATTERN), but may be empty.
+/// holds only characters profile:= accepts (setup_files.FILE_NAME_PART_PATTERN), but may be empty.
 String deriveInternalProfileName(String profileDisplayName) {
   String internalName = profileDisplayName.toLowerCase();
   internalName = internalName.replaceAll('ä', 'ae');

@@ -8,8 +8,8 @@ Each catalog repository is kept as a blob-less clone without a checkout in the u
 (git clone --depth 1 --filter=blob:none --no-checkout): only the latest commit's file list is
 downloaded, and `git show` fetches just the files read here, the ament index entries
 (resource/par_framework_*/<name>) and the package.xml files, wherever the packages sit in the
-repository. The entries are checked with the same functions as installed ones (launch_helpers), so
-the repository stays the one place that describes what it offers.
+repository. The entries are checked with the same functions as installed ones
+(par_framework_core), so the repository stays the one place that describes what it offers.
 """
 
 import os
@@ -18,12 +18,11 @@ import subprocess
 from typing import NamedTuple
 import xml.etree.ElementTree as ElementTree
 
-from par_framework_core.launch_helpers import (CAMERA_ENTRY_REQUIRED_PACKAGES_KEY,
-                                               CAMERA_RESOURCE_TYPE, check_camera_entry,
-                                               check_par_app_entry, check_sensor_node_entry,
-                                               PAR_APP_RESOURCE_TYPE,
-                                               parse_ament_index_entry_text,
-                                               SENSOR_NODE_RESOURCE_TYPE)
+from par_framework_core.ament_index_entries import parse_ament_index_entry_text
+from par_framework_core.camera_types import (CAMERA_ENTRY_REQUIRED_PACKAGES_KEY,
+                                             CAMERA_RESOURCE_TYPE, check_camera_entry)
+from par_framework_core.par_apps import check_par_app_entry, PAR_APP_RESOURCE_TYPE
+from par_framework_core.sensor_nodes import check_sensor_node_entry, SENSOR_NODE_RESOURCE_TYPE
 from pydantic import BaseModel
 
 # The repository this backend belongs to: setup_wizard/backend/install/ -> three folders up

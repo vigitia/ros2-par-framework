@@ -34,11 +34,10 @@ from cameras.camera_launch_session import (check_camera_process_runs, get_camera
 from cameras.camera_types import read_installed_camera_entry
 import cv2
 from fastapi import APIRouter, HTTPException, Response
-from par_framework_core.launch_helpers import (CAMERA_ENTRY_INTRINSICS_KEY,
-                                               CAMERA_INTRINSICS_SOURCE_FACTORY,
-                                               get_unit_intrinsics_file_path)
+from par_framework_core.camera_types import (CAMERA_ENTRY_INTRINSICS_KEY,
+                                             CAMERA_INTRINSICS_SOURCE_FACTORY)
+from par_framework_core.setup_files import get_unit_intrinsics_file_path
 from profiles.profile_cameras import get_camera_intrinsics_file_path
-from profiles.profile_files import create_profile_launch_context
 from pydantic import BaseModel, Field
 from rcl_interfaces.msg import ParameterType
 from rclpy.qos import QoSHistoryPolicy, QoSProfile, QoSReliabilityPolicy
@@ -511,9 +510,9 @@ def _run_calibration(calibration_session):
         calibration_session.phase = CALIBRATION_PHASE_CALIBRATED
 
 
-def get_factory_camera_info_file_path(profile_launch_context, camera_type, serial):
+def get_factory_camera_info_file_path(profile_name, camera_type, serial):
     """Return where the copy of a unit's factory calibration lives in the profile."""
-    calibration_file_path = get_unit_intrinsics_file_path(profile_launch_context, camera_type,
+    calibration_file_path = get_unit_intrinsics_file_path(profile_name, camera_type,
                                                           serial)
     intrinsics_folder_path, calibration_file_name = os.path.split(calibration_file_path)
     return os.path.join(intrinsics_folder_path,
@@ -530,7 +529,7 @@ def start_copying_factory_camera_info(profile_name, preview_camera):
     if camera_entry[CAMERA_ENTRY_INTRINSICS_KEY] != CAMERA_INTRINSICS_SOURCE_FACTORY:
         return
     factory_camera_info_path = get_factory_camera_info_file_path(
-        create_profile_launch_context(profile_name), preview_camera.camera_type,
+        profile_name, preview_camera.camera_type,
         preview_camera.serial)
     if os.path.exists(factory_camera_info_path):
         return

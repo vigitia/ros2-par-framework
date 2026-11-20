@@ -6,7 +6,7 @@
 
 import 'setup_wizard_backend_client.dart';
 
-/// par_launch.projector_app when no app runs on the projector (launch_helpers.PROJECTOR_APP_NONE).
+/// par_launch.projector_app when no app runs on the projector (par_apps.PROJECTOR_APP_NONE).
 const String projectorAppNone = 'none';
 
 extension AppsApi on SetupWizardBackendClient {

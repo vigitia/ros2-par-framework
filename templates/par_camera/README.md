@@ -19,7 +19,7 @@ without knowing the driver. Copy the files into the driver's repo, replace `exam
 For a camera of this type that a profile names `<camera>` (`par_launch.cameras: {<camera>: '<type>:<serial>'}`;
 `camera:=<type>[:<serial>]` names it after its type), core:
 
-1. reads the entry (`launch_helpers.read_camera_entry`, which checks every key and fails with a message naming the
+1. reads the entry (`camera_types.read_camera_entry`, which checks every key and fails with a message naming the
    fix);
 2. includes the launch file with `namespace:=/cameras/<camera>`, `camera_name:=<camera>`, `serial`,
    `camera_info_url` (for `intrinsics: calibratable`) and `params_files`;
@@ -67,7 +67,7 @@ ament_index par_framework_cameras blackfly    # its entry
 | `display_name`, `description` | shown in the setup wizard |
 | `package`, `launch_file` | the launch file is `share/<package>/launch/<launch_file>` |
 | `body_frame` | the mount transform's child is `<camera>_<body_frame>` |
-| `streams` | what the camera offers below its namespace, from `launch_helpers.CAMERA_STREAM_NAMES` |
+| `streams` | what the camera offers below its namespace, from `camera_types.CAMERA_STREAM_NAMES` |
 | `intrinsics` | `calibratable`, `factory` or `none` |
 | `required_packages` (optional) | ROS packages the launch file starts besides `package`, e.g. a released driver for an entry in core; the type counts as installed when all of them are |
 | `parameters_file` (optional) | The type's default parameter file, relative to `share/<package>/`, e.g. `config/realsense.yaml`; loaded before `par_setup.yaml` and the profile, which override it. For third-party drivers; a driver written for the framework sets its defaults in its code |

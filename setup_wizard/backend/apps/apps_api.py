@@ -6,17 +6,16 @@ projector and feeds from which camera (par_launch.apps, projector_app, app_input
 
 Every installed PAR app registers in the ament index under par_framework_apps (blueprint:
 templates/par_app/), so a new app shows up here without a change to the wizard. Its entry is
-read and checked by the same launch_helpers function par.launch.py starts it with. Their settings
+read and checked by the same par_apps function par.launch.py starts it with. Their settings
 are read and saved by node_settings_api.py. RViz is not a PAR app (it does not draw on the
 projector): it is listed with uses_projector false and stored as par.launch.py's rviz switch.
 """
 
 from ament_index_python.resources import has_resource
 from fastapi import APIRouter, HTTPException
-from par_framework_core.launch_helpers import (get_par_app_package_names,
-                                               get_sensor_node_package_names,
-                                               PAR_APP_ENTRY_INPUTS_KEY, PROJECTOR_APP_NONE,
-                                               read_par_app_entry, read_sensor_node_entry)
+from par_framework_core.par_apps import (get_par_app_package_names, PAR_APP_ENTRY_INPUTS_KEY,
+                                         PROJECTOR_APP_NONE, read_par_app_entry)
+from par_framework_core.sensor_nodes import get_sensor_node_package_names, read_sensor_node_entry
 from profiles.profile_files import (PAR_LAUNCH_NODE_NAME, read_camera_name_by_input_by_app,
                                     read_enabled_app_names, read_profile_cameras_or_raise,
                                     read_profile_launch_section, RVIZ_LAUNCH_SWITCH_NAME,
@@ -47,7 +46,7 @@ class InstalledAppSummary(BaseModel):
     required_launch_switch_names: list[str]
     # The display names of the sensor nodes among them, which run on the cameras the app reads
     required_sensor_node_display_names: list[str] = []
-    # launch_helpers.PAR_APP_CALIBRATION_NAMES the app uses; it also starts without them
+    # par_apps.PAR_APP_CALIBRATION_NAMES the app uses; it also starts without them
     used_calibration_names: list[str]
     # The app's nodes whose settings the wizard edits (full node names); empty without any
     settings_node_names: list[str] = []

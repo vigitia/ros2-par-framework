@@ -58,26 +58,25 @@ from launch.actions import (DeclareLaunchArgument, GroupAction,
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node, SetRemap
+from par_framework_core.camera_types import read_camera_entry
 from par_framework_core.launch_helpers import (create_camera_actions,
                                                create_camera_choice_launch_argument,
                                                create_camera_stream_remappings,
                                                create_profile_launch_argument,
                                                create_projection_calibration_server_node,
                                                create_projector_display_id_launch_argument,
-                                               get_app_input_camera_names,
-                                               get_camera_namespace, get_cameras_to_start,
-                                               get_par_app_sensor_node_camera_names,
-                                               get_installed_par_setup_path, get_params_file_paths,
-                                               get_profile_name, get_projector_display_id,
-                                               get_sensor_node_name,
-                                               get_sensor_node_names_by_camera,
-                                               get_sensor_node_package_names,
-                                               PAR_APP_ENTRY_INPUTS_KEY,
-                                               PAR_LAUNCH_CAMERAS_KEY, PROJECTOR_APP_NONE,
-                                               read_camera_entry, read_launch_section,
-                                               read_offered_par_app_names, read_par_app_entry,
-                                               read_profile_cameras,
-                                               SENSOR_NODE_RESOURCE_TYPE)
+                                               get_cameras_to_start, get_params_file_paths,
+                                               get_profile_name, get_projector_display_id)
+from par_framework_core.par_apps import (get_app_input_camera_names,
+                                         get_par_app_sensor_node_camera_names,
+                                         PAR_APP_ENTRY_INPUTS_KEY, PROJECTOR_APP_NONE,
+                                         read_offered_par_app_names, read_par_app_entry)
+from par_framework_core.par_launch_cameras import (get_camera_namespace, PAR_LAUNCH_CAMERAS_KEY,
+                                                   read_profile_cameras)
+from par_framework_core.sensor_nodes import (get_sensor_node_name, get_sensor_node_names_by_camera,
+                                             get_sensor_node_package_names,
+                                             SENSOR_NODE_RESOURCE_TYPE)
+from par_framework_core.setup_files import get_installed_par_setup_path, read_launch_section
 import yaml
 
 PACKAGE_NAME = 'par_framework_core'
@@ -85,10 +84,10 @@ PACKAGE_NAME = 'par_framework_core'
 # per installed sensor processing node (get_sensor_node_package_names, from the ament index) and
 # these
 NON_SENSOR_NODE_LAUNCH_SWITCH_NAMES = ('rviz',)
-# Co-authored by Claude Code: per stream a camera may offer (its entry's streams), the parameter
-# that makes a detector use it, and the detectors that have that parameter. A camera passing its
-# own JPEGs through (image_raw/compressed) lets the detectors decode them themselves, so its
-# driver only decodes for raw subscribers; depth on the colour grid adds the third dimension.
+# Per stream a camera may offer (its entry's streams), the parameter that makes a detector use it,
+# and the detectors that have that parameter. A camera passing its own JPEGs through
+# (image_raw/compressed) lets the detectors decode them themselves, so its driver only decodes for
+# raw subscribers; depth on the colour grid adds the third dimension.
 # Simplification: the detectors are listed here; upgrade: each sensor node's entry names the
 # streams it can use
 DETECTOR_PARAMETER_BY_CAMERA_STREAM = {
@@ -146,7 +145,6 @@ def write_rviz_config_with_camera_frustums(cameras_to_start):
         return rviz_config_file.name
 
 
-# Written by Claude Code
 def get_projector_app_name(context, launch_section):
     """Return the projector_app launch argument, else par_launch.projector_app (default none)."""
     projector_app_name = LaunchConfiguration('projector_app').perform(context)
@@ -155,7 +153,6 @@ def get_projector_app_name(context, launch_section):
     return projector_app_name
 
 
-# Written by Claude Code
 def create_par_app_actions(context, app_package_name, par_app_entry, params_file_paths,
                            projector_display_id, debug_override, app_input_remappings):
     """Start a PAR app from its ament index entry: its executable as a node, or its launch file."""
@@ -198,7 +195,6 @@ def create_par_app_actions(context, app_package_name, par_app_entry, params_file
     ])]
 
 
-# Written by Claude Code
 def create_app_input_remappings(app_inputs, camera_name_by_input):
     """
     Return the remappings that point an app's input topics at the cameras bound to its inputs.
@@ -218,7 +214,6 @@ def create_app_input_remappings(app_inputs, camera_name_by_input):
     return app_input_remappings
 
 
-# Written by Claude Code
 def create_uninstalled_switch_messages(launch_section, launch_switch_names, profile_camera_names):
     """Name every par_launch key that lists cameras but belongs to no installed sensor node."""
     uninstalled_switch_messages = []
@@ -238,7 +233,6 @@ def create_uninstalled_switch_messages(launch_section, launch_switch_names, prof
     return uninstalled_switch_messages
 
 
-# Written by Claude Code
 def read_sensor_node_camera_names(launch_section, sensor_node_name, profile_camera_names):
     """Return the cameras par_launch.<sensor node> lists, checked against par_launch.cameras."""
     listed_camera_names = launch_section.get(sensor_node_name, [])
@@ -263,8 +257,6 @@ def read_sensor_node_camera_names(launch_section, sensor_node_name, profile_came
     return listed_camera_names
 
 
-# Written by Claude Code
-# Co-authored by Claude Code: are_par_launch_lists_read, so a PAR app's run starts only its nodes
 def get_camera_names_by_sensor_node(context, launch_section, sensor_node_names,
                                     profile_camera_names, started_camera_names,
                                     app_camera_names_by_sensor_node, are_par_launch_lists_read):
@@ -308,11 +300,11 @@ def get_camera_names_by_sensor_node(context, launch_section, sensor_node_names,
     return camera_names_by_sensor_node
 
 
-# Co-authored by Claude Code: starts the profile's cameras, the projector app and the sensor
-# processing nodes registered in the ament index; with a PAR app only what the app depends on
+# Starts the profile's cameras, the projector app and the sensor processing nodes registered in
+# the ament index; with a PAR app only what the app depends on
 def launch_setup(context):
     params_file_paths = get_params_file_paths(context)
-    launch_section = read_launch_section(context)
+    launch_section = read_launch_section(params_file_paths)
     cameras_to_start = get_cameras_to_start(context)
     # Simplification: RViz uses the first camera. Upgrade: bind its inputs to cameras as for a
     # PAR app
@@ -321,7 +313,7 @@ def launch_setup(context):
     # default cameras into the profile's. Empty when camera:=<type> runs without a camera list
     profile_camera_names = []
     if PAR_LAUNCH_CAMERAS_KEY in launch_section:
-        for profile_camera in read_profile_cameras(context):
+        for profile_camera in read_profile_cameras(params_file_paths):
             profile_camera_names.append(profile_camera.camera_name)
     # Every camera asked for, whatever the projector app needs (e.g. a preview or a calibration)
     if LaunchConfiguration('camera_only').perform(context) == 'true':
@@ -546,7 +538,6 @@ def launch_setup(context):
     return launch_actions
 
 
-# Co-authored by Claude Code
 def generate_launch_description():
     default_params_file_path = get_installed_par_setup_path()
 

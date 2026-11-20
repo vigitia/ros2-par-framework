@@ -2,7 +2,7 @@
 """
 Camera types for the setup wizard backend: the installed camera types and their entries.
 
-The camera types are those registered in the ament index (launch_helpers.CAMERA_RESOURCE_TYPE),
+The camera types are those registered in the ament index (camera_types.CAMERA_RESOURCE_TYPE),
 each described by its entry, so any camera package following templates/par_camera/ appears here
 without code in the wizard. A type counts as installed when every package of its entry's
 required_packages is, the same check par.launch.py uses for optional nodes. Read by the cameras
@@ -12,12 +12,12 @@ profile_cameras.py).
 
 from ament_index_python.resources import has_resource
 from fastapi import HTTPException
-from par_framework_core.launch_helpers import (CAMERA_ENTRY_INTRINSICS_KEY,
-                                               CAMERA_ENTRY_REQUIRED_PACKAGES_KEY,
-                                               CAMERA_ENTRY_SERIAL_KEY,
-                                               CAMERA_INTRINSICS_SOURCE_NONE,
-                                               CAMERA_SERIAL_SOURCE_NONE, get_camera_type_names,
-                                               read_camera_entry)
+from par_framework_core.camera_types import (CAMERA_ENTRY_INTRINSICS_KEY,
+                                             CAMERA_ENTRY_REQUIRED_PACKAGES_KEY,
+                                             CAMERA_ENTRY_SERIAL_KEY,
+                                             CAMERA_INTRINSICS_SOURCE_NONE,
+                                             CAMERA_SERIAL_SOURCE_NONE, get_camera_type_names,
+                                             read_camera_entry)
 from pydantic import BaseModel
 
 

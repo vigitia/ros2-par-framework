@@ -13,13 +13,13 @@ import os
 
 from cameras.camera_types import CameraType, read_camera_types, read_installed_camera_entry
 from fastapi import APIRouter
-from par_framework_core.launch_helpers import (CAMERA_ENTRY_SERIAL_KEY,
-                                               CAMERA_ENTRY_USB_PRODUCT_ID_KEY,
-                                               CAMERA_ENTRY_USB_SERIAL_BASE_KEY,
-                                               CAMERA_ENTRY_USB_VENDOR_ID_KEY,
-                                               CAMERA_ENTRY_V4L_BY_ID_PREFIX_KEY,
-                                               CAMERA_SERIAL_SOURCE_LISTED,
-                                               FILE_NAME_PART_PATTERN)
+from par_framework_core.camera_types import (CAMERA_ENTRY_SERIAL_KEY,
+                                             CAMERA_ENTRY_USB_PRODUCT_ID_KEY,
+                                             CAMERA_ENTRY_USB_SERIAL_BASE_KEY,
+                                             CAMERA_ENTRY_USB_VENDOR_ID_KEY,
+                                             CAMERA_ENTRY_V4L_BY_ID_PREFIX_KEY,
+                                             CAMERA_SERIAL_SOURCE_LISTED)
+from par_framework_core.setup_files import FILE_NAME_PART_PATTERN
 from profiles.profile_cameras import (check_new_camera, NewCameraRequest,
                                       remove_camera_from_profile, write_profile_cameras)
 from profiles.profile_files import (check_profile_exists, DeletedProfileResponse,

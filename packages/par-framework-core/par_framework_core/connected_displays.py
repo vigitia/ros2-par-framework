@@ -16,7 +16,7 @@ driver (DRM) through ctypes on libdrm, read-only, and falls back to SDL's when D
 
 The index changes when displays are plugged in or out, so a profile also stores the projector's
 identity (EDID make, model and serial, and the connector) in par_launch, and the launch files look
-the projector up by it (launch_helpers.get_projector_display_id).
+the projector up by it (find_profile_projector_display_id).
 Not ROS: displays have no ROS interface, so this part is specific to Linux and SDL. Imports
 nothing from launch or rclpy, so the setup wizard's backend uses it too.
 """
@@ -242,6 +242,68 @@ def find_projector_display_ids(connected_displays, projector_identity):
     for matching_display in matching_displays:
         matching_display_ids.append(matching_display.display_id)
     return matching_display_ids
+
+
+def read_stored_projector_display_id(launch_section):
+    """Return par_launch.projector_display_id as written, None when the profile sets none."""
+    stored_projector_display_id = launch_section.get('projector_display_id')
+    # A profile is written by hand; YAML reads true as a bool, which is an int in Python
+    is_display_number = isinstance(stored_projector_display_id, int) and not isinstance(
+        stored_projector_display_id, bool)
+    if stored_projector_display_id is not None and not is_display_number:
+        raise RuntimeError(f'[connected_displays]: par_launch.projector_display_id: '
+                           f'{stored_projector_display_id!r}: use the display number, 0 for the '
+                           f'primary display')
+    return stored_projector_display_id
+
+
+def read_projector_identity(launch_section):
+    """
+    Return the projector's stored identity, {parameter name: text}, or {} when none is stored.
+
+    The keys are PROJECTOR_IDENTITY_PARAMETER_NAMES in par_launch; an empty value means the
+    projector does not report it.
+    """
+    projector_identity = {}
+    for parameter_name in PROJECTOR_IDENTITY_PARAMETER_NAMES:
+        # str(): YAML reads a serial of digits written by hand as a number
+        projector_identity[parameter_name] = str(launch_section.get(parameter_name, '') or '')
+    if not any(projector_identity.values()):
+        return {}
+    return projector_identity
+
+
+def find_profile_projector_display_id(launch_section):
+    """
+    Return the display (SDL/pygame index) of the projector par_launch names, else None.
+
+    When par_launch stores the projector's identity (written by the setup wizard), the display
+    with that identity: the index changes when displays are plugged in or out, the identity does
+    not. Without one, par_launch.projector_display_id as it is. Raises RuntimeError naming the fix
+    when the projector with the stored identity is not connected or cannot be told apart.
+    """
+    stored_projector_display_id = read_stored_projector_display_id(launch_section)
+    projector_identity = read_projector_identity(launch_section)
+    if not projector_identity:
+        return stored_projector_display_id
+
+    matching_display_ids = find_projector_display_ids(read_connected_displays(),
+                                                      projector_identity)
+    projector_title_text = get_projector_identity_title_text(projector_identity)
+    if len(matching_display_ids) == 1:
+        found_projector_display_id = matching_display_ids[0]
+        if found_projector_display_id != stored_projector_display_id:
+            print(f'[connected_displays]: the projector {projector_title_text} is display '
+                  f'{found_projector_display_id} now, not par_launch.projector_display_id '
+                  f'{stored_projector_display_id}; using display {found_projector_display_id}')
+        return found_projector_display_id
+    fix_hint = ('connect it, choose the projector again in the setup wizard (Overview), or pass '
+                'projector_display_id:=<n> for one run')
+    if not matching_display_ids:
+        raise RuntimeError(f'[connected_displays]: the projector of the profile, '
+                           f'{projector_title_text}, is not connected: {fix_hint}')
+    raise RuntimeError(f'[connected_displays]: displays {matching_display_ids} all look like the '
+                       f'projector of the profile, {projector_title_text}: {fix_hint}')
 
 
 def _load_sdl_library():

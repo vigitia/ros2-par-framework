@@ -8,7 +8,7 @@
 #       ['resource/par_framework_sensor_nodes/' + package_name]),
 #
 # par.launch.py and the setup wizard find the node through it; the format is checked by
-# par_framework_core.launch_helpers.read_sensor_node_entry. Convention: the package name is the
+# par_framework_core.sensor_nodes.read_sensor_node_entry. Convention: the package name is the
 # par_launch key that lists the cameras the node runs on (e.g. example_detector: [overhead]), its
 # console_scripts entry point has the same name, and par.launch.py starts it as <package>_node in each
 # listed camera's namespace (/cameras/<camera>/<package>_node), where its relative topic names resolve

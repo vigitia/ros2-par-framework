@@ -35,8 +35,7 @@ from install.node_catalog import (add_install_plan_to_installed_lists, add_user_
                                   read_catalog_repository, read_user_catalog_directory_names,
                                   remove_user_catalog_repository, REPOSITORY_ROOT_PATH,
                                   update_catalog_cache)
-from par_framework_core.launch_helpers import (get_sensor_node_package_names,
-                                               read_sensor_node_entry)
+from par_framework_core.sensor_nodes import get_sensor_node_package_names, read_sensor_node_entry
 from profiles.profile_run_state import is_profile_running, profile_run_lock
 from pydantic import BaseModel
 from run import run_api

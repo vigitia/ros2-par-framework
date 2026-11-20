@@ -15,20 +15,17 @@ import shutil
 
 from cameras.camera_types import read_installed_camera_entry
 from fastapi import HTTPException
-from par_framework_core.launch_helpers import (CAMERA_ENTRY_INTRINSICS_KEY,
-                                               CAMERA_ENTRY_SERIAL_KEY,
-                                               CAMERA_INTRINSICS_SOURCE_CALIBRATABLE,
-                                               CAMERA_NAME_PATTERN, CAMERA_POSE_KEYS,
-                                               CAMERA_SERIAL_SOURCE_NONE,
-                                               CAMERA_TF_PUBLISHER_NAME_SUFFIX,
-                                               FILE_NAME_PART_PATTERN,
-                                               get_extrinsics_relative_path,
-                                               get_path_in_config_folder,
-                                               get_sensor_node_package_names,
-                                               get_unit_intrinsics_file_path,
-                                               PAR_LAUNCH_CAMERAS_KEY, ProfileCamera,
-                                               read_camera_entry)
-from profiles.profile_files import (create_deleted_folder, create_profile_launch_context,
+from par_framework_core.camera_poses import CAMERA_POSE_KEYS, CAMERA_TF_PUBLISHER_NAME_SUFFIX
+from par_framework_core.camera_types import (CAMERA_ENTRY_INTRINSICS_KEY, CAMERA_ENTRY_SERIAL_KEY,
+                                             CAMERA_INTRINSICS_SOURCE_CALIBRATABLE,
+                                             CAMERA_SERIAL_SOURCE_NONE, read_camera_entry)
+from par_framework_core.par_launch_cameras import (CAMERA_NAME_PATTERN, PAR_LAUNCH_CAMERAS_KEY,
+                                                   ProfileCamera)
+from par_framework_core.sensor_nodes import get_sensor_node_package_names
+from par_framework_core.setup_files import (FILE_NAME_PART_PATTERN, get_extrinsics_relative_path,
+                                            get_path_in_config_folder,
+                                            get_unit_intrinsics_file_path)
+from profiles.profile_files import (create_deleted_folder,
                                     find_camera_node_section_names, find_profile_camera,
                                     move_camera_node_sections, PAR_LAUNCH_NODE_NAME,
                                     read_camera_name_by_input_by_app,
@@ -176,13 +173,12 @@ def _move_camera_files_out_of_use(profile_name: str, removed_camera: ProfileCame
 def _read_existing_camera_file_paths(profile_name: str,
                                      profile_camera: ProfileCamera) -> list[str]:
     """Return the camera's intrinsics and extrinsics files that exist."""
-    profile_launch_context = create_profile_launch_context(profile_name)
-    file_paths = [get_unit_intrinsics_file_path(profile_launch_context,
+    file_paths = [get_unit_intrinsics_file_path(profile_name,
                                                 profile_camera.camera_type,
                                                 profile_camera.serial)]
     for file_prefix in CAMERA_EXTRINSICS_FILE_PREFIXES:
         extrinsics_relative_path = get_extrinsics_relative_path(
-            profile_launch_context, file_prefix, profile_camera.camera_name)
+            profile_name, file_prefix, profile_camera.camera_name)
         file_paths.append(get_path_in_config_folder(extrinsics_relative_path))
     existing_file_paths = []
     for file_path in file_paths:
@@ -247,10 +243,9 @@ def get_camera_intrinsics_file_path(profile_name: str, camera_name: str) -> str 
     parameter for it. None when the framework gives the camera none: its type is not
     calibratable (intrinsics: factory or none in its entry).
     """
-    profile_launch_context = create_profile_launch_context(profile_name)
     profile_camera = find_profile_camera(read_profile_cameras_or_raise(profile_name), camera_name)
     intrinsics_source = read_camera_entry(profile_camera.camera_type)[CAMERA_ENTRY_INTRINSICS_KEY]
     if intrinsics_source != CAMERA_INTRINSICS_SOURCE_CALIBRATABLE:
         return None
-    return get_unit_intrinsics_file_path(profile_launch_context, profile_camera.camera_type,
+    return get_unit_intrinsics_file_path(profile_name, profile_camera.camera_type,
                                          profile_camera.serial)

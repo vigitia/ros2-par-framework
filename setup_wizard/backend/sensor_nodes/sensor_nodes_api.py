@@ -4,14 +4,14 @@ Sensor nodes API of the setup wizard backend: a profile's sensor processing node
 
 Generic, through the ament index and ROS conventions, so a third-party node works without code
 here:
-- The nodes are the packages registered under launch_helpers.SENSOR_NODE_RESOURCE_TYPE; each
+- The nodes are the packages registered under sensor_nodes.SENSOR_NODE_RESOURCE_TYPE; each
   entry names its display name, description and the nodes it needs.
 - The selection is the profile's par_launch lists (par_launch.<package>: [<camera name>, ...]),
   which par.launch.py reads; a node's required nodes are selected along with it, on the same
   camera.
 - The profile's apps (par_launch.apps and the projector app) may require sensor nodes too (their
   entries' required_launch_switches). par.launch.py starts them on the cameras each app reads, so
-  they are listed and run here by the same rule (launch_helpers.get_par_app_sensor_node_camera_names),
+  they are listed and run here by the same rule (par_apps.get_par_app_sensor_node_camera_names),
   but never written into the selection: removing an app or binding it to another camera moves them
   along.
 - A debug run starts one node on one camera of the profile: par.launch.py with camera:=<camera>,
@@ -30,21 +30,19 @@ here:
 from dataclasses import dataclass, field
 import time
 
-from cameras.camera_launch_session import (check_camera_process_runs,
+from cameras.camera_launch_session import (check_camera_process_runs, CORE_LAUNCH_PACKAGE_NAME,
                                            create_profile_preview_camera,
                                            get_camera_launch_session,
                                            read_camera_process_log_lines, start_camera_launch)
 from fastapi import APIRouter, HTTPException
-from par_framework_core.launch_helpers import (add_required_sensor_nodes,
-                                               get_app_input_camera_names,
-                                               get_camera_namespace,
-                                               get_par_app_sensor_node_camera_names,
-                                               get_sensor_node_name,
-                                               get_sensor_node_names_by_camera,
-                                               get_sensor_node_package_names,
-                                               PAR_APP_ENTRY_INPUTS_KEY, PROJECTOR_APP_NONE,
-                                               read_offered_par_app_names, read_par_app_entry,
-                                               read_sensor_node_entry)
+from par_framework_core.par_apps import (get_app_input_camera_names,
+                                         get_par_app_sensor_node_camera_names,
+                                         PAR_APP_ENTRY_INPUTS_KEY, PROJECTOR_APP_NONE,
+                                         read_offered_par_app_names, read_par_app_entry)
+from par_framework_core.par_launch_cameras import get_camera_namespace
+from par_framework_core.sensor_nodes import (add_required_sensor_nodes, get_sensor_node_name,
+                                             get_sensor_node_names_by_camera,
+                                             get_sensor_node_package_names, read_sensor_node_entry)
 from profiles.profile_files import (PAR_LAUNCH_NODE_NAME, read_profile_cameras_or_raise,
                                     read_profile_launch_section,
                                     write_node_settings_into_profile)
@@ -231,7 +229,8 @@ def start_sensor_nodes_run(request: SensorNodesRunStartRequest) -> SensorNodesRu
     # camera:=<camera> (the preview camera's camera_argument): only that camera starts
     preview_camera = create_profile_preview_camera(request.profile_name, request.camera_name)
     preview_id = start_camera_launch(preview_camera, request.profile_name,
-                                     SENSOR_NODES_LAUNCH_FILE_NAME, launch_arguments)
+                                     CORE_LAUNCH_PACKAGE_NAME, SENSOR_NODES_LAUNCH_FILE_NAME,
+                                     launch_arguments)
     return SensorNodesRunStartResponse(preview_id=preview_id)
 
 
