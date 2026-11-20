@@ -44,9 +44,6 @@ the par_launch.<sensor node> lists are not used, a <sensor node>:=true still add
 camera:=<name> still starts that camera. start_projector_app:=false starts no app, but every
 camera and what the projector app and every app of par_launch.apps need (the setup wizard's
 sensor node run).
-
-A camera taking single high-resolution frames on request (e.g. a Blackfly S in software trigger
-mode, see par_setup.yaml) is an ordinary camera of par_launch.cameras with its own settings.
 """
 
 import copy
@@ -176,7 +173,7 @@ def create_rendering_manager_actions(params_file_paths, projector_display_id, ca
     """Create the rendering manager, fullscreen on the projector, and its ROS bridge."""
     if not has_resource('packages', RENDERING_MANAGER_BRIDGE_PACKAGE_NAME):
         return [LogInfo(msg='[par.launch]: rendering_manager is not installed: add its line '
-                            'from config/node_catalog.list to config/store_installed.list and '
+                            'from config/catalog_repos.list to config/installed_repos.list and '
                             'run ./scripts/local_build.sh')]
     binary_path = get_rendering_manager_binary_path()
     if not os.path.isfile(binary_path):
@@ -298,8 +295,8 @@ def create_uninstalled_switch_messages(launch_section, launch_switch_names, prof
         uninstalled_switch_messages.append(LogInfo(
             msg=f'[par.launch]: par_launch.{switch_name} lists cameras, but no installed package '
                 f'registers {switch_name} as a sensor node (ament index '
-                f'{SENSOR_NODE_RESOURCE_TYPE}): add its repo from config/node_catalog.list to '
-                f'config/store_installed.list and run ./scripts/local_build.sh'))
+                f'{SENSOR_NODE_RESOURCE_TYPE}): add its repo from config/catalog_repos.list to '
+                f'config/installed_repos.list and run ./scripts/local_build.sh'))
     return uninstalled_switch_messages
 
 
