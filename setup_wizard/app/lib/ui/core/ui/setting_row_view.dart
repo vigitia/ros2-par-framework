@@ -13,6 +13,7 @@
 // settings collect it until Save.
 
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -33,9 +34,15 @@ const double settingNameColumnWidthLogicalPx = 220;
 const double settingNameControlGapLogicalPx = 12;
 const double settingControlColumnWidthLogicalPx = 380;
 
+/// On a one-line row, the "Reset to default" button sits right of the control column, so the control is as wide as
+/// the explanations below it; an IconButton's default size.
+const double settingResetButtonSlotWidthLogicalPx = kMinInteractiveDimension;
+
 /// From this row width on, the name and the control share one line.
-const double settingRowOneLineMinimumWidthLogicalPx =
-    settingNameColumnWidthLogicalPx + settingNameControlGapLogicalPx + settingControlColumnWidthLogicalPx;
+const double settingRowOneLineMinimumWidthLogicalPx = settingNameColumnWidthLogicalPx +
+    settingNameControlGapLogicalPx +
+    settingControlColumnWidthLogicalPx +
+    settingResetButtonSlotWidthLogicalPx;
 
 /// Room above each setting, so the rows read as separate settings.
 const double settingRowTopSpacingLogicalPx = 20;
@@ -110,7 +117,9 @@ class _SettingRowViewState extends State<SettingRowView> {
   String? _textErrorText;
 
   /// The text field's text and focus, kept across rebuilds so typing is not interrupted.
-  late final TextEditingController _valueTextController = TextEditingController(text: _formatValue(widget.shownValue));
+  late final TextEditingController _valueTextController = TextEditingController(
+    text: _formatValueForTextField(widget.shownValue),
+  );
   final FocusNode _valueTextFocusNode = FocusNode();
   Timer? _typedValueReportTimer;
 
@@ -129,7 +138,7 @@ class _SettingRowViewState extends State<SettingRowView> {
     }
     // While the user types, the field keeps what they type; otherwise it shows the owner's value
     if (!_valueTextFocusNode.hasFocus) {
-      _valueTextController.text = _formatValue(widget.shownValue);
+      _valueTextController.text = _formatValueForTextField(widget.shownValue);
     }
   }
 
@@ -144,6 +153,11 @@ class _SettingRowViewState extends State<SettingRowView> {
   /// Leaving the field: an unfinished entry (e.g. only "-") is named, a finished one shown as the owner has it.
   void _onValueTextFocusChanged() {
     if (_valueTextFocusNode.hasFocus) {
+      return;
+    }
+    // A setting without a value starts with an empty field; leaving it untouched is no mistake
+    final bool isUntouchedEmptyField = _valueTextController.text.isEmpty && widget.shownValue == null;
+    if (isUntouchedEmptyField) {
       return;
     }
     final Object? parsedValue = _parseSettingText(widget.nodeSetting.typeName, _valueTextController.text);
@@ -242,15 +256,17 @@ class _SettingRowViewState extends State<SettingRowView> {
       String shownValueText, Widget? resetButton, List<Widget> explanationLines) {
     final Widget rightAlignedNameText =
         Text(nodeSetting.settingName, style: textTheme.bodyMedium, textAlign: TextAlign.end);
-    Widget valueOrControl = settingControl ?? Text(shownValueText, style: textTheme.titleSmall);
-    if (resetButton != null) {
-      valueOrControl = Row(children: [Expanded(child: valueOrControl), resetButton]);
-    }
-    final Widget nameAndControl = Row(children: [
+    final Widget valueOrControl = settingControl ?? Text(shownValueText, style: textTheme.titleSmall);
+    final List<Widget> nameAndControlParts = [
       SizedBox(width: settingNameColumnWidthLogicalPx, child: rightAlignedNameText),
       const SizedBox(width: settingNameControlGapLogicalPx),
       SizedBox(width: settingControlColumnWidthLogicalPx, child: valueOrControl),
-    ]);
+    ];
+    // Outside the control column, so the control keeps the explanations' width
+    if (resetButton != null) {
+      nameAndControlParts.add(SizedBox(width: settingResetButtonSlotWidthLogicalPx, child: resetButton));
+    }
+    final Widget nameAndControl = Row(children: nameAndControlParts);
     if (explanationLines.isEmpty) {
       return nameAndControl;
     }
@@ -289,18 +305,25 @@ class _SettingRowViewState extends State<SettingRowView> {
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [nameAndControl, ...explanationLines]);
   }
 
-  /// "Reset to default" while the shown value differs from the default; null otherwise.
+  /// "Reset to default", visible while the shown value differs from the default; null when the setting has none.
+  /// Its space is kept while it is hidden, so the control beside it keeps its width when it appears, e.g. a slider
+  /// that would otherwise shrink under the pointer while it is dragged away from the default.
   Widget? _buildResetButton(NodeSetting nodeSetting) {
     if (!widget.isEditable || widget.onResetToDefault == null || !nodeSetting.hasDefaultValue) {
       return null;
     }
-    if (_isSameValue(_getShownValue(nodeSetting), nodeSetting.defaultValue)) {
-      return null;
-    }
-    return IconButton(
+    final bool isDefaultShown = _isSameValue(_getShownValue(nodeSetting), nodeSetting.defaultValue);
+    final Widget resetIconButton = IconButton(
       onPressed: _resetToDefault,
       tooltip: WizardStrings.getResetSettingTooltip(defaultValueText: _formatValue(nodeSetting.defaultValue)),
       icon: const Icon(WizardIcons.resetToDefaultButtonIcon),
+    );
+    return Visibility(
+      visible: !isDefaultShown,
+      maintainSize: true,
+      maintainAnimation: true,
+      maintainState: true,
+      child: resetIconButton,
     );
   }
 
@@ -443,14 +466,17 @@ class _SettingRowViewState extends State<SettingRowView> {
   Widget _buildSettingSlider(NodeSetting nodeSetting, double settingValue, double minimumValue, double maximumValue) {
     final String settingName = nodeSetting.settingName;
     final double sliderValue = (_draggedSliderValue ?? settingValue).clamp(minimumValue, maximumValue);
+    final int? sliderDivisionCount = _computeSliderDivisionCount(nodeSetting, minimumValue, maximumValue);
     final Widget slider = Slider(
       value: sliderValue,
       min: minimumValue,
       max: maximumValue,
-      divisions: _computeSliderDivisionCount(nodeSetting, minimumValue, maximumValue),
+      divisions: sliderDivisionCount,
       onChanged: (double draggedValue) {
         setState(() {
-          _draggedSliderValue = draggedValue;
+          _draggedSliderValue = _roundFreeSliderValue(
+            nodeSetting, draggedValue, minimumValue, maximumValue, sliderDivisionCount,
+          );
         });
       },
       // Sent once on release: every intermediate value would make the driver reconfigure the camera.
@@ -458,7 +484,10 @@ class _SettingRowViewState extends State<SettingRowView> {
         if (nodeSetting.typeName == 'integer') {
           _reportChange(settingName, releasedValue.round());
         } else {
-          _reportChange(settingName, releasedValue);
+          final double roundedValue = _roundFreeSliderValue(
+            nodeSetting, releasedValue, minimumValue, maximumValue, sliderDivisionCount,
+          );
+          _reportChange(settingName, roundedValue);
         }
       },
     );
@@ -474,6 +503,36 @@ class _SettingRowViewState extends State<SettingRowView> {
         ),
       ),
     ]);
+  }
+
+  /// The slider value as shown while dragging and sent on release: a double slider without steps is rounded
+  /// (_roundToHundredthOfRange), one with steps already lands on them.
+  double _roundFreeSliderValue(
+    NodeSetting nodeSetting,
+    double sliderValue,
+    double minimumValue,
+    double maximumValue,
+    int? sliderDivisionCount,
+  ) {
+    final bool isFreeDoubleSlider = nodeSetting.typeName == 'double' && sliderDivisionCount == null;
+    if (!isFreeDoubleSlider) {
+      return sliderValue;
+    }
+    return _roundToHundredthOfRange(sliderValue, minimumValue, maximumValue);
+  }
+
+  /// A free slider lands on values like 0.2734, which no one picks on purpose: rounded to the decimal place of a
+  /// hundredth of the range, e.g. two decimals for 0 – 1, whole numbers for 0 – 1000, five for 0 – 0.001.
+  double _roundToHundredthOfRange(double sliderValue, double minimumValue, double maximumValue) {
+    final double rangeWidth = maximumValue - minimumValue;
+    if (rangeWidth <= 0) {
+      return sliderValue;
+    }
+    final int rangeWidthOrderOfMagnitude = (math.log(rangeWidth) / math.ln10).floor();
+    final int decimalPlaceCount = (2 - rangeWidthOrderOfMagnitude).clamp(0, 20);
+    // Through the decimal text, so the result is the double closest to the rounded decimal (0.29, not 0.29000000001)
+    final double roundedValue = double.parse(sliderValue.toStringAsFixed(decimalPlaceCount));
+    return roundedValue.clamp(minimumValue, maximumValue);
   }
 
   /// One slider position per allowed value: per step when the range has one, per whole number for an integer;
@@ -513,12 +572,17 @@ class _SettingRowViewState extends State<SettingRowView> {
     } else if (nodeSetting.typeName == 'double') {
       keyboardType = const TextInputType.numberWithOptions(signed: true, decimal: true);
     }
+    // An empty field says what to type; any text is a valid string, so it needs no hint
+    String? expectedInputHintText;
+    if (nodeSetting.typeName != 'string') {
+      expectedInputHintText = _getInputHintText(nodeSetting.typeName);
+    }
     return TextField(
       controller: _valueTextController,
       focusNode: _valueTextFocusNode,
       inputFormatters: inputFormatters,
       keyboardType: keyboardType,
-      decoration: const InputDecoration(isDense: true),
+      decoration: InputDecoration(isDense: true, hintText: expectedInputHintText),
       onChanged: (String typedText) => _onSettingTextTyped(nodeSetting, typedText),
     );
   }
@@ -542,6 +606,23 @@ class _SettingRowViewState extends State<SettingRowView> {
     });
   }
 
+  /// The hint inside an empty text field: an example for lists, showing commas without brackets, since the full
+  /// sentence does not fit the field; the words of _describeExpectedInput otherwise.
+  String _getInputHintText(String typeName) {
+    switch (typeName) {
+      case 'integer array':
+        return WizardStrings.exampleWholeNumbersInputText;
+      case 'double array':
+        return WizardStrings.exampleNumbersInputText;
+      case 'bool array':
+        return WizardStrings.exampleBoolsInputText;
+      case 'string array':
+        return WizardStrings.exampleTextsInputText;
+      default:
+        return _describeExpectedInput(typeName);
+    }
+  }
+
   /// What a text field expects, in words, e.g. 'a whole number'.
   String _describeExpectedInput(String typeName) {
     switch (typeName) {
@@ -557,6 +638,8 @@ class _SettingRowViewState extends State<SettingRowView> {
         return WizardStrings.expectedNumbersText;
       case 'bool array':
         return WizardStrings.expectedBoolsText;
+      case 'string array':
+        return WizardStrings.expectedTextsText;
       default:
         return WizardStrings.expectedValidValueText;
     }
@@ -626,6 +709,14 @@ class _SettingRowViewState extends State<SettingRowView> {
       return number.toInt().toString();
     }
     return number.toString();
+  }
+
+  /// The value as the text field starts with it: empty while not set, so nothing has to be deleted before typing.
+  String _formatValueForTextField(Object? settingValue) {
+    if (settingValue == null) {
+      return '';
+    }
+    return _formatValue(settingValue);
   }
 
   String _formatValue(Object? settingValue) {

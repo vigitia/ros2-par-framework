@@ -7088,3 +7088,125 @@ packages.
   `packages/par_camera_adapters/README.md` was rejected as the place for the camera format: drivers outside the
   framework register camera types too, and apps and sensor nodes have nothing to do with the adapters.
 - *A branch instead of deleting*, so the work in progress is not lost and comes back with one merge.
+
+## 2026-11-20: one rviz_bridge per camera into shared RViz displays, camera frustum as a marker
+
+### What changed
+- `par.launch.py` starts one `rviz_bridge` in each started camera's namespace (`/cameras/<name>/rviz_bridge_node`)
+  instead of one in the root namespace with remapped camera streams. Each bridge reads its camera's streams and
+  sensor outputs by their relative names, and its marker outputs are remapped onto the same root topics
+  (`RVIZ_BRIDGE_MARKER_TOPIC_NAMES`: `/objects/markers`, `/fiducials/markers`, ...). RViz keeps one display per kind
+  of marker; the bridge prefixes every marker namespace with its camera name (e.g. `kinect/outline`) and clears only
+  its own namespaces (`DELETEALL` with `ns` set) before each frame.
+- `rviz_bridge` draws the camera frustum itself (`camera_frustum/markers`): lines from the optical centre to where the
+  image corners meet the table (`par_geometry.pixels_to_table`), and the image outline on the table. The RViz
+  template's `CameraInfo` display, which the launch copied once per camera, is replaced by one marker display;
+  the launch now only copies the template to a temporary file.
+
+### Why / alternatives
+- Sensor nodes run in their camera's namespace and publish e.g. `/cameras/kinect/objects`. The bridge in the root
+  namespace subscribed to `/objects`, `/hand_landmarks`, `/fiducials` and `/pages`, where nothing publishes, so RViz
+  showed no detections. One bridge per camera also shows the outputs of sensor nodes that run on another camera than
+  the main one, e.g. pages from a second camera.
+- Shared displays, chosen because consumers of the framework's outputs do not depend on which camera produced them,
+  as for apps (`par_launch.app_inputs`). The camera stays visible in the marker namespaces, where RViz can hide one.
+  Rejected: one copy of every display per camera, which repeats each display in the RViz sidebar per camera.
+- `DELETEALL` with a namespace removes only that namespace in rviz2 (`MarkerCommon::processMessage` in
+  rviz_default_plugins), so two bridges on one topic do not erase each other's markers.
+- Frustum as a marker, chosen because RViz's `CameraInfo` display lost its edges from some viewing angles even when
+  drawn opaque without polygons, while `LINE_LIST` markers from the bridge stay visible. It also ends at the table
+  instead of at a fixed length. It needs calibrated intrinsics; without them no frustum is drawn, as before (the
+  display reported invalid intrinsics then). Rejected: further workarounds in the display's settings, with no known
+  cause to aim at.
+- Each camera's bridge also draws that camera's projection calibration, so with several calibrated cameras the
+  projector outline appears once per camera, nearly on top of each other.
+
+## 2026-11-20: setup wizard reads nodes with parameters declared without a value
+
+### What changed
+`setup_wizard/backend/shared/node_parameters.py`: `read_node_settings` gets the values through
+`_read_parameter_values`. When the node answers the request for all parameters with fewer values than asked for,
+each parameter is asked alone, and one without an answer counts as not set. The setting's type then comes from the
+parameter's descriptor, so the app can still give it a value and saving converts it to the right type.
+
+### Why / alternatives
+- A parameter declared by type without a default (`declare_parameter(name, Parameter.Type.STRING_ARRAY)`, the only
+  way rclpy declares a string list with no entries, since `[]` is inferred as a byte array) is uninitialized. rclpy
+  then refuses the whole `get_parameters` request and answers with no values, so the wizard cached an empty settings
+  list for that node and showed nothing.
+- Asking one by one only after a short answer, chosen so nodes without such parameters still need one request.
+- Rejected: requiring nodes to avoid parameters without a value. They are valid ROS 2 and the wizard must work with
+  any node that follows the conventions.
+
+## 2026-11-20: setup wizard text fields: empty when not set, input format as hint
+
+### What changed
+`setup_wizard/app/lib/ui/core/ui/setting_row_view.dart`: a setting without a value starts with an empty text field
+(`_formatValueForTextField`) instead of the text "not set", and leaving that field untouched shows no input error.
+"not set" stays where the value is only displayed (read-only settings, the reset tooltip). Every text field except
+plain strings shows a hint while it is empty (`_getInputHintText`): a short example for lists, e.g. `value 1, value 2`
+for a string list, and the expected input in words otherwise, e.g. "a whole number". The full sentence for number
+and bool lists appears below the field when the entry does not parse; a string list accepts any text, so for it the
+example is the only format hint (`WizardStrings.expectedTextsText` names its format for the error path). An example is
+used inside the field because a sentence does not fit its width.
+
+### Why / alternatives
+- "not set" in an editable field had to be deleted before typing, and would have been taken as the value of a string
+  list.
+- The hint states the list format because the field splits at commas and keeps brackets and quotes as part of the
+  text, while ROS parameter files write lists in YAML syntax (`["a", "b"]`); a parameter's description may well use
+  the YAML form.
+- Rejected: accepting YAML list syntax in the field as well. Two formats for one field would need rules for quotes
+  and commas inside names; the hint is enough.
+
+## 2026-11-20: setup wizard: free sliders round to a hundredth of their range
+
+### What changed
+`setup_wizard/app/lib/ui/core/ui/setting_row_view.dart`: a slider for a double setting whose range has no step
+(`_computeSliderDivisionCount` returns null) rounds its value to the decimal place of a hundredth of the range
+(`_roundToHundredthOfRange`): two decimals for 0 – 1, whole numbers for 0 – 1000, five decimals for 0 – 0.001. The
+rounding happens in `_roundFreeSliderValue`, used both while dragging and on release, so the value shown next to the
+slider, the knob position and the sent value always agree. Sliders with a step and integer sliders are unchanged.
+
+### Why / alternatives
+- A free slider lands on values like 0.2734, which nobody picks on purpose and which are hard to read and compare.
+- Relative to the range, chosen because the wizard shows sliders for any node's parameters: a fixed two decimals
+  would round every value of a 0 – 0.001 range to 0.
+- Rejected: a step in the node's `FloatingPointRange` instead. ROS enforces the step, so a value off the grid written
+  into a profile by hand would stop the node at start.
+
+## 2026-11-20: setup wizard: reset button keeps its space while hidden
+
+### What changed
+`setup_wizard/app/lib/ui/core/ui/setting_row_view.dart`: `_buildResetButton` returns the "Reset to default" button
+for every setting that has a default, wrapped in a `Visibility` that hides it (keeping its size, not clickable) while
+the shown value equals the default. Before, the button was left out of the row in that case. On a one-line row the
+button sits in a slot of its own right of the control column (`settingResetButtonSlotWidthLogicalPx`, an
+IconButton's default size), which `settingRowOneLineMinimumWidthLogicalPx` now includes; narrower rows use the
+stacked layout as before.
+
+### Why / alternatives
+- The control beside the button shares its row. When the button appeared, e.g. as soon as a slider was dragged away
+  from the default, the slider shrank under the pointer and jumped, which made it unusable. A reserved slot keeps
+  the control's width fixed.
+- Rejected: hiding the button only while a slider is dragged. The same jump would still happen on release and for
+  text fields when the first character is typed.
+- Slot outside the control column, chosen so the control is as wide as the description below it. Rejected: the
+  slot inside the column, which left every resettable control shorter than its description.
+
+## 2026-11-20: fixed RViz window title
+
+### What changed
+
+`par.launch.py` starts `rviz2` with `-t 'PAR Framework - RViz2'`.
+
+### Why / alternatives
+
+RViz's default title is the path of the loaded config file. The launch file loads a copy of
+`par_framework.rviz` from the temporary folder (so Ctrl+S cannot overwrite the installed template,
+which with `--symlink-install` is the source file), so the title showed a random temporary path.
+Chosen: RViz's own `--display-title-format` option.
+- *Load the installed config directly* (title shows the real file): rejected, because saving in
+  RViz would then overwrite the template in the source tree.
+- *Copy to a fixed per-user path*: rejected for this change, because the title would still show a
+  path rather than a name, and it is a larger change.

@@ -741,6 +741,12 @@ abstract final class WizardStrings {
   static const String expectedWholeNumbersText = 'whole numbers separated by commas';
   static const String expectedNumbersText = 'numbers separated by commas';
   static const String expectedBoolsText = 'true or false, separated by commas';
+  static const String expectedTextsText = 'texts separated by commas, no brackets or quotes';
+  // Short examples shown inside an empty list field, which has room for a few words only
+  static const String exampleWholeNumbersInputText = '1, 2, 3';
+  static const String exampleNumbersInputText = '0.5, 1.5';
+  static const String exampleBoolsInputText = 'true, false';
+  static const String exampleTextsInputText = 'value 1, value 2';
   static const String expectedValidValueText = 'a valid value';
   static String getSettingRangeWithStepText({required String rangeText, required String stepText}) {
     return '$rangeText, step $stepText';

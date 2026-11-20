@@ -13,7 +13,7 @@ import threading
 
 from fastapi import HTTPException
 from pydantic import BaseModel
-from rcl_interfaces.msg import ParameterType
+from rcl_interfaces.msg import ParameterType, ParameterValue
 from rclpy.parameter import Parameter, parameter_value_to_python
 from rclpy.parameter_client import AsyncParameterClient
 
@@ -148,14 +148,37 @@ def read_node_settings(parameter_client):
         return []
     descriptors = wait_for_service_answer(
         parameter_client.describe_parameters(parameter_names)).descriptors
-    parameter_values = wait_for_service_answer(
-        parameter_client.get_parameters(parameter_names)).values
+    parameter_values = _read_parameter_values(parameter_client, parameter_names)
     settings = []
     named_parameters = zip(parameter_names, descriptors, parameter_values)
     for parameter_name, descriptor, parameter_value in named_parameters:
         settings.append(_create_node_setting(parameter_name, descriptor, parameter_value))
     settings.sort(key=lambda node_setting: node_setting.setting_name)
     return settings
+
+
+def _read_parameter_values(parameter_client, parameter_names):
+    """
+    Return the parameters' values in the order of parameter_names.
+
+    A parameter declared with a type but without a value (e.g. a string list, which rclpy cannot
+    give an empty default) makes the node answer the whole request with no values at all. Then
+    each parameter is asked alone, and one without a value counts as not set.
+    """
+    parameter_values = wait_for_service_answer(
+        parameter_client.get_parameters(parameter_names)).values
+    if len(parameter_values) == len(parameter_names):
+        return parameter_values
+    parameter_values = []
+    for parameter_name in parameter_names:
+        single_parameter_values = wait_for_service_answer(
+            parameter_client.get_parameters([parameter_name])).values
+        if single_parameter_values:
+            parameter_values.append(single_parameter_values[0])
+        else:
+            # A ParameterValue's type defaults to PARAMETER_NOT_SET
+            parameter_values.append(ParameterValue())
+    return parameter_values
 
 
 def _is_ros_infrastructure_parameter(parameter_name):
@@ -176,10 +199,15 @@ def _is_ros_infrastructure_parameter(parameter_name):
 
 def _create_node_setting(parameter_name, descriptor, parameter_value):
     setting_value = convert_parameter_value_to_plain_python(parameter_value)
+    parameter_type = parameter_value.type
+    if parameter_type == ParameterType.PARAMETER_NOT_SET:
+        # Declared with a type but without a value: the descriptor still names the type, so the
+        # setting can be given a value
+        parameter_type = descriptor.type
     node_setting = NodeSetting(
         setting_name=parameter_name,
         setting_value=setting_value,
-        type_name=TYPE_NAME_BY_PARAMETER_TYPE.get(parameter_value.type, 'not set'),
+        type_name=TYPE_NAME_BY_PARAMETER_TYPE.get(parameter_type, 'not set'),
         description=descriptor.description,
         additional_constraints=descriptor.additional_constraints,
         is_read_only=descriptor.read_only)
