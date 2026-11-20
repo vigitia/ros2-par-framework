@@ -1,4 +1,5 @@
-# Co-authored by Claude Code
+# Written with the help of Claude Code
+
 # ROS2 node repositories every installation of the PAR framework needs.
 # These nodes live in their own repository for better modularity and reusability.
 #
@@ -14,13 +15,11 @@
 # config/catalog_repos.list and installed only when chosen: the setup wizard records the choice in the
 # gitignored config/installed_repos.list, which local_build.sh reads next to this file.
 
-# Framework Core:
-
+# Shared ROS 2 message, service and action definitions for the framework
 par_framework_interfaces  git@github.com:vigitia/ros2-par-framework-interfaces.git          main
 
 
 # Calibration (everything related to intrinsic and extrinsic calibration, cameras and projectors).
-# fiducials_detector finds the projected markers in projection_calibration.launch.py:
-
+# fiducials_detector finds the projected markers used in some calibration steps:
 framework-calibration     git@github.com:vigitia/ros2-par-framework-calibration.git         main
 fiducials_detector        git@github.com:vigitia/ros2-par-framework-fiducials.git           main

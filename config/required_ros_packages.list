@@ -1,16 +1,16 @@
-# Co-authored by Claude Code (the Spinnaker camera driver, the event camera driver and renderer; the move
-# of the camera drivers into the per-installation choice).
+# Written with the help of Claude Code
+
 # Released packages every installation of the ROS2 PAR Framework needs. Those are installed instead of
 # cloned from a repository. See required_repos.list for the nodes that do not have a release, e.g. custom
 # framework nodes and apps.
-#
+
 # One rosdep key per line: usually the ROS package name, e.g. realsense2_camera for
 # ros-<distro>-realsense2-camera. rosdep picks the right apt package for the sourced distro.
 # Find a key with: rosdep resolve <key>
-#
+
 # Every package listed here is installed by scripts/local_build.sh, like the repositories in required_repos.list.
 # Nothing is needed here yet.
-#
+
 # Camera drivers are chosen per installation: the gitignored config/installed_ros_packages.list (same format,
 # written by the setup wizard, read by local_build.sh next to this file) holds the chosen ones. The camera
 # types in packages/par_camera_adapters/resource/par_framework_cameras/ name their drivers under
