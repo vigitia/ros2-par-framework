@@ -21,8 +21,7 @@ from par_framework_core.launch_helpers import (CAMERA_ENTRY_SERIAL_KEY,
                                                CAMERA_SERIAL_SOURCE_LISTED,
                                                FILE_NAME_PART_PATTERN)
 from profiles.profile_cameras import (check_new_camera, NewCameraRequest,
-                                      remove_camera_from_profile, write_camera_placeholder_pose,
-                                      write_profile_cameras)
+                                      remove_camera_from_profile, write_profile_cameras)
 from profiles.profile_files import (check_profile_exists, DeletedProfileResponse,
                                     read_profile_cameras_or_raise)
 from pydantic import BaseModel
@@ -78,7 +77,6 @@ def add_camera(profile_name: str, request: NewCameraRequest) -> None:
     profile_cameras = read_profile_cameras_or_raise(profile_name)
     new_camera = check_new_camera(profile_cameras, request.camera_name, request.camera_type,
                                   request.serial)
-    write_camera_placeholder_pose(profile_name, new_camera)
     write_profile_cameras(profile_name, [*profile_cameras, new_camera])
 
 

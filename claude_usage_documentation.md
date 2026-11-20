@@ -6723,3 +6723,85 @@ from the removed copy only in the trigger lines, so freely running cameras behav
   Blackfly would still depend on it. Rejected.
 - Deleting the older log entries: they record decisions that still hold for the branch. Kept, this entry explains
   that the feature is no longer on `develop`.
+
+## 2026-11-20: One generic placeholder pose for every camera
+
+### What changed
+
+`par_setup.yaml` has one section `placeholder_camera_pose` (1 m above the world origin, looking straight down)
+instead of one `/<type>_tf_publisher` section per camera type (brio, webcam, realsense, blackfly, cu40, event,
+kinect), which all held this same pose. The new `launch_helpers.read_placeholder_camera_pose` returns a camera's
+placeholder: `/<camera>_tf_publisher` where a parameter file sets one (a profile placing one camera of several
+elsewhere), else `placeholder_camera_pose`. `read_published_camera_pose` (measured pose first) and both camera pose
+calibration launch files use it; the calibration launch files now check the placeholder with
+`get_invalid_pose_keys` and stop with a message naming the file instead of a `KeyError`. The setup wizard no longer
+writes a placeholder section into the profile when a camera is added (`write_camera_placeholder_pose` and
+`GENERIC_PLACEHOLDER_POSE` removed); removing a camera still deletes such a section if a profile has one.
+
+### Why / alternatives
+
+Part of making core camera-neutral: a per-type section named every camera type in core's parameter file, and a
+camera named other than its type (e.g. `overhead`) had no placeholder at all until the wizard wrote one, so a
+hand-written profile could not start it. The placeholder only keeps launches working until the pose is measured, so
+one value for every camera loses nothing.
+
+**Alternatives considered:**
+- A placeholder per camera type, shipped by the camera package: keeps a typical mount height per type, but every
+  camera package would have to define one, for a value that is replaced by the measurement anyway. Rejected.
+- Keeping the wizard writing a per-camera section: redundant once the launch falls back to the generic section, and
+  it put a pose into every profile that differed from nothing. Rejected.
+- Two cameras without a measured pose now share the same placeholder pose and overlap in RViz. Accepted: the
+  launch log names the placeholder as the pose source, and measuring the pose resolves it.
+
+## 2026-11-20: calibration node `surface_selector` renamed to `projection_corner_selector`; normalized quaternions
+
+### What changed
+- `calibration.launch.py` starts executable `projection_corner_selector` as `projection_corner_selector_node`
+  (package `projection_calibration` in `ros2-par-framework-calibration`); its function is now
+  `create_camera_and_projection_corner_selector`. Mentions in `README.md`, `CLAUDE.md`, `par_setup.yaml`, the RViz
+  config, `par_geometry`, `connected_displays.py` and the setup wizard follow the new name.
+- `par_geometry.quaternion_to_rotation_matrix` normalizes the quaternion before building the matrix.
+
+### Why / alternatives
+The node lets the user click the corners of the projected image; it never selects a surface. The calibration repo
+renamed it, and these are the call sites and mentions here.
+
+`camera_pose_calibrator` now uses `par_geometry.quaternion_to_rotation_matrix` instead of its own copy, which
+normalized. Normalizing in the shared function keeps rounded quaternions from YAML files and parameters a proper
+rotation; for the unit quaternions from TF it changes nothing.
+- *Leaving `par_geometry` as it was and normalizing in the calibration repo:* rejected, every caller reading a
+  quaternion from a file would have to remember it.
+
+## 2026-11-20: Camera adapters for third-party drivers in their own package `par_camera_adapters`
+
+### What changed
+
+The five camera types whose drivers are third-party packages (`webcam`, `realsense`, `kinect`, `blackfly`,
+`event`) moved out of `par_framework_core` into the new package `packages/par_camera_adapters/`: their launch files
+(`launch/camera_<type>.launch.py`, names unchanged) and their ament index entries
+(`resource/par_framework_cameras/<type>`, now with `package: par_camera_adapters`). Core's `setup.py` no longer
+installs camera entries. The new package depends on `par_framework_core` (the launch files use `launch_helpers`) and
+declares no driver, as before. Its README lists the types and their drivers and holds the event camera setup notes
+moved from the main README. README, CLAUDE.md, `templates/par_camera/README.md`, `required_ros_packages.list` and
+the comments in `par_setup.yaml` name the new location.
+
+### Why / alternatives
+
+Core should contain nothing that only some installations use, so that a user reads and builds a camera-neutral
+framework; the camera types were the largest camera-specific part of it. A package of its own also keeps a later
+move into separate repositories a folder move.
+
+**Alternatives considered:**
+- One repository per camera type, like `logitech_brio`, with the driver as `exec_depend` in its `package.xml`
+  (rosdep would then install a camera's driver with its adapter, replacing the separate driver list for cameras).
+  The cleanest form, deferred: more repositories to maintain than the current needs justify, to be revisited.
+- One shared repository for all adapters: `local_build.sh` resolves every `package.xml` under `src/`, so drivers
+  could not be declared there without installing all of them. Rejected.
+- A subfolder inside `par_framework_core`: one package less, but core would still ship camera files. Rejected.
+- Dropping the `camera_` prefix of the launch file names inside the new package: kept, because the names stay
+  unique across packages and the move stays a pure rename.
+
+**Upgrading an existing build:** with `colcon build --symlink-install`, the old `build/par_framework_core` and
+`install/par_framework_core` keep links to the moved files; the build of `par_framework_core` fails on them and the
+old install folder would register the camera types a second time. Delete both folders once and run
+`./scripts/local_build.sh`.

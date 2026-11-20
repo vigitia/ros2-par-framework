@@ -28,7 +28,7 @@
     undistort_frame: false
 
 # Camera: Generic webcam (camera: webcam), any UVC camera through v4l2_camera, started as
-# /cameras/<camera>/webcam_node by launch/camera_webcam.launch.py. The type's defaults are under /cameras/*/...
+# /cameras/<camera>/webcam_node by par_camera_adapters/launch/camera_webcam.launch.py. The type's defaults are under /cameras/*/...
 # (every camera of the type); a profile overrides one camera under /cameras/<camera>/... Within one file the later
 # section wins, so a /cameras/*/ section must come before any exact section of the same node.
 # The camera's own controls (exposure, focus, ...) depend on the actual camera. Find available parameters with:
@@ -42,7 +42,7 @@
     pixel_format: YUYV
     output_encoding: bgr8
 
-# Camera: Intel RealSense, e.g. the D435, through realsense2_camera; launch/camera_realsense.launch.py starts it as
+# Camera: Intel RealSense, e.g. the D435, through realsense2_camera; par_camera_adapters/launch/camera_realsense.launch.py starts it as
 # /cameras/<camera>/realsense. It publishes its factory calibration, so it needs no camera_info_<camera>.yaml.
 # More options: ros2 param list /cameras/realsense/realsense
 /cameras/*/realsense:
@@ -61,7 +61,7 @@
       enable: true
 
 # FLIR Blackfly S (camera: blackfly), e.g. the monochrome BFS-U3-23S3M-C, through spinnaker_camera_driver;
-# launch/camera_blackfly.launch.py starts it as /cameras/<camera>/blackfly. A monochrome model publishes mono8
+# par_camera_adapters/launch/camera_blackfly.launch.py starts it as /cameras/<camera>/blackfly. A monochrome model publishes mono8
 # frames.
 # More options: ros2 param list /cameras/blackfly/blackfly. USB3 models need a larger USB buffer than Linux's default
 # (usbcore.usbfs_memory_mb, e.g. 1000), otherwise frames are dropped at high frame rates.
@@ -111,7 +111,7 @@
     ir_gain: 16.0
 
 # Event camera (camera: event) through metavision_driver, started as /cameras/<camera>/event by
-# launch/camera_event.launch.py. It publishes the raw events on /cameras/<camera>/events (event_camera_msgs/EventPacket)
+# par_camera_adapters/launch/camera_event.launch.py. It publishes the raw events on /cameras/<camera>/events (event_camera_msgs/EventPacket)
 # only while something subscribes; /cameras/<camera>/event_renderer collects them into the camera images. No camera_info: the driver has no calibration. A SilkyEvCam needs its maker's OpenEB
 # plugin, in the version of the driver's bundled OpenEB, and MV_HAL_PLUGIN_PATH set in the shell (README). Needs
 # USB 3: on USB 2, changing a bias while events stream can abort the driver, and the camera then only opens again
@@ -134,8 +134,8 @@
     # time_slice: all events between two images; sharp: adapts the number of events per image for sharper edges.
     display_type: 'time_slice'
 
-# surface_selector_node (calibration.launch.py) has no section: its only parameter, display_id (the projector),
-# comes from par_launch.projector_display_id.
+# projection_corner_selector_node (calibration.launch.py) has no section: its only parameter,
+# display_id (the projector), comes from par_launch.projector_display_id.
 
 /cameras/*/object_detector_node:
   ros__parameters:
@@ -298,13 +298,13 @@ rendering_manager_bridge_node:
     # App pixels per millimetre of paper: more shows smaller content
     page_app_px_per_mm: 4.0
 
-# Pose of the Brio body frame (brio_link, x forward, z up) in world, in metres.
-# PLACEHOLDER -- DO NOT EDIT. 0.93 m above world, looking straight down (pitch +90 deg); it only
+# Placeholder pose of every camera's body frame (<camera>_<body_frame>, e.g. overhead_link, x forward, z up) in
+# world, in metres. PLACEHOLDER -- DO NOT EDIT. 1 m above world, looking straight down (pitch +90 deg); it only
 # keeps the launch files working until the real pose is set. That is
 # calibration/extrinsics/camera_pose_<camera>.yaml below this file: the launch files use it instead of this
-# entry while it exists, so edits here are silently ignored then. camera_pose_calibrator measures it for the
-# Kinect; for the Brio and the webcam, write it by hand with the same seven keys, flat. For a camera h m above
-# the table, tilted t deg from straight down towards world +x (a = (90 - t) / 2):
+# entry while it exists, so edits here are silently ignored then. camera_pose_calibration_depth.launch.py (depth
+# cameras) and camera_pose_calibration_sheet.launch.py measure it; or write it by hand with the same seven keys,
+# flat. For a camera h m above the table, tilted t deg from straight down towards world +x (a = (90 - t) / 2):
 #   translation.x: 0.0
 #   translation.y: 0.0
 #   translation.z: h
@@ -312,11 +312,12 @@ rendering_manager_bridge_node:
 #   rotation.y: sin(a)
 #   rotation.z: 0.0
 #   rotation.w: cos(a)
-# camera_pose_calibrator takes what it does not set (the x/y position, the Kinect's rotation about the
-# vertical) from here, so keep these values the same for every setup.
-# The launch files (launch_helpers.mount_tf_publisher) pass the pose to static_transform_publisher
-# as command-line flags, because it ignores it as parameters.
-/brio_tf_publisher:
+# camera_pose_calibrator takes what it does not set (the x/y position, the rotation about the vertical) from
+# here, so keep these values the same for every setup. A profile places one camera of several elsewhere with a
+# section of the same seven keys named after its mount transform publisher, /<camera>_tf_publisher.
+# The launch files (launch_helpers.create_mount_tf_publisher) pass the pose to static_transform_publisher
+# as command-line flags, because it ignores it as parameters. No node has this name, so no node reads it.
+placeholder_camera_pose:
   ros__parameters:
     translation.x: 0.0
     translation.y: 0.0
@@ -326,67 +327,7 @@ rendering_manager_bridge_node:
     rotation.z: 0.0
     rotation.w: 0.7071068
 
-# Pose of the webcam body frame (webcam_link). PLACEHOLDER -- DO NOT EDIT, see /brio_tf_publisher.
-# The real pose is calibration/extrinsics/camera_pose_webcam.yaml below this file, written by hand.
-/webcam_tf_publisher:
-  ros__parameters:
-    translation.x: 0.0
-    translation.y: 0.0
-    translation.z: 1.0
-    rotation.x: 0.0
-    rotation.y: 0.7071068
-    rotation.z: 0.0
-    rotation.w: 0.7071068
-
-# Pose of the RealSense body frame (realsense_link, x forward, z up). PLACEHOLDER -- DO NOT EDIT, see
-# /brio_tf_publisher. The real pose is calibration/extrinsics/camera_pose_realsense.yaml below this file.
-/realsense_tf_publisher:
-  ros__parameters:
-    translation.x: 0.0
-    translation.y: 0.0
-    translation.z: 1.0
-    rotation.x: 0.0
-    rotation.y: 0.7071068
-    rotation.z: 0.0
-    rotation.w: 0.7071068
-
-# Pose of the Blackfly body frame (blackfly_link). PLACEHOLDER -- DO NOT EDIT, see /brio_tf_publisher.
-# The real pose is calibration/extrinsics/camera_pose_blackfly.yaml below this file, written by hand.
-/blackfly_tf_publisher:
-  ros__parameters:
-    translation.x: 0.0
-    translation.y: 0.0
-    translation.z: 1.0
-    rotation.x: 0.0
-    rotation.y: 0.7071068
-    rotation.z: 0.0
-    rotation.w: 0.7071068
-
-# Pose of the See3CAM_CU40 body frame (cu40_link). PLACEHOLDER -- DO NOT EDIT, see /brio_tf_publisher.
-# The real pose is calibration/extrinsics/camera_pose_cu40.yaml below this file, written by hand.
-/cu40_tf_publisher:
-  ros__parameters:
-    translation.x: 0.0
-    translation.y: 0.0
-    translation.z: 1.0
-    rotation.x: 0.0
-    rotation.y: 0.7071068
-    rotation.z: 0.0
-    rotation.w: 0.7071068
-
-# Pose of the event camera body frame (event_link). PLACEHOLDER -- DO NOT EDIT, see /brio_tf_publisher.
-# The real pose is calibration/extrinsics/camera_pose_event.yaml below this file, written by hand.
-/event_tf_publisher:
-  ros__parameters:
-    translation.x: 0.0
-    translation.y: 0.0
-    translation.z: 1.0
-    rotation.x: 0.0
-    rotation.y: 0.7071068
-    rotation.z: 0.0
-    rotation.w: 0.7071068
-
-# Azure Kinect driver, started in /cameras/<camera> by launch/camera_kinect.launch.py. The node sets this name in
+# Azure Kinect driver, started in /cameras/<camera> by par_camera_adapters/launch/camera_kinect.launch.py. The node sets this name in
 # code. Its frames are prefixed with the camera's name (tf_prefix, set by the launch file): kinect_camera_base, ...
 /cameras/*/k4a_ros_device_node:
   ros__parameters:
@@ -412,21 +353,6 @@ rendering_manager_bridge_node:
     point_cloud: false
     rgb_point_cloud: false
     point_cloud_in_depth_frame: true
-
-# Pose of the Kinect body frame (kinect_camera_base, x forward, z up) in world, in metres.
-# PLACEHOLDER -- DO NOT EDIT, see /brio_tf_publisher. Front glass to table 1.0 m, looking straight down.
-# The real pose is calibration/extrinsics/camera_pose_kinect.yaml below this file, measured by
-# camera_pose_calibrator (camera_pose_calibration_depth.launch.py): height and tilt from the
-# depth image of the clear table.
-/kinect_tf_publisher:
-  ros__parameters:
-    translation.x: 0.0
-    translation.y: 0.0
-    translation.z: 1.00
-    rotation.x: 0.0
-    rotation.y: 0.7071068
-    rotation.z: 0.0
-    rotation.w: 0.7071068
 
 # Which cameras and nodes par.launch.py starts; launch arguments override it for one run. No node has
 # this name, so the nodes ignore it (an empty list in it does not disturb them).

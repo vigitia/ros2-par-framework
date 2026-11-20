@@ -15,8 +15,8 @@ origin at its bottom left corner on the table, x along its bottom edge. The mapp
 that world and the pose file gets the matching x, y and rotation about the vertical, so all
 cameras that see the projection share one world. Without one, the camera keeps its own world.
 
-Needs the camera calibration and the camera pose (/<camera>_tf_publisher in par_setup.yaml), and
-a clear table. The camera calibration is
+Needs the camera calibration and the camera pose (camera_pose_<camera>.yaml, else the placeholder
+pose in the parameter files), and a clear table. The camera calibration is
 config/calibration/intrinsics/camera_info_<type>[_<serial>].yaml; the Kinect and the RealSense
 publish their factory calibrations. With profile:=<name>, the camera
 calibration and the mapping are that setup's own, in config/calibration/intrinsics/<name>/ and

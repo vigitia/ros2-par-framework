@@ -3,11 +3,11 @@
 Profile cameras for the setup wizard backend: adding and removing a profile's named cameras.
 
 A profile names its cameras in par_launch.cameras (name -> '<type>[:<serial>]'; the first is the
-main camera). Adding one checks it against the profile's other cameras and writes its placeholder
-pose; removing one moves its calibrations and node sections to config/profiles/.deleted/ and
-takes its name out of everything that refers to it, so the next launch does not refuse the
-profile. Used by the camera endpoints (cameras_api.py) and the new-profile endpoint
-(profiles_api.py).
+main camera). Adding one checks it against the profile's other cameras; its pose is the generic
+placeholder until it is measured. Removing one moves its calibrations and node sections to
+config/profiles/.deleted/ and takes its name out of everything that refers to it, so the next
+launch does not refuse the profile. Used by the camera endpoints (cameras_api.py) and the
+new-profile endpoint (profiles_api.py).
 """
 
 import os
@@ -23,28 +23,20 @@ from par_framework_core.launch_helpers import (CAMERA_ENTRY_INTRINSICS_KEY,
                                                CAMERA_TF_PUBLISHER_NAME_SUFFIX,
                                                FILE_NAME_PART_PATTERN,
                                                get_extrinsics_relative_path,
-                                               get_invalid_pose_keys, get_path_in_config_folder,
+                                               get_path_in_config_folder,
                                                get_sensor_node_package_names,
                                                get_unit_intrinsics_file_path,
                                                PAR_LAUNCH_CAMERAS_KEY, ProfileCamera,
-                                               read_camera_entry, read_merged_parameters)
+                                               read_camera_entry)
 from profiles.profile_files import (create_deleted_folder, create_profile_launch_context,
                                     find_camera_node_section_names, find_profile_camera,
                                     move_camera_node_sections, PAR_LAUNCH_NODE_NAME,
-                                    read_camera_name_by_input_by_app, read_par_setup_node_settings,
+                                    read_camera_name_by_input_by_app,
                                     read_profile_cameras_or_raise, read_profile_document,
-                                    read_profile_launch_section, ROS_PARAMETERS_KEY,
+                                    read_profile_launch_section,
                                     write_app_inputs, write_node_settings_into_profile)
 from pydantic import BaseModel
 
-# Every camera needs a placeholder pose /<camera name>_tf_publisher until it is measured, or a
-# launch refuses to start it. The wizard writes it when it adds a camera: the type's placeholder
-# from par_setup.yaml (/<camera type>_tf_publisher), else this one, 1 m above the world origin,
-# looking straight down at the table (the body frame's x axis pointing down)
-GENERIC_PLACEHOLDER_POSE = {
-    'translation.x': 0.0, 'translation.y': 0.0, 'translation.z': 1.0,
-    'rotation.x': 0.0, 'rotation.y': 0.7071068, 'rotation.z': 0.0, 'rotation.w': 0.7071068,
-}
 # The extrinsics files of a camera, by their prefix in the profile's extrinsics folder
 CAMERA_EXTRINSICS_FILE_PREFIXES = ('camera_pose', 'projection_mapping', 'projection_corners')
 
@@ -125,41 +117,6 @@ def create_camera_unit_text(profile_camera: ProfileCamera) -> str:
 def get_camera_tf_publisher_section_name(camera_name: str) -> str:
     """Return the node section of the camera's pose publisher, e.g. /overhead_tf_publisher."""
     return f'/{camera_name}{CAMERA_TF_PUBLISHER_NAME_SUFFIX}'
-
-
-def write_camera_placeholder_pose(profile_name: str, profile_camera: ProfileCamera) -> None:
-    """
-    Write the camera's placeholder pose into the profile, unless the parameter files have one.
-
-    A copy of its type's placeholder in par_setup.yaml, else GENERIC_PLACEHOLDER_POSE.
-    """
-    camera_name = profile_camera.camera_name
-    publisher_key = get_camera_tf_publisher_section_name(camera_name)
-    profile_launch_context = create_profile_launch_context(profile_name)
-    merged_parameters = read_merged_parameters(profile_launch_context)
-    publisher_section = merged_parameters.get(publisher_key) or {}
-    existing_pose = publisher_section.get(ROS_PARAMETERS_KEY)
-    if isinstance(existing_pose, dict) and not get_invalid_pose_keys(existing_pose):
-        return
-    type_placeholder_pose = read_par_setup_node_settings(
-        get_camera_tf_publisher_section_name(profile_camera.camera_type))
-    placeholder_pose = GENERIC_PLACEHOLDER_POSE
-    if type_placeholder_pose and not get_invalid_pose_keys(type_placeholder_pose):
-        placeholder_pose = {}
-        for pose_key in CAMERA_POSE_KEYS:
-            placeholder_pose[pose_key] = type_placeholder_pose[pose_key]
-    # Written even where equal to par_setup.yaml's, which has no section of this name. The
-    # comment says why the section is there, for whoever reads the profile by hand
-    measured_pose_relative_path = get_extrinsics_relative_path(profile_launch_context,
-                                                               'camera_pose', camera_name)
-    placeholder_pose_comment = (
-        f'\nSaved by the setup wizard: placeholder pose of camera {camera_name}, needed because\n'
-        f'par_setup.yaml has placeholders only for the default camera names and a launch\n'
-        f'refuses a camera without a pose. Unused once the camera pose calibration has written\n'
-        f'config/{measured_pose_relative_path}.')
-    write_node_settings_into_profile(profile_name, publisher_key, placeholder_pose,
-                                     always_written_setting_names=tuple(CAMERA_POSE_KEYS),
-                                     added_node_section_comment=placeholder_pose_comment)
 
 
 def write_profile_cameras(profile_name: str, profile_cameras: list[ProfileCamera]) -> None:

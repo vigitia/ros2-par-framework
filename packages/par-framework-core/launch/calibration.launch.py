@@ -1,4 +1,4 @@
-"""Calibration run: camera plus the surface selector.
+"""Calibration run: camera plus the projection corner selector.
 
 Start this once per physical setup to mark the projection area in the camera
 image; the resulting corners are what the rest of the framework warps against.
@@ -32,34 +32,34 @@ from par_framework_core.launch_helpers import (create_camera_actions,
 
 # Written by Claude Code; the remappings of the camera streams and the projector display
 # co-authored by Claude Code
-def create_camera_and_surface_selector(context):
-    """Create the chosen camera, the surface selector on its image and the corners owner."""
+def create_camera_and_projection_corner_selector(context):
+    """Create the chosen camera, the projection corner selector on its image, the corners owner."""
     camera_to_calibrate = get_camera_to_calibrate(context)
     camera = camera_to_calibrate.camera_name
-    surface_selector_parameters = get_params_file_paths(context)
+    projection_corner_selector_parameters = get_params_file_paths(context)
     # The same display the projector app and the projection calibration get; without one, the
     # selector's own default applies
     projector_display_id = get_projector_display_id(context, read_launch_section(context))
     if projector_display_id is not None:
-        surface_selector_parameters.append({'display_id': projector_display_id})
-    surface_selector_node = Node(
+        projection_corner_selector_parameters.append({'display_id': projector_display_id})
+    projection_corner_selector_node = Node(
         package='projection_calibration',
-        executable='surface_selector',
-        name='surface_selector_node',
+        executable='projection_corner_selector',
+        name='projection_corner_selector_node',
         output='screen',
         emulate_tty=True,
-        parameters=surface_selector_parameters,
+        parameters=projection_corner_selector_parameters,
         # Its relative camera stream names point at the camera started here
         remappings=create_camera_stream_remappings(camera),
         # Corners stored (projection_calibration_server_node writes them before it answers) or
         # selection cancelled: the camera and the corners owner are not needed any longer
         on_exit=Shutdown(reason='projection corners selected'),
     )
-    # The corners owner stores what surface_selector sends, in the camera's own file, and
+    # The corners owner stores what projection_corner_selector sends, in the camera's own file, and
     # publishes it on /cameras/<camera>/projection_corners
     return [*create_camera_actions(context, camera_to_calibrate),
             *create_projection_calibration_server_node(context, camera),
-            surface_selector_node]
+            projection_corner_selector_node]
 
 
 # Co-authored by Claude Code
@@ -75,5 +75,5 @@ def generate_launch_description():
         create_projector_display_id_launch_argument(),
         create_camera_choice_launch_argument(),
 
-        OpaqueFunction(function=create_camera_and_surface_selector),
+        OpaqueFunction(function=create_camera_and_projection_corner_selector),
     ])

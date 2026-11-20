@@ -13,7 +13,7 @@
 #
 # Camera drivers are chosen per installation: the gitignored config/installed_ros_packages.list (same format,
 # written by the setup wizard, read by local_build.sh next to this file) holds the chosen ones. The camera
-# types in packages/par-framework-core/resource/par_framework_cameras/ name their drivers under
+# types in packages/par_camera_adapters/resource/par_framework_cameras/ name their drivers under
 # required_packages:
 #   v4l2_camera               generic UVC webcam (camera type webcam)
 #   realsense2_camera         RealSense depth camera (camera type realsense)

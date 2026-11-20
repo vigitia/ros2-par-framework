@@ -3,8 +3,9 @@
 
 How a camera driver becomes a camera type of the framework, so that `par.launch.py` can start it (`camera:=<type>`)
 without knowing the driver. Copy the files into the driver's repo, replace `example_camera`, and add the
-`setup.py` lines below. For a third-party driver the framework cannot change, core ships the entry and the launch
-file instead (e.g. `blackfly`, `kinect` in `packages/par-framework-core/`).
+`setup.py` lines below. For a third-party driver the framework cannot change, the package
+`packages/par_camera_adapters/` of ros2-par-framework ships the entry and the launch file instead (e.g. `blackfly`,
+`kinect`).
 
 | File | What it does |
 |---|---|

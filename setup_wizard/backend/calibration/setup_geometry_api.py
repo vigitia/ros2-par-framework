@@ -4,7 +4,7 @@ Setup geometry API of the setup wizard backend: where a profile's cameras and pr
 
 Everything in metres in world (the table plane is z = 0), read from the same files the launch
 files use: each camera's pose (the measured camera_pose_<camera name>.yaml, else the placeholder
-/<camera name>_tf_publisher in the parameter files), its unit's intrinsics for the field of view,
+pose in the parameter files), its unit's intrinsics for the field of view,
 and the main camera's projection mapping for the projection area and the projector centre (from
 another camera's mapping when the main camera's has none: only a depth camera measures it).
 The app draws it as a simplified 2D picture of the setup (Overview). The math is par_geometry's,

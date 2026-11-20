@@ -22,7 +22,8 @@ source every setup builds.
    logs which repo to add.
 
 `packages/par-framework-core/` (package `par_framework_core`) holds launch files and `config/par_setup.yaml` only,
-no nodes.
+no nodes and no camera types. Camera types for third-party drivers are in `packages/par_camera_adapters/`
+(kept in this repo for now; one repo per camera type, like `logitech_brio`, is the alternative).
 
 **Calibration is optional.** The framework runs uncalibrated, in camera pixels. Camera pose, projection corners,
 projection mapping and the server that publishes them latched live in `ros2-par-framework-calibration` (packages
@@ -112,8 +113,9 @@ aligned pixel by pixel, are `/camera/depth_sensor/ir/image_raw`, `/camera/depth_
 detects there and moves the landmarks into the colour image).
 `object_detector` and `fiducials_detector` with `use_compressed` take `/camera/image_raw/compressed` instead
 (`par.launch.py` sets it for the Brio, the only driver publishing JPEGs). Drivers keep their own topics; launch files
-remap them with `launch_helpers.CAMERA_DRIVER_REMAPPINGS`, the only place that knows them. A new camera = a driver
-start in `launch_helpers` plus its entry there. Nodes hard-code the neutral names; another topic is chosen by
+remap them with `launch_helpers.CAMERA_DRIVER_REMAPPINGS`, the only place that knows them. A new camera = a camera
+type (entry + launch file, `templates/par_camera/`) in the driver's repo, or in `packages/par_camera_adapters/`
+for a third-party driver. Nodes hard-code the neutral names; another topic is chosen by
 remapping, not by parameter. The event camera (`camera:=event`) has no frames: `event_camera_renderer` collects its
 events into `/camera/image_raw`, the raw events are on `/camera/events`, and there is no `camera_info`.
 
@@ -135,9 +137,9 @@ VIGITIA sheets need their own parameters, see page_locator's README).
 
 ### Coordinates: camera pixels → table → projector pixels
 
-Detectors publish raw camera pixels. The common currency is the **table plane in metres**, z = 0 of `world` (pose
-from `/brio_tf_publisher` in `par_setup.yaml`). Consumers convert locally with `par_geometry`, the one place for this
-math (no service per point, no images through services):
+Detectors publish raw camera pixels. The common currency is the **table plane in metres**, z = 0 of `world` (each
+camera's pose: measured `camera_pose_<camera>.yaml`, else `placeholder_camera_pose` in `par_setup.yaml`). Consumers
+convert locally with `par_geometry`, the one place for this math (no service per point, no images through services):
 - camera pixels → table: `pixels_to_table` (undistorts with `camera_info`, intersects the rays with the plane via TF);
 - table ↔ projector pixels: `table_to_projector` / `projector_to_table`, with the homography on the latched
   `/projection_mapping` (`ProjectionMapping`).
@@ -153,7 +155,7 @@ does). Points above the table (hands) land offset by parallax. A second run,
 `projection_calibration.launch.py camera:=kinect projector_center:=true`, adds the projector's optical centre
 (`projector_center`, valid when `projector_center_valid`) from marker rays located in 3D by the depth camera; with it,
 `par_geometry.project_to_table` moves a raised point along its projector ray onto the table. Re-running the homography
-clears the centre. The quick path, `calibration.launch.py` (`surface_selector`), stores the clicked
+clears the centre. The quick path, `calibration.launch.py` (`projection_corner_selector`), stores the clicked
 `/projection_corners` (camera pixels, the projector image's top left first) and a mapping computed from them, exact
 at the four corners only. Whichever ran last owns the mapping; the calibration repo's README lists the levels.
 
