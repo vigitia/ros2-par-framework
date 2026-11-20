@@ -35,7 +35,6 @@ SETUP_WIZARD_DESKTOP_ENTRY_PATH="${XDG_DATA_HOME:-${HOME}/.local/share}/applicat
 
 ros_setup_script_path="/opt/ros/${ROS_DISTRO}/setup.bash"
 
-# Co-authored by Claude Code
 # True when the backend answers its status request. Uses Python instead of curl, which a fresh
 # Ubuntu does not have.
 is_setup_wizard_backend_answering() {
@@ -43,10 +42,10 @@ is_setup_wizard_backend_answering() {
         "$SETUP_WIZARD_BACKEND_STATUS_URL" >/dev/null 2>&1
 }
 
-# Co-authored by Claude Code
 # Warn when a node list has GitHub SSH URLs but GitHub does not accept this machine's key: cloning
 # would fail later. `ssh -T git@github.com` exits with 1 even when it works, so its greeting is
 # checked instead.
+# TODO: In the future,
 check_github_ssh_access() {
     local list_paths=("$REQUIRED_REPOS_LIST_PATH" "${REPO_ROOT}/config/catalog_repos.list")
     if [[ -f "$INSTALLED_REPOS_LIST_PATH" ]]; then
@@ -69,7 +68,6 @@ check_github_ssh_access() {
     hint "an unknown host key: run ssh -T git@github.com once and answer yes"
 }
 
-# Co-authored by Claude Code
 # True when everything the backend imports is built: par_framework_core and par_geometry in
 # install/, fastapi in .venv.
 is_setup_wizard_backend_built() {
@@ -77,8 +75,8 @@ is_setup_wizard_backend_built() {
         && .venv/bin/python -c 'import fastapi, uvicorn' >/dev/null 2>&1
 }
 
-# Co-authored by Claude Code
 # Build the wizard app's release bundle, after installing Flutter's Linux build tools when missing.
+# TODO: In the future, a current build should be provided in the repo
 build_setup_wizard_app() {
     if ! command_exists flutter; then
         die "the wizard app is not built and Flutter is not installed -- install Flutter: https://docs.flutter.dev/get-started/install/linux (then flutter doctor)"
@@ -98,7 +96,6 @@ build_setup_wizard_app() {
     (cd "$SETUP_WIZARD_APP_FOLDER_PATH" && flutter build linux --release)
 }
 
-# Co-authored by Claude Code
 # Stop the backend this script started. SIGINT lets uvicorn shut down cleanly, so the backend stops
 # what it started (camera previews, runs); SIGTERM is handled the same way. Now and then the backend
 # ignores both (cause not found yet, see claude_usage_documentation.md); then SIGKILL, so it does not
@@ -120,7 +117,6 @@ stop_setup_wizard_backend() {
     hint "a camera preview or run it started may still be running: pgrep -af 'ros2 launch'"
 }
 
-# Co-authored by Claude Code
 # Write the .desktop file that puts the wizard into the application menu and gives the app's window its icon,
 # when it is missing or names other paths (e.g. after the repository moved). It runs this script, so the menu
 # starts the backend and the app the same way as a terminal does. No terminal window: the backend logs to

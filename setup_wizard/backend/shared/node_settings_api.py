@@ -6,13 +6,13 @@ A ROS 2 node declares its parameters (name, type, range, description) in code wh
 no file lists them. So the backend starts the node once on its own, without camera, profile or
 the rest of the framework, reads its parameters through the standard parameter services, stops
 it again and caches what it reported per installed package. Editing then needs no running node:
-the shown values are the profile's where it sets them, else the cached ones (par_setup.yaml's or
-the node's own defaults), and saving writes the changes into the profile, converted to the cached
+the shown values are the profile's where it sets them, else the cached ones (the node's own
+defaults), and saving writes the changes into the profile, converted to the cached
 types, which the node reads at its next start.
 
 Which nodes: a sensor node is started as par.launch.py starts it (executable = package, node name
-<package>_node), in a namespace below /cameras, so it reads the defaults every camera gets
-(par_setup.yaml's /cameras/*/<package>_node). Its settings are edited per camera, in the profile
+<package>_node), in a namespace below /cameras, so it reads the defaults every camera gets. Its
+settings are edited per camera, in the profile
 section /cameras/<camera>/<package>_node. An app is started as its ament index entry says
 (executable or launch_file), and its settings nodes are the ones the entry names in
 settings_node_names. Node names from the network must be one of these, since they reach
@@ -152,8 +152,11 @@ def save_node_settings(request: NodeSettingsSaveRequest) -> NodeSettingsSaveResp
     if cached_settings_by_node_name is None:
         raise HTTPException(status_code=409, detail='The settings have not been read yet')
     type_name_by_setting_name = {}
+    # The node's own defaults: the values it was read with, without a profile
+    own_default_value_by_name = {}
     for cached_setting in cached_settings_by_node_name.get(read_node_name, []):
         type_name_by_setting_name[cached_setting.setting_name] = cached_setting.type_name
+        own_default_value_by_name[cached_setting.setting_name] = cached_setting.setting_value
     converted_value_by_name = {}
     for setting_name, setting_value in request.setting_value_by_name.items():
         type_name = type_name_by_setting_name.get(setting_name)
@@ -162,13 +165,14 @@ def save_node_settings(request: NodeSettingsSaveRequest) -> NodeSettingsSaveResp
                                 detail=f'{request.full_node_name} has no setting {setting_name} '
                                        f'that can be saved')
         if setting_value is None:
-            # Removed from the profile: the node uses par_setup.yaml's or its own default again
+            # Removed from the profile: the node uses its default again
             converted_value_by_name[setting_name] = None
             continue
         converted_value_by_name[setting_name] = convert_setting_value(
             setting_value, PARAMETER_TYPE_BY_TYPE_NAME[type_name])
     write_result = write_node_settings_into_profile(
-        request.profile_name, request.full_node_name, converted_value_by_name)
+        request.profile_name, request.full_node_name, converted_value_by_name,
+        node_own_default_value_by_name=own_default_value_by_name)
     return NodeSettingsSaveResponse(
         node_section_name=write_result.node_section_name,
         written_setting_names=write_result.written_setting_names,

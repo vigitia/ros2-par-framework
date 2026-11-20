@@ -203,11 +203,15 @@ def set_sensor_node_selection(request: SensorNodeSelectionRequest) -> SensorNode
                                        f'{unknown_camera_names}')
     stored_camera_names_by_package = _add_required_sensor_node_cameras(
         request.camera_names_by_package, profile_camera_names)
-    # One list per installed node; par_setup.yaml has every list empty, so a node that runs
-    # nowhere leaves the profile
+    # One list per installed node; a node that runs nowhere leaves the profile (None removes its
+    # key), since a missing key already means no camera
     camera_list_by_package = {}
     for package_name in installed_package_names:
-        camera_list_by_package[package_name] = stored_camera_names_by_package.get(package_name, [])
+        stored_camera_names = stored_camera_names_by_package.get(package_name, [])
+        if stored_camera_names:
+            camera_list_by_package[package_name] = stored_camera_names
+        else:
+            camera_list_by_package[package_name] = None
     write_node_settings_into_profile(request.profile_name, PAR_LAUNCH_NODE_NAME,
                                      camera_list_by_package)
     return SensorNodeSelectionResponse(camera_names_by_package=stored_camera_names_by_package)

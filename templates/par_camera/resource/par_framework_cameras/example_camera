@@ -16,6 +16,12 @@ launch_file: example_camera.launch.py
 # lives in another package; the camera type counts as installed when all of them are (default [])
 required_packages: []
 
+# Optional: the type's default parameter file, relative to share/<package>/ (e.g.
+# config/example_camera.yaml, installed through setup.py data_files). Loaded before par_setup.yaml
+# and the profile, so both override it. For a third-party driver whose defaults do not suit the
+# framework (e.g. its colour order); a driver written for the framework sets them in its code
+# parameters_file: config/example_camera.yaml
+
 # The camera's body frame without the camera name: the framework's mount transform goes
 # world -> <camera name>_<body_frame>. link for a driver that publishes <camera name>_link
 body_frame: link

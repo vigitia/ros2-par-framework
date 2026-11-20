@@ -5,6 +5,8 @@ display_name: FLIR Blackfly S
 description: Machine vision camera through spinnaker_camera_driver, monochrome or colour.
 package: par_camera_adapters
 launch_file: camera_blackfly.launch.py
+# Driver defaults the framework needs, loaded before par_setup.yaml and the profile
+parameters_file: config/blackfly.yaml
 # The released driver this launch file starts, installed separately (config/required_ros_packages.list)
 required_packages: [spinnaker_camera_driver]
 body_frame: link

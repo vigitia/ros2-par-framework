@@ -6939,3 +6939,45 @@ and its camera input is bound through `par_launch.app_inputs` like every app's.
   with `projector_app: rendering_manager` would need changing. The package that builds the compositor is named
   `rendering_manager` and carries the entry, so existing profiles keep working.
 - *A third package only for the entry and launch file*: rejected; one more package without a reason.
+
+## 2026-11-20: Node defaults live with the nodes, driver defaults with their camera type
+
+### What changed
+
+- `packages/par-framework-core/config/par_setup.yaml` holds only the framework's own parameters: `par_launch` and
+  `placeholder_camera_pose`. The sections of the sensor nodes, apps and own camera nodes are gone; each node declares
+  its defaults in its code. `par_launch` no longer lists the sensor node switches (a missing switch already means "no
+  camera") and names no default camera: a launch without a profile and without `camera:=` stops with a message naming
+  `profile:=`, the setup wizard and `camera:=<type>`.
+- New optional key `parameters_file` in a camera type's entry (`launch_helpers.CAMERA_ENTRY_PARAMETERS_FILE_KEY`): a
+  parameter file below the package's share folder, put before `par_setup.yaml` and the profile in the camera's
+  `params_files`. `packages/par_camera_adapters/config/<type>.yaml` holds the third-party driver sections that were
+  in `par_setup.yaml` (webcam, RealSense, Blackfly, event camera, Kinect); their entries name them.
+  `templates/par_camera/` documents the key.
+- Setup wizard backend: `profiles/profile_files.read_default_node_settings` reads every installed camera type's
+  `parameters_file` and `par_setup.yaml`, as a launch does, for "Reset to default" of driver settings and for "write
+  only what differs" into profiles. Saving a sensor node's or app's settings also compares against the node's own
+  defaults (read once without a profile), so values equal to them stay out of profiles. Sensor node camera lists left
+  empty are removed from the profile instead of written as `[]`.
+- Comments and docs (`README.md`, `CLAUDE.md`, `templates/par_app/README.md`, `par_camera_adapters/README.md`)
+  follow.
+
+### Why / alternatives
+
+Core held the defaults of optional nodes, so every parameter change in a node repository had to be repeated here, and
+a new node could not ship its defaults the same way. A comparison of every section with its node's
+`declare_parameter` defaults found 55 of 57 values identical; the two real differences (`see3cam_cu40` `ir_gain`,
+`object_detector` `min_object_height`) became the nodes' code defaults in their repositories. The comment facts of the
+removed sections were already in the nodes' descriptors or READMEs.
+
+Third-party drivers are different: the framework cannot change their code defaults, and some of them do not suit it
+(e.g. colour order, depth aligned to the colour image). Those values belong to the camera type that adapts the
+driver, so they moved to `par_camera_adapters`, next to the launch files that start the drivers.
+
+- *Keep the sections as documentation*: rejected; they duplicate the code and drift from it.
+- *Find a camera type's parameter file by naming convention*: rejected; an explicit entry key is easier to find and
+  is checked like the entry's `launch_file`.
+- *A default camera such as `webcam`*: rejected; it needs `v4l2_camera`, which a fresh installation does not have
+  either, and which camera a setup has is the profile's choice.
+- *Write an empty `cameras: {}`*: rejected; leaving the key out gives the same message and keeps the file free of an
+  empty mapping that every node's parameter parser reads.

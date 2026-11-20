@@ -71,9 +71,9 @@ required sensor nodes run on every camera the app reads.
 missing. The app must work uncalibrated (camera pixels), like every framework node.
 
 **Settings.** The setup wizard's Apps area edits the parameters of the nodes in `settings_node_names`. It reads
-them once: it starts the app alone with `par_setup.yaml` (no profile, no camera), reads names, descriptors and
+them once: it starts the app alone with its own defaults (no profile, no camera), reads names, descriptors and
 values through the standard ROS 2 parameter services, stops the app and caches the result until the package is
-installed again. Saving writes what differs from `par_setup.yaml` into the profile under the node's full name; the
+installed again. Saving writes what differs from those defaults into the profile under the node's full name; the
 app reads it at its next start. So declare every setting with a `ParameterDescriptor` (description, range,
 `read_only` where a change needs a restart), read the values when the node starts, and let the app start without a
 camera image (it is started this way for a few seconds; a window it opens shows meanwhile).

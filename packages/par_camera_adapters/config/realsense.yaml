@@ -1,0 +1,23 @@
+# Written by Claude Code
+# Default parameters of the realsense camera type, named by parameters_file in its entry
+# (resource/par_framework_cameras/realsense). Loaded before par_setup.yaml and the profile, so both
+# override it. /cameras/*/ sections apply to every camera of the type; a profile overrides one
+# camera under /cameras/<camera>/...
+
+# Camera: Intel RealSense, e.g. the D435, through realsense2_camera; par_camera_adapters/launch/camera_realsense.launch.py starts it as
+# /cameras/<camera>/realsense. It publishes its factory calibration, so it needs no camera_info_<camera>.yaml.
+# More options: ros2 param list /cameras/realsense/realsense
+/cameras/*/realsense:
+  ros__parameters:
+    enable_color: true
+    enable_depth: true
+    enable_infra1: false
+    enable_infra2: false
+    rgb_camera:
+      # <width>x<height>x<fps>. The aligned depth image has the same size.
+      color_profile: 1280x720x30
+      # the driver's default is RGB8.
+      color_format: BGR8
+    # Depth on the colour image's pixel grid (/cameras/<camera>/depth_registered/image_raw).
+    align_depth:
+      enable: true

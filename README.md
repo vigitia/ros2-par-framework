@@ -65,7 +65,8 @@ TODO: List available arguments here
 **Setup profiles.** For another physical setup (another table, projector or camera unit), add
 `profile:=<name>` to any launch file (`par.launch.py`, `calibration.launch.py`, `projection_calibration.launch.py`,
 `camera_pose_calibration_depth.launch.py`). The profile is `packages/par-framework-core/config/profiles/<name>.yaml`
-(gitignored), and holds **only what differs** from `par_setup.yaml`, with the same node names and keys:
+(gitignored), and holds **only what differs** from the defaults (`par_setup.yaml`, the nodes' own, the camera
+types' `parameters_file`), keyed by node name:
 
 ```yaml
 par_launch:
@@ -101,7 +102,7 @@ config/installed_ros_packages.list  (gitignored) released packages this installa
 packages/                   this repo's own ROS packages, built together with src/
   par-framework-core/       launch files + parameters (package par_framework_core)
     launch/                 ROS2 launch files
-    config/par_setup.yaml   camera id, resolution, projector display
+    config/par_setup.yaml   cameras and nodes to start, projector display, placeholder camera pose
     par_framework_core/     launch_helpers.py: node start functions shared by the launch files
   par_camera_adapters/      camera types for third-party drivers (webcam, RealSense, Kinect, Blackfly, event camera)
   par_geometry/             helper functions fpr transformations: camera pixels -> table (m) -> projector pixels
@@ -158,8 +159,9 @@ by all framework nodes. The single pip call is deliberate: if two nodes pin conf
 instead of one node silently overwriting the other's pin.
 
 **Per-setup values are parameters, not constants.** Which `/dev/video*` the camera is and which display the
-projector is on differ per machine and sometimes even after a restart, so they live in 
-`packages/par-framework-core/config/par_setup.yaml` and are passed to nodes by the launch files.
+projector is on differ per machine and sometimes even after a restart, so they are ROS parameters: each node declares
+its defaults in its code, a camera type for a third-party driver brings its driver defaults as `parameters_file`, and
+a profile overrides them; the launch files pass the parameter files to the nodes.
 
 ---
 
@@ -212,8 +214,8 @@ names onto them. Which streams a camera offers is `streams` in its type's entry.
 `fiducials_detector: [overhead]`; it runs once per listed camera as `/cameras/<name>/<package>_node`, where its
 relative names resolve to that camera's streams and its outputs stay apart from another camera's
 (`/cameras/overhead/fiducials`). A node another one needs (`required_sensor_nodes` in its entry, e.g. page_locator
-needs fiducials_detector) starts along with it on the same camera. Settings: defaults under
-`/cameras/*/<package>_node` in `par_setup.yaml`, per camera under `/cameras/<name>/<package>_node` in the profile.
+needs fiducials_detector) starts along with it on the same camera. Settings: the node's own defaults, in
+a profile for every camera under `/cameras/*/<package>_node` or per camera under `/cameras/<name>/<package>_node`.
 `<sensor node>:=false` turns all its runs off for one run, `:=true` runs it on the only camera. Merging the outputs
 of several cameras into one (e.g. markers in table metres) is planned as a fusion node, not built yet.
 
@@ -229,7 +231,7 @@ launch file is the only place that knows a driver's own names.
 
 **Frames are best-effort, keep-last-1.** Subscribers must request `BEST_EFFORT` explicitly (see above). For a
 subscriber that can't be changed, such as `cameracalibrator`, the Brio's `qos_reliability: reliable` in
-`par_setup.yaml` is the switch.
+the profile is the switch.
 
 The depth of 1 decides *which* frame a slow node loses, not *whether* it loses one. While a callback processes
 a frame, one slot holds the next; a frame arriving before the callback is done replaces the waiting one, so a
@@ -280,7 +282,9 @@ starts the driver in the camera's namespace and maps its names onto the table ab
 third-party drivers they are in `packages/par_camera_adapters/`.
 Then:
 
-1. `config/par_setup.yaml`: the driver's defaults under `/cameras/*/<driver node>` (colour images in BGR order).
+1. The driver defaults the framework needs (e.g. colour images in BGR order) in a parameter file under
+   `/cameras/*/<driver node>`, named as `parameters_file` in the camera entry (e.g.
+   `packages/par_camera_adapters/config/realsense.yaml`).
 2. A released driver is named in the camera entry's `required_packages` (installations add its rosdep key to
    `config/installed_ros_packages.list`), a driver from source goes into `config/catalog_repos.list`.
 

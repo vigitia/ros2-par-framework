@@ -1,6 +1,6 @@
 # Written by Claude Code
 """
-Measure a depth camera's pose (e.g. the Azure Kinect's) from the clear table and store it.
+Measure a depth camera's pose from the clear table and store it.
 
 depth_pose_calibrator (package camera_pose_calibrator) fits the table plane in the camera's
 registered depth and writes config/calibration/extrinsics/camera_pose_<camera>.yaml (with

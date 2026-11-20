@@ -2,10 +2,11 @@
 """
 Profile files for the setup wizard backend: reading and writing config/profiles/<name>.yaml.
 
-A profile holds only what differs from par_setup.yaml, as ROS 2 parameter file sections keyed by
-node name. Reading goes through launch_helpers wherever a launch reads the same (par_launch, the
-cameras), so the wizard sees a profile exactly as `par.launch.py profile:=<name>` does. Writing
-(write_node_settings_into_profile) keeps a key only where it differs from par_setup.yaml and
+A profile holds only what differs from the defaults (the nodes' own, the camera types'
+parameters_file and par_setup.yaml), as ROS 2 parameter file sections keyed by node name.
+Reading goes through launch_helpers wherever a launch reads the same (par_launch, the cameras), so
+the wizard sees a profile exactly as `par.launch.py profile:=<name>` does. Writing
+(write_node_settings_into_profile) keeps a key only where it differs from the defaults and
 rewrites the file with ruamel.yaml's round trip, keeping the comments, quotes and layout of a
 hand-written profile; the helpers below it move the empty lines and comments ruamel.yaml stores
 with the last line of a section, so adding or deleting keys and sections does not tear them from
@@ -24,12 +25,14 @@ from fastapi import HTTPException
 from launch import LaunchContext
 from par_framework_core.launch_helpers import (FILE_NAME_PART_PATTERN, FOLDER_PATH_PROFILES,
                                                get_camera_namespace,
+                                               get_camera_type_names,
+                                               get_camera_type_params_file_paths,
                                                get_installed_par_setup_path,
                                                get_path_in_config_folder, get_profile_file_path,
                                                PAR_LAUNCH_APP_INPUTS_KEY,
                                                PAR_LAUNCH_CAMERAS_KEY, ProfileCamera,
-                                               PROFILE_FILE_EXTENSION, read_launch_section,
-                                               read_profile_cameras)
+                                               PROFILE_FILE_EXTENSION, read_camera_entry,
+                                               read_launch_section, read_profile_cameras)
 from pydantic import BaseModel
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap, CommentedSeq
@@ -83,9 +86,9 @@ class DeletedProfileResponse(BaseModel):
 class NodeSettingsWriteResult(BaseModel):
     # The node's section in the profile the settings were written to
     node_section_name: str
-    # Written into the profile, because they differ from par_setup.yaml
+    # Written into the profile, because they differ from the defaults
     written_setting_names: list[str]
-    # Removed from the profile (or never written), because par_setup.yaml has the same value
+    # Removed from the profile (or never written), because the default is the same value
     removed_setting_names: list[str]
 
 
@@ -310,20 +313,24 @@ def move_camera_node_sections(profile_name: str, camera_name: str,
 def write_node_settings_into_profile(profile_name: str, full_node_name: str,
                                      setting_value_by_name: dict,
                                      always_written_setting_names: tuple = (),
-                                     added_node_section_comment: str = ADDED_NODE_SECTION_COMMENT
+                                     added_node_section_comment: str = ADDED_NODE_SECTION_COMMENT,
+                                     node_own_default_value_by_name: dict | None = None
                                      ) -> NodeSettingsWriteResult:
     """
     Write settings of a node into the profile, as ROS reads them at the node's next start.
 
-    Only what differs from par_setup.yaml is kept, as in a hand-written profile: a value equal
-    to par_setup.yaml's removes its key, except for always_written_setting_names. A value None
+    Only what differs from the defaults is kept, as in a hand-written profile: a value equal to
+    the default removes its key, except for always_written_setting_names. The defaults are
+    node_own_default_value_by_name (what the node declares in its code, when the caller knows
+    it), overridden by the default parameter files (read_default_node_settings). A value None
     removes its key too. The file is rewritten with ruamel.yaml's round trip, which keeps
     comments, quotes and layout of everything else. added_node_section_comment goes above the
     node's section when this call adds it (one line per line, a leading newline as empty line).
     """
     check_profile_exists(profile_name)
     profile_path = get_profile_file_path(profile_name)
-    default_setting_value_by_name = read_par_setup_node_settings(full_node_name)
+    default_setting_value_by_name = dict(node_own_default_value_by_name or {})
+    default_setting_value_by_name.update(read_default_node_settings(full_node_name))
     round_trip_yaml = _create_round_trip_yaml()
     with _profile_write_lock:
         profile_document = _load_profile_document_for_writing(profile_path, round_trip_yaml)
@@ -375,8 +382,8 @@ def _set_node_parameters(node_parameters, setting_value_by_name: dict,
         # Simplification: settings are written flat (image_raw.jpeg_quality), so one written
         # nested in the profile by hand is not found and stays as well; ROS then takes the
         # later one. Upgrade: look up dotted names in nested sections too.
-        is_removed = _is_par_setup_value(setting_name, setting_value,
-                                         default_setting_value_by_name)
+        is_removed = _is_default_value(setting_name, setting_value,
+                                       default_setting_value_by_name)
         if setting_name in always_written_setting_names:
             is_removed = False
         if is_removed:
@@ -392,9 +399,9 @@ def _set_node_parameters(node_parameters, setting_value_by_name: dict,
     return written_setting_names, removed_setting_names
 
 
-def _is_par_setup_value(setting_name: str, setting_value,
-                        default_setting_value_by_name: dict) -> bool:
-    """Tell whether a setting needs no key in the profile: None, or par_setup.yaml's value."""
+def _is_default_value(setting_name: str, setting_value,
+                      default_setting_value_by_name: dict) -> bool:
+    """Tell whether a setting needs no key in the profile: None, or its default value."""
     # None asks for the key to be removed, e.g. a list with no entry left
     if setting_value is None:
         return True
@@ -575,22 +582,42 @@ def _find_node_section_name(parameter_document: dict, full_node_name: str) -> st
     return None
 
 
-def read_par_setup_node_settings(full_node_name: str) -> dict:
+def get_default_params_file_paths() -> list[str]:
     """
-    Return the node's parameters in par_setup.yaml, the defaults a profile overrides.
+    Return the parameter files a profile overrides, in the order ROS applies them.
+
+    Every installed camera type's parameters_file (the defaults of third-party drivers), then
+    par_setup.yaml. The camera files only hold sections of their own drivers' nodes, so reading
+    all of them gives each node the same defaults its launch loads. A camera type with a broken
+    entry is left out; the launch names that error.
+    """
+    params_file_paths = []
+    for camera_type in get_camera_type_names():
+        try:
+            params_file_paths += get_camera_type_params_file_paths(read_camera_entry(camera_type))
+        except RuntimeError:
+            continue
+    params_file_paths.append(get_installed_par_setup_path())
+    return params_file_paths
+
+
+def read_default_node_settings(full_node_name: str) -> dict:
+    """
+    Return the node's parameters in the default parameter files, the defaults a profile overrides.
 
     Every section that names the node counts, also a wildcard one such as
     /cameras/*/webcam_node; as in ROS, a later section's value wins.
     """
-    with open(get_installed_par_setup_path()) as par_setup_file:
-        par_setup_document = yaml.safe_load(par_setup_file) or {}
     node_parameters = {}
-    for section_name, node_section in par_setup_document.items():
-        if not isinstance(section_name, str) or not isinstance(node_section, dict):
-            continue
-        if not _does_node_section_match(section_name, full_node_name):
-            continue
-        node_parameters.update(node_section.get(ROS_PARAMETERS_KEY) or {})
+    for params_file_path in get_default_params_file_paths():
+        with open(params_file_path) as params_file:
+            params_document = yaml.safe_load(params_file) or {}
+        for section_name, node_section in params_document.items():
+            if not isinstance(section_name, str) or not isinstance(node_section, dict):
+                continue
+            if not _does_node_section_match(section_name, full_node_name):
+                continue
+            node_parameters.update(node_section.get(ROS_PARAMETERS_KEY) or {})
     return node_parameters
 
 

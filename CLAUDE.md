@@ -88,8 +88,11 @@ referenced external package in **both** `DEPENDENCIES` in `CMakeLists.txt` **and
 third gets forgotten: rosdep reads only `package.xml`, so a CMake-only dependency builds by luck. Changing a
 definition or adding an external dependency needs `./scripts/local_build.sh`.
 
-**Per-setup values are parameters** in `packages/par-framework-core/config/par_setup.yaml`, keyed by node name, never
-hardware constants in node source. A namespaced node needs its full name (e.g. `/camera/brio/logitech_brio_node`); a
+**Per-setup values are parameters**, never hardware constants in node source. Each node declares its defaults in its
+own code (`declare_parameter` with a `ParameterDescriptor`); a camera type for a third-party driver brings the driver
+defaults the framework needs as its entry's `parameters_file` (`packages/par_camera_adapters/config/`), loaded before
+`packages/par-framework-core/config/par_setup.yaml`, which holds only the framework's own `par_launch` and
+`placeholder_camera_pose`. A profile overrides any of them, keyed by node name. A namespaced node needs its full name (e.g. `/camera/brio/logitech_brio_node`); a
 bare name is silently ignored. Another physical setup is a **profile** (`profile:=<name>`): `config/profiles/<name>.yaml`
 (gitignored) holds only the keys that differ, nodes get `[params_file, profile]` (ROS merges, later wins), and what
 the launch files read themselves (`par_launch`, placeholder poses) goes through `launch_helpers.read_merged_parameters`.
@@ -125,14 +128,14 @@ shared `calibration/intrinsics/`), set as `camera_info_url` by `launch_helpers.g
 `scripts/run_cameracalibrator.sh`. The Kinect publishes its factory calibration instead.
 
 `page_locator` turns `/fiducials` into `/pages` (`PageList`, corners in camera pixels, clockwise from the top left)
-for sheets with markers `4n .. 4n+3`; the `marker_*` layout in `par_setup.yaml` must match the paper (default:
+for sheets with markers `4n .. 4n+3`; the `marker_*` parameters must match the paper (default:
 upright markers, `4n + k` in page corner `k` clockwise from the top left; `make_page_template` prints them; old
 VIGITIA sheets need their own parameters, see page_locator's README).
 
 **QoS traps:**
 - Frames are BEST_EFFORT / KEEP_LAST depth 1. A reliable subscriber (including passing an int depth as
   `qos_profile`) silently receives nothing; request `QoSReliabilityPolicy.BEST_EFFORT`. For third-party subscribers
-  that can't be changed, set the Brio's `qos_reliability: reliable` (and `encoding: rgb8`) in `par_setup.yaml`.
+  that can't be changed, set the Brio's `qos_reliability: reliable` (and `encoding: rgb8`) in the profile.
 - `/projection_corners` and `/projection_mapping` are latched (RELIABLE + TRANSIENT_LOCAL, depth 1). Subscribers must
   request `QoSDurabilityPolicy.TRANSIENT_LOCAL`, or a node started later sees nothing.
 

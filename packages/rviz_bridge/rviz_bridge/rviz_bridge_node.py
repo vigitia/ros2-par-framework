@@ -84,7 +84,7 @@ PAGE_COLOR = ColorRGBA(r=0.1, g=0.9, b=0.9, a=1.0)
 CALIBRATION_REDRAW_INTERVAL_SEC = 1.0
 WARNING_THROTTLE_PERIOD_SEC = 5.0
 
-# The Brio publishes best effort, a reliable subscriber would receive nothing
+# Camera streams are published best effort; a reliable subscriber would receive nothing
 CAMERA_INFO_QOS = QoSProfile(reliability=QoSReliabilityPolicy.BEST_EFFORT,
                              history=QoSHistoryPolicy.KEEP_LAST, depth=1)
 # /projection_corners is latched: without Transient Local, corners stored before this node started

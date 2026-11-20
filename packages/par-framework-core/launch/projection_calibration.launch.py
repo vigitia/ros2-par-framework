@@ -17,17 +17,17 @@ cameras that see the projection share one world. Without one, the camera keeps i
 
 Needs the camera calibration and the camera pose (camera_pose_<camera>.yaml, else the placeholder
 pose in the parameter files), and a clear table. The camera calibration is
-config/calibration/intrinsics/camera_info_<type>[_<serial>].yaml; the Kinect and the RealSense
-publish their factory calibrations. With profile:=<name>, the camera
+config/calibration/intrinsics/camera_info_<type>[_<serial>].yaml; a camera whose driver publishes
+its factory calibration needs none. With profile:=<name>, the camera
 calibration and the mapping are that setup's own, in config/calibration/intrinsics/<name>/ and
 config/calibration/extrinsics/<name>/.
 
 projector_center:=true runs the second step instead, which the projection mask needs: hold a flat
 board above the table and move it through the projection. The depth camera locates the markers
 on the board in 3D, and with the stored homography each marker corner gives one projector ray; the
-rays meet at the projector's optical centre, which is stored with the mapping. Needs a depth
-camera (kinect or realsense) and a mapping from the first step; re-running the first step clears
-the centre again.
+rays meet at the projector's optical centre, which is stored with the mapping. Needs a camera
+with depth on its colour image (depth_registered/image_raw in its entry's streams) and a mapping
+from the first step; re-running the first step clears the centre again.
 """
 
 from launch import LaunchDescription
@@ -85,7 +85,7 @@ def launch_setup(context):
         raise RuntimeError(f'[projection_calibration.launch]: projector_center:=true needs a '
                            f'camera with depth on its colour image ({DEPTH_REGISTERED_STREAM_NAME} '
                            f'in its entry\'s streams), but the camera is {camera}: run it with '
-                           f'e.g. camera:=kinect or camera:=realsense')
+                           f'camera:= set to a camera that offers it')
     fiducials_detector_node = Node(
         package='fiducials_detector',
         executable='fiducials_detector',
@@ -135,7 +135,7 @@ def generate_launch_description():
             'projector_center',
             default_value='false',
             description='true: find the projector centre with a raised board instead of fitting '
-                        'the homography. Needs a depth camera (kinect, realsense) and a stored '
-                        'mapping.'),
+                        'the homography. Needs a camera with depth on its colour image and a '
+                        'stored mapping.'),
         OpaqueFunction(function=launch_setup),
     ])

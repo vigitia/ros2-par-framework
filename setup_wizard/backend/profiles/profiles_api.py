@@ -111,7 +111,7 @@ def create_profile(request: NewProfileRequest) -> None:
     Create config/profiles/<name>.yaml without cameras and projector.
 
     The user adds them afterwards in the Cameras and Projectors areas; the profile names an empty
-    camera list, so par_setup.yaml's default camera is not taken over unnoticed (a launch refuses
+    camera list, so no camera of another parameter file is taken over unnoticed (a launch refuses
     the profile until it has a camera).
     """
     _check_new_profile_name(request.profile_name)

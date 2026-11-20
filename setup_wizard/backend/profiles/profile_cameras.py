@@ -205,8 +205,12 @@ def _remove_camera_from_sensor_node_lists(profile_name: str, launch_section: dic
         for listed_camera_name in listed_camera_names:
             if listed_camera_name != camera_name:
                 remaining_camera_names.append(listed_camera_name)
-        # An empty list equals par_setup.yaml's and leaves the profile
-        camera_list_by_sensor_node[sensor_node_name] = remaining_camera_names
+        # A node left on no camera leaves the profile (None removes its key): a missing key
+        # already means no camera
+        if remaining_camera_names:
+            camera_list_by_sensor_node[sensor_node_name] = remaining_camera_names
+        else:
+            camera_list_by_sensor_node[sensor_node_name] = None
     if camera_list_by_sensor_node:
         write_node_settings_into_profile(profile_name, PAR_LAUNCH_NODE_NAME,
                                          camera_list_by_sensor_node)

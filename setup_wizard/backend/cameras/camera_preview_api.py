@@ -24,7 +24,7 @@ from cameras.camera_launch_session import (check_camera_process_runs,
                                            start_camera_launch, stop_camera_launch)
 import cv2
 from fastapi import APIRouter, HTTPException, Response
-from profiles.profile_files import read_par_setup_node_settings, write_node_settings_into_profile
+from profiles.profile_files import read_default_node_settings, write_node_settings_into_profile
 from pydantic import BaseModel
 from rclpy.exceptions import InvalidTopicNameException
 from rclpy.node import NodeNameNonExistentError
@@ -176,14 +176,14 @@ def get_camera_preview_settings() -> CameraSettingsResponse:
     session = get_camera_launch_session()
     driver_node_name, parameter_client = get_driver_parameter_client(session)
     settings = read_node_settings(parameter_client)
-    # Simplification: a driver setting par_setup.yaml does not list gets no default, since the
-    # driver's own value is not known while it runs with the profile. Upgrade: read the driver once
-    # without a profile, as node_settings_api.py does for sensor nodes.
-    par_setup_value_by_name = read_par_setup_node_settings(driver_node_name)
+    # Simplification: a driver setting its camera type's parameters_file does not list gets no
+    # default, since the driver's own value is not known while it runs with the profile. Upgrade:
+    # read the driver once without a profile, as node_settings_api.py does for sensor nodes.
+    default_value_by_name = read_default_node_settings(driver_node_name)
     for node_setting in settings:
-        if node_setting.setting_name in par_setup_value_by_name:
+        if node_setting.setting_name in default_value_by_name:
             node_setting.has_default_value = True
-            node_setting.default_value = par_setup_value_by_name[node_setting.setting_name]
+            node_setting.default_value = default_value_by_name[node_setting.setting_name]
     with session.session_lock:
         profile_name = session.profile_name
         unsaved_setting_names = sorted(session.unsaved_setting_value_by_name)

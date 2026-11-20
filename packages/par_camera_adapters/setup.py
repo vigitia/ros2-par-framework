@@ -18,6 +18,8 @@ setup(
             glob('resource/par_framework_cameras/*')),
         ('share/' + package_name, ['package.xml']),
         ('share/' + package_name + '/launch', glob('launch/*.launch.py')),
+        # The camera types' default parameters (parameters_file in their entries)
+        ('share/' + package_name + '/config', glob('config/*.yaml')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,

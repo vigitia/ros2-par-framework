@@ -5,6 +5,8 @@ display_name: Webcam
 description: Any UVC camera through v4l2_camera.
 package: par_camera_adapters
 launch_file: camera_webcam.launch.py
+# Driver defaults the framework needs, loaded before par_setup.yaml and the profile
+parameters_file: config/webcam.yaml
 # The released driver this launch file starts, installed separately (config/required_ros_packages.list)
 required_packages: [v4l2_camera]
 body_frame: link

@@ -1,0 +1,29 @@
+# Written by Claude Code
+# Default parameters of the event camera type, named by parameters_file in its entry
+# (resource/par_framework_cameras/event). Loaded before par_setup.yaml and the profile, so both
+# override it. /cameras/*/ sections apply to every camera of the type; a profile overrides one
+# camera under /cameras/<camera>/...
+
+# Event camera (camera: event) through metavision_driver, started as /cameras/<camera>/event by
+# par_camera_adapters/launch/camera_event.launch.py. It publishes the raw events on /cameras/<camera>/events (event_camera_msgs/EventPacket)
+# only while something subscribes; /cameras/<camera>/event_renderer collects them into the camera images. No camera_info: the driver has no calibration. A SilkyEvCam needs its maker's OpenEB
+# plugin, in the version of the driver's bundled OpenEB, and MV_HAL_PLUGIN_PATH set in the shell (README). Needs
+# USB 3: on USB 2, changing a bias while events stream can abort the driver, and the camera then only opens again
+# after replugging. More options: ros2 param list /cameras/event/event.
+/cameras/*/event:
+  ros__parameters:
+    # The camera to open; empty opens the first one found. The driver logs the serial at start.
+    serial: ''
+    # Biases (contrast thresholds, filters), left out for the camera's defaults. Ranges depend on the sensor:
+    # ros2 param describe /cameras/event/event <bias>, e.g. on a Gen3.1 sensor bias_diff_on 374-499, bias_diff_off
+    # 100-234. They can also be changed while running, with ros2 param set.
+    # bias_diff_on: 400
+    # bias_diff_off: 200
+
+# Turns the event camera's events into its camera images.
+/cameras/*/event_renderer:
+  ros__parameters:
+    # Images per second; each collects the events since the one before.
+    fps: 25.0
+    # time_slice: all events between two images; sharp: adapts the number of events per image for sharper edges.
+    display_type: 'time_slice'

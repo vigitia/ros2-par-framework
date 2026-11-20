@@ -1,6 +1,6 @@
 # Co-authored by Claude Code: written by Claude Code, since edited by hand; Claude Code also added
 # the setup profiles (profile launch argument, merged parameter files, per-profile extrinsics,
-# per-unit Brio intrinsics, per-profile intrinsics and extrinsics), the PAR app entries in the
+# per-unit camera intrinsics, per-profile intrinsics and extrinsics), the PAR app entries in the
 # ament index, and the camera types registered there, each started by its own launch file
 """
 Start functions shared by the launch files of par_framework_core.
@@ -67,6 +67,12 @@ CAMERA_ENTRY_SERIAL_KEY = 'serial'
 # Optional: ROS packages the launch file starts besides its own package, e.g. a released driver an
 # entry in core starts; a camera type counts as installed when all of them are (default: none)
 CAMERA_ENTRY_REQUIRED_PACKAGES_KEY = 'required_packages'
+# Written with the help of Claude Code: optional, the type's default parameter file, relative to
+# share/<package>/ (e.g. config/realsense.yaml). Loaded before params_file and the profile, so both
+# override it; for third-party drivers, whose defaults the framework cannot set in their code
+CAMERA_ENTRY_PARAMETERS_FILE_KEY = 'parameters_file'
+# A relative path of plain name parts below the package's share folder, never leaving it
+RELATIVE_SHARE_PATH_PATTERN = re.compile(r'[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*')
 CAMERA_SERIAL_SOURCES = ('none', 'typed', 'listed')
 CAMERA_SERIAL_SOURCE_NONE = 'none'
 CAMERA_SERIAL_SOURCE_LISTED = 'listed'
@@ -340,10 +346,13 @@ def read_profile_cameras(context):
             camera_unit_text_by_name = launch_parameters[PAR_LAUNCH_CAMERAS_KEY]
             cameras_source_path = params_file_path
     if not isinstance(camera_unit_text_by_name, dict) or not camera_unit_text_by_name:
-        raise RuntimeError(f'[launch_helpers]: no cameras: map each camera\'s name to its unit in '
-                           f'par_launch.{PAR_LAUNCH_CAMERAS_KEY} of the profile, e.g. '
-                           f"{PAR_LAUNCH_CAMERAS_KEY}: {{overhead: 'blackfly:22260470'}}, or pass "
-                           f'camera:=<type>[:<serial>]')
+        # Written with the help of Claude Code: par_setup.yaml names no camera, so this is
+        # where a launch without profile:= ends up
+        raise RuntimeError(f'[launch_helpers]: no cameras: pass profile:=<name> (the setup '
+                           f'wizard, ./scripts/start_setup_wizard.sh, creates one), map each '
+                           f'camera name to its unit in par_launch.{PAR_LAUNCH_CAMERAS_KEY} of '
+                           f'the profile, e.g. {PAR_LAUNCH_CAMERAS_KEY}: {{overhead: '
+                           f'"blackfly:22260470"}}, or pass camera:=<type>[:<serial>]')
 
     profile_cameras = []
     for camera_name, camera_unit_text in camera_unit_text_by_name.items():
@@ -603,7 +612,7 @@ def check_camera_entry(entry, error_start_text):
     required_keys = CAMERA_ENTRY_TEXT_KEYS + CAMERA_ENTRY_NAME_KEYS + other_keys
     optional_keys = (CAMERA_ENTRY_REQUIRED_PACKAGES_KEY, CAMERA_ENTRY_SERIAL_KEY,
                      CAMERA_ENTRY_USB_SERIAL_BASE_KEY, CAMERA_ENTRY_USB_PRODUCT_ID_KEY,
-                     *CAMERA_ENTRY_UNIT_LOOKUP_KEYS)
+                     CAMERA_ENTRY_PARAMETERS_FILE_KEY, *CAMERA_ENTRY_UNIT_LOOKUP_KEYS)
     known_keys = required_keys + optional_keys
     unknown_keys = sorted(set(entry) - set(known_keys))
     if unknown_keys:
@@ -644,8 +653,39 @@ def check_camera_entry(entry, error_start_text):
         raise RuntimeError(f'{error_start_text}: {CAMERA_ENTRY_REQUIRED_PACKAGES_KEY} must be a '
                            f'list of ROS package names, e.g. [v4l2_camera]')
     checked_entry[CAMERA_ENTRY_REQUIRED_PACKAGES_KEY] = list(required_package_names)
+    parameters_file_relative_path = entry.get(CAMERA_ENTRY_PARAMETERS_FILE_KEY)
+    if parameters_file_relative_path is not None:
+        is_relative_share_path = (
+            isinstance(parameters_file_relative_path, str)
+            and RELATIVE_SHARE_PATH_PATTERN.fullmatch(parameters_file_relative_path)
+            and '..' not in parameters_file_relative_path.split('/'))
+        if not is_relative_share_path:
+            raise RuntimeError(f'{error_start_text}: {CAMERA_ENTRY_PARAMETERS_FILE_KEY} must be '
+                               f'a path below the package\'s share folder, e.g. '
+                               f'config/realsense.yaml')
+    checked_entry[CAMERA_ENTRY_PARAMETERS_FILE_KEY] = parameters_file_relative_path
     checked_entry.update(_check_camera_entry_serial_keys(entry, error_start_text))
     return checked_entry
+
+
+# Written by Claude Code
+def get_camera_type_params_file_paths(camera_entry):
+    """
+    Return the camera type's default parameter file as a list: one path, or none without one.
+
+    Raises RuntimeError naming the fix when the entry names a file that is not installed.
+    """
+    parameters_file_relative_path = camera_entry[CAMERA_ENTRY_PARAMETERS_FILE_KEY]
+    if parameters_file_relative_path is None:
+        return []
+    package_share_path = get_package_share_directory(camera_entry['package'])
+    parameters_file_path = os.path.join(package_share_path, parameters_file_relative_path)
+    if not os.path.isfile(parameters_file_path):
+        raise RuntimeError(f'[launch_helpers]: the camera entry names {parameters_file_path} as '
+                           f'{CAMERA_ENTRY_PARAMETERS_FILE_KEY}, which is not installed: install '
+                           f'it in the setup.py data_files of {camera_entry["package"]} and run '
+                           f'./scripts/local_build.sh')
+    return [parameters_file_path]
 
 
 # Written by Claude Code
@@ -743,7 +783,10 @@ def create_camera_actions(context, profile_camera):
         'camera_name': camera_name,
         'serial': serial,
         'camera_info_url': camera_info_url,
-        'params_files': os.pathsep.join(get_params_file_paths(context)),
+        # Written with the help of Claude Code: the type's defaults first, so the parameter files
+        # override them
+        'params_files': os.pathsep.join(get_camera_type_params_file_paths(camera_entry)
+                                        + get_params_file_paths(context)),
     }
     return [IncludeLaunchDescription(PythonLaunchDescriptionSource(launch_file_path),
                                      launch_arguments=camera_launch_arguments.items()),
@@ -799,7 +842,7 @@ def get_camera_info_file_name_of_unit(camera, serial):
 # named after the camera
 def create_optical_frame_tf_publisher(camera_name, namespace):
     """Create the publisher of <camera_name>_link -> <camera_name>_optical_frame in namespace."""
-    # What the Brio node publishes itself: OPTICAL_FRAME_ROTATION_QUATERNION_XYZW
+    # The standard optical frame rotation (REP 103), as drivers that publish it themselves use
     transform_arguments = ['--frame-id', f'{camera_name}_link',
                            '--child-frame-id', f'{camera_name}_optical_frame']
     for axis, quaternion_component in zip('xyzw', OPTICAL_FRAME_ROTATION_QUATERNION_XYZW):

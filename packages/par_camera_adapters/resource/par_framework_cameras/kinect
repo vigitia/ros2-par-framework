@@ -5,6 +5,8 @@ display_name: Azure Kinect
 description: Depth camera through azure_kinect_ros_driver, with its factory calibration.
 package: par_camera_adapters
 launch_file: camera_kinect.launch.py
+# Driver defaults the framework needs, loaded before par_setup.yaml and the profile
+parameters_file: config/kinect.yaml
 # The driver's own body frame, x forward and z up
 # The released driver this launch file starts, installed separately (config/required_ros_packages.list)
 required_packages: [azure_kinect_ros_driver]

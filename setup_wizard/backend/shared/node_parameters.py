@@ -59,9 +59,9 @@ class NodeSetting(BaseModel):
     # fixed format, so it is shown as a hint, empty without one.
     additional_constraints: str = ''
     is_read_only: bool
-    # What "Reset to default" sets: par_setup.yaml's value for a camera driver, the node's own
-    # value without a profile for a sensor node or app; has_default_value is False when it is not
-    # known
+    # What "Reset to default" sets: the camera type's parameters_file value for a camera driver,
+    # the node's own value without a profile for a sensor node or app; has_default_value is False
+    # when it is not known
     has_default_value: bool = False
     default_value: bool | int | float | str | list | None = None
 

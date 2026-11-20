@@ -1,0 +1,33 @@
+# Written by Claude Code
+# Default parameters of the blackfly camera type, named by parameters_file in its entry
+# (resource/par_framework_cameras/blackfly). Loaded before par_setup.yaml and the profile, so both
+# override it. /cameras/*/ sections apply to every camera of the type; a profile overrides one
+# camera under /cameras/<camera>/...
+
+# FLIR Blackfly S (camera: blackfly), e.g. the monochrome BFS-U3-23S3M-C, through spinnaker_camera_driver;
+# par_camera_adapters/launch/camera_blackfly.launch.py starts it as /cameras/<camera>/blackfly. A monochrome model publishes mono8
+# frames.
+# More options: ros2 param list /cameras/blackfly/blackfly. USB3 models need a larger USB buffer than Linux's default
+# (usbcore.usbfs_memory_mb, e.g. 1000), otherwise frames are dropped at high frame rates.
+/cameras/*/blackfly:
+  ros__parameters:
+    exposure_auto: 'Off'
+    exposure_time: 300.0
+    gain_auto: 'Off'
+    gain: 18.0
+    frame_rate_auto: 'Off'
+    frame_rate_enable: true
+    frame_rate: 158.0
+    # Frames the driver holds between the camera and publishing:
+    # 1 publishes only the newest, for the lowest latency.
+    buffer_queue_size: 1
+    # 2x2 binning: a quarter of the pixels, brighter, but pixel coordinates (corners, intrinsics) change with it.
+    # Binning and image size are set explicitly, because the camera keeps them until it loses power, the driver
+    # sets only listed parameters, and switching binning back off does not enlarge the image again. Both take
+    # effect only at driver start, not at runtime. The size is the sensor's full size divided by the binning.
+    binning_x: 1
+    binning_y: 1
+    offset_x: 0
+    offset_y: 0
+    image_width: 1920
+    image_height: 1200

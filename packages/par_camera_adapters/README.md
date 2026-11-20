@@ -30,7 +30,7 @@ ament_index par_framework_cameras blackfly    # its entry
 An event camera reports brightness changes per pixel instead of frames. A camera of type `event`
 (`cameras: {event: event}`, or `camera:=event`) starts like the other cameras, through the released
 `metavision_driver` (OpenEB) as `/cameras/<name>/event`, with its settings under `/cameras/*/event` in
-`par_setup.yaml`. Next to it, `event_camera_renderer` (`/cameras/<name>/event_renderer`) collects the events into
+`config/event.yaml`. Next to it, `event_camera_renderer` (`/cameras/<name>/event_renderer`) collects the events into
 `bgr8` images on `/cameras/<name>/image_raw`, at `fps` per second, and reads events only while something subscribes
 to the images. The raw events are on `/cameras/<name>/events` for nodes that want them. The driver publishes no `camera_info`, so the
 event camera has no intrinsics, and nothing that needs them (`pixels_to_table`, the frustum in RViz) works with it.

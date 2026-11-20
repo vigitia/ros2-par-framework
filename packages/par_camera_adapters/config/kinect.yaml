@@ -1,0 +1,32 @@
+# Written by Claude Code
+# Default parameters of the kinect camera type, named by parameters_file in its entry
+# (resource/par_framework_cameras/kinect). Loaded before par_setup.yaml and the profile, so both
+# override it. /cameras/*/ sections apply to every camera of the type; a profile overrides one
+# camera under /cameras/<camera>/...
+
+# Azure Kinect driver, started in /cameras/<camera> by par_camera_adapters/launch/camera_kinect.launch.py. The node sets this name in
+# code. Its frames are prefixed with the camera's name (tf_prefix, set by the launch file): kinect_camera_base, ...
+/cameras/*/k4a_ros_device_node:
+  ros__parameters:
+    # Serial number of the Kinect to open. Empty: the first one found.
+    sensor_sn: ""
+    # Colour camera. bgra is needed for the coloured point cloud; 1080P is 1920x1080
+    # like the Brio.
+    color_enabled: true
+    color_format: bgra
+    color_resolution: 1080P
+    # NFOV_UNBINNED: 640x576, 75x65 deg, 0.5-3.9 m, the finest depth at 30 fps, but check that
+    # its view covers the whole projection area (its corners are cut off). WFOV_2X2BINNED:
+    # 512x512, 120x120 deg, coarser but less noisy, 30 fps. WFOV_UNBINNED: 1024x1024, 120x120
+    # deg, at most 15 fps.
+    depth_enabled: true
+    depth_mode: WFOV_2X2BINNED
+    # 5, 15 or 30, for both cameras. 30 halves the delay of the projection mask.
+    fps: 30
+    # Coloured point cloud on /points2. In the depth frame it has the depth resolution
+    # (~370k points) instead of the colour resolution (~2M points), which RViz handles
+    # far better. Off for now: with all detectors running it saturates the CPU; turn
+    # both on again (and the RViz display) when needed.
+    point_cloud: false
+    rgb_point_cloud: false
+    point_cloud_in_depth_frame: true

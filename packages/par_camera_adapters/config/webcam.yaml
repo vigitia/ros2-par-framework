@@ -1,0 +1,20 @@
+# Written by Claude Code
+# Default parameters of the webcam camera type, named by parameters_file in its entry
+# (resource/par_framework_cameras/webcam). Loaded before par_setup.yaml and the profile, so both
+# override it. /cameras/*/ sections apply to every camera of the type; a profile overrides one
+# camera under /cameras/<camera>/...
+
+# Camera: Generic webcam (camera: webcam), any UVC camera through v4l2_camera, started as
+# /cameras/<camera>/webcam_node by par_camera_adapters/launch/camera_webcam.launch.py. The type's defaults are under /cameras/*/...
+# (every camera of the type); a profile overrides one camera under /cameras/<camera>/... Within one file the later
+# section wins, so a /cameras/*/ section must come before any exact section of the same node.
+# The camera's own controls (exposure, focus, ...) depend on the actual camera. Find available parameters with:
+# ros2 param list /cameras/webcam/webcam_node
+/cameras/*/webcam_node:
+  ros__parameters:
+    # Find it with: v4l2-ctl --list-devices. A /dev/v4l/by-id path stays the same across replugs.
+    video_device: /dev/video0
+    # Must be a size the camera offers in pixel_format: v4l2-ctl -d <device> --list-formats-ext
+    image_size: [640, 480]
+    pixel_format: YUYV
+    output_encoding: bgr8
