@@ -1,5 +1,5 @@
 # Written by Claude Code
-"""Republish framework outputs as RViz markers: objects, hands, fiducials, pages, projection."""
+"""Republish framework outputs and the camera frustum as RViz markers."""
 
 from geometry_msgs.msg import Point
 import numpy as np
@@ -33,6 +33,7 @@ TOPIC_NAME_PAGES = 'pages'
 TOPIC_NAME_PAGE_MARKERS = 'pages/markers'
 TOPIC_NAME_PROJECTION_MAPPING = 'projection_mapping'
 TOPIC_NAME_MAPPING_MARKERS = 'projection_mapping/markers'
+TOPIC_NAME_CAMERA_FRUSTUM_MARKERS = 'camera_frustum/markers'
 # The tabletop is the plane z = 0 of this frame
 TABLE_FRAME_ID = 'world'
 # The corner fields of a ProjectionCorners message, in drawing order
@@ -58,12 +59,16 @@ PROJECTOR_OUTLINE_HEIGHT_M = 0.0015
 PROJECTOR_COLOR = ColorRGBA(r=1.0, g=0.2, b=0.8, a=1.0)
 # Diameter of the sphere at the projector's optical centre, from which the light cone starts
 PROJECTOR_CENTER_DIAMETER_M = 0.03
+# The camera's field of view: lines from its optical centre to where the image corners meet the
+# table, and the image's outline there. Grey, as the camera is setup, not a detection
+CAMERA_FRUSTUM_COLOR = ColorRGBA(r=0.7, g=0.7, b=0.7, a=1.0)
+CAMERA_FRUSTUM_OUTLINE_HEIGHT_M = 0.0005
 # Hands are drawn where their landmarks' camera rays hit the table, like a shadow straight below
 # the camera, just above the object outlines
 HAND_HEIGHT_M = 0.003
 HAND_JOINT_DIAMETER_M = 0.008
-HAND_COLORS = {'Left': ColorRGBA(r=1.0, g=0.6, b=0.1, a=1.0),
-               'Right': ColorRGBA(r=0.9, g=0.2, b=0.9, a=1.0)}
+# One colour for every hand, whichever side; the label names the side
+HAND_COLOR = ColorRGBA(r=1.0, g=0.6, b=0.1, a=1.0)
 NUM_HAND_LANDMARKS = 21
 # Pairs of landmark ids forming the bones, as mediapipe's
 # HandLandmarksConnections.HAND_CONNECTIONS; copied, so rviz_bridge does not need mediapipe
@@ -74,7 +79,7 @@ HAND_CONNECTIONS = ((0, 1), (1, 2), (2, 3), (3, 4),  # thumb
                     (13, 14), (14, 15), (15, 16),  # ring finger
                     (0, 17), (17, 18), (18, 19), (19, 20),  # pinky
                     (5, 9), (9, 13), (13, 17))  # palm
-# Fiducials lie flat on the table like the objects; yellow, as orange is the left hand
+# Fiducials lie flat on the table like the objects; yellow, as orange is the hands
 FIDUCIAL_COLOR = ColorRGBA(r=1.0, g=0.85, b=0.1, a=1.0)
 # Pages lie on the table, just below the fiducials printed on them
 PAGE_HEIGHT_M = 0.0018
@@ -83,6 +88,15 @@ PAGE_COLOR = ColorRGBA(r=0.1, g=0.9, b=0.9, a=1.0)
 # projection area and the projector outline are redrawn periodically
 CALIBRATION_REDRAW_INTERVAL_SEC = 1.0
 WARNING_THROTTLE_PERIOD_SEC = 5.0
+# The id of the markers clearing a namespace. RViz rejects two markers with the same namespace
+# and id in one MarkerArray, and detections are numbered from 0, so the clearing marker takes an
+# id no detection has
+DELETE_ALL_MARKER_ID = -1
+# The marker kinds each detection handler draws, cleared together before each new frame
+OBJECT_MARKER_KINDS = ('center', 'outline', 'label')
+HAND_MARKER_KINDS = ('hand_joints', 'hand_bones', 'hand_label')
+FIDUCIAL_MARKER_KINDS = ('fiducial_outline', 'fiducial_direction', 'fiducial_label')
+PAGE_MARKER_KINDS = ('page_outline', 'page_label')
 
 # Camera streams are published best effort; a reliable subscriber would receive nothing
 CAMERA_INFO_QOS = QoSProfile(reliability=QoSReliabilityPolicy.BEST_EFFORT,
@@ -101,6 +115,9 @@ class RvizBridgeNode(Node):
     def __init__(self):
         super().__init__(NODE_NAME)
         self.camera_info = None
+        # Every camera's bridge publishes onto the same marker topics; the camera name in the
+        # marker namespaces keeps their markers apart. Its own namespace is /cameras/<camera name>
+        self.camera_name = self.get_namespace().rsplit('/', 1)[-1]
         self.projection_corners = None
         self.projection_mapping = None
         self.tf_buffer = Buffer()
@@ -112,6 +129,7 @@ class RvizBridgeNode(Node):
         # Periodically send projection_area and projector_outline
         self.create_timer(CALIBRATION_REDRAW_INTERVAL_SEC, self.publish_projection_area)
         self.create_timer(CALIBRATION_REDRAW_INTERVAL_SEC, self.publish_projector_outline)
+        self.create_timer(CALIBRATION_REDRAW_INTERVAL_SEC, self.publish_camera_frustum)
 
     def _create_subscriptions(self):
         self.camera_info_subscription = self.create_subscription(
@@ -143,6 +161,8 @@ class RvizBridgeNode(Node):
         self.mapping_marker_publisher = self.create_publisher(MarkerArray,
                                                               TOPIC_NAME_MAPPING_MARKERS,
                                                               QUEUE_SIZE)
+        self.camera_frustum_marker_publisher = self.create_publisher(
+            MarkerArray, TOPIC_NAME_CAMERA_FRUSTUM_MARKERS, QUEUE_SIZE)
 
     def on_camera_info(self, msg):
         self.camera_info = msg
@@ -181,17 +201,20 @@ class RvizBridgeNode(Node):
                          for x, y in table_corners_m]
         header = Header(stamp=self.get_clock().now().to_msg(),
                         frame_id=projection_mapping_msg.header.frame_id)
-        outline_marker = Marker(header=header, ns='projector_outline', id=0,
+        outline_marker = Marker(header=header, ns=self._get_marker_namespace('projector_outline'),
+                                id=0,
                                 type=Marker.LINE_STRIP, color=PROJECTOR_COLOR,
                                 points=corner_points + corner_points[:1])
         outline_marker.scale.x = LINE_WIDTH_M
-        center_marker = Marker(header=header, ns='projector_center', id=0, type=Marker.SPHERE,
+        center_marker = Marker(header=header, ns=self._get_marker_namespace('projector_center'),
+                               id=0, type=Marker.SPHERE,
                                color=PROJECTOR_COLOR)
         center_marker.scale.x = PROJECTOR_CENTER_DIAMETER_M
         center_marker.scale.y = PROJECTOR_CENTER_DIAMETER_M
         center_marker.scale.z = PROJECTOR_CENTER_DIAMETER_M
         # One line from the optical centre to each image corner: the edges of the light cone
-        cone_marker = Marker(header=header, ns='projector_cone', id=0, type=Marker.LINE_LIST,
+        cone_marker = Marker(header=header, ns=self._get_marker_namespace('projector_cone'),
+                             id=0, type=Marker.LINE_LIST,
                              color=PROJECTOR_COLOR)
         cone_marker.scale.x = LINE_WIDTH_M
         if projection_mapping_msg.projector_center_valid:
@@ -215,7 +238,7 @@ class RvizBridgeNode(Node):
 
         markers = MarkerArray()
         # Removes the previous frame's markers first, so objects that are gone disappear
-        markers.markers.append(Marker(action=Marker.DELETEALL))
+        markers.markers += self._create_delete_all_markers(OBJECT_MARKER_KINDS)
         header = Header(stamp=msg.header.stamp, frame_id=TABLE_FRAME_ID)
         for detected_object in msg.objects:
             object_id = detected_object.object_id
@@ -230,7 +253,8 @@ class RvizBridgeNode(Node):
                 center_3d = detected_object.center_3d
                 center_camera_m = np.array([center_3d.x, center_3d.y, center_3d.z])
                 x, y, z = center_camera_m @ rotation.T + translation_m
-                center_marker = Marker(header=header, ns='center', id=object_id,
+                center_marker = Marker(header=header, ns=self._get_marker_namespace('center'),
+                                       id=object_id,
                                        type=Marker.SPHERE, color=OBJECT_OUTLINE_COLOR)
                 center_marker.scale.x = OBJECT_CENTER_DIAMETER_M
                 center_marker.scale.y = OBJECT_CENTER_DIAMETER_M
@@ -252,7 +276,8 @@ class RvizBridgeNode(Node):
                     continue
                 outline_table_m[:, 2] = OUTLINE_HEIGHT_M
 
-            outline_marker = Marker(header=header, ns='outline', id=object_id,
+            outline_marker = Marker(header=header, ns=self._get_marker_namespace('outline'),
+                                    id=object_id,
                                     type=Marker.LINE_STRIP, color=OBJECT_OUTLINE_COLOR)
             outline_marker.scale.x = LINE_WIDTH_M
             # Repeating the first point closes the outline
@@ -260,7 +285,8 @@ class RvizBridgeNode(Node):
             outline_marker.points = [Point(x=x, y=y, z=z) for x, y, z in closed_outline_m]
 
             label_anchor_m = outline_table_m.mean(axis=0)
-            label_marker = Marker(header=header, ns='label', id=object_id,
+            label_marker = Marker(header=header, ns=self._get_marker_namespace('label'),
+                                  id=object_id,
                                   type=Marker.TEXT_VIEW_FACING, color=LABEL_COLOR,
                                   # No space: RViz draws it far too wide at this text size
                                   text=f'{detected_object.class_name}#{object_id}')
@@ -280,7 +306,7 @@ class RvizBridgeNode(Node):
 
         markers = MarkerArray()
         # Removes the previous frame's markers first, so hands that are gone disappear
-        markers.markers.append(Marker(action=Marker.DELETEALL))
+        markers.markers += self._create_delete_all_markers(HAND_MARKER_KINDS)
         header = Header(stamp=msg.header.stamp, frame_id=TABLE_FRAME_ID)
         for hand in msg.hands:
             # One entry per landmark, None where it has no position
@@ -310,10 +336,10 @@ class RvizBridgeNode(Node):
             positioned_points = [point for point in landmark_points if point is not None]
             if not positioned_points:
                 continue
-            hand_color = HAND_COLORS.get(hand.handedness, LABEL_COLOR)
 
-            joints_marker = Marker(header=header, ns='hand_joints', id=hand.id,
-                                   type=Marker.SPHERE_LIST, color=hand_color,
+            joints_marker = Marker(header=header, ns=self._get_marker_namespace('hand_joints'),
+                                   id=hand.id,
+                                   type=Marker.SPHERE_LIST, color=HAND_COLOR,
                                    points=positioned_points)
             joints_marker.scale.x = HAND_JOINT_DIAMETER_M
             joints_marker.scale.y = HAND_JOINT_DIAMETER_M
@@ -326,15 +352,17 @@ class RvizBridgeNode(Node):
                 end_point = landmark_points[end_id]
                 if start_point is not None and end_point is not None:
                     bone_points += [start_point, end_point]
-            bones_marker = Marker(header=header, ns='hand_bones', id=hand.id,
-                                  type=Marker.LINE_LIST, color=hand_color, points=bone_points)
+            bones_marker = Marker(header=header, ns=self._get_marker_namespace('hand_bones'),
+                                  id=hand.id,
+                                  type=Marker.LINE_LIST, color=HAND_COLOR, points=bone_points)
             bones_marker.scale.x = LINE_WIDTH_M
             # Above the wrist (landmark 0), or the first landmark with a position
             if landmark_points[0] is not None:
                 label_anchor = landmark_points[0]
             else:
                 label_anchor = positioned_points[0]
-            label_marker = Marker(header=header, ns='hand_label', id=hand.id,
+            label_marker = Marker(header=header, ns=self._get_marker_namespace('hand_label'),
+                                  id=hand.id,
                                   type=Marker.TEXT_VIEW_FACING, color=LABEL_COLOR,
                                   text=f'{hand.handedness}#{hand.id}')
             label_marker.scale.z = TEXT_HEIGHT_M
@@ -355,7 +383,7 @@ class RvizBridgeNode(Node):
 
         markers = MarkerArray()
         # Removes the previous frame's markers first, so fiducials that are gone disappear
-        markers.markers.append(Marker(action=Marker.DELETEALL))
+        markers.markers += self._create_delete_all_markers(FIDUCIAL_MARKER_KINDS)
         header = Header(stamp=msg.header.stamp, frame_id=TABLE_FRAME_ID)
         for fiducial in msg.fiducials:
             # OpenCV's corner order: clockwise from the marker's top left
@@ -377,7 +405,9 @@ class RvizBridgeNode(Node):
             corner_points = [Point(x=x, y=y, z=z) for x, y, z in corners_table_m]
             center_m = corners_table_m.mean(axis=0)
 
-            outline_marker = Marker(header=header, ns='fiducial_outline', id=fiducial.id,
+            outline_marker = Marker(header=header,
+                                    ns=self._get_marker_namespace('fiducial_outline'),
+                                    id=fiducial.id,
                                     type=Marker.LINE_STRIP, color=FIDUCIAL_COLOR,
                                     points=corner_points + corner_points[:1])
             outline_marker.scale.x = LINE_WIDTH_M
@@ -387,11 +417,14 @@ class RvizBridgeNode(Node):
             direction_points = [Point(x=center_m[0], y=center_m[1], z=center_m[2]),
                                 Point(x=top_edge_middle_m[0], y=top_edge_middle_m[1],
                                       z=top_edge_middle_m[2])]
-            direction_marker = Marker(header=header, ns='fiducial_direction', id=fiducial.id,
+            direction_marker = Marker(header=header,
+                                      ns=self._get_marker_namespace('fiducial_direction'),
+                                      id=fiducial.id,
                                       type=Marker.LINE_LIST, color=FIDUCIAL_COLOR,
                                       points=direction_points)
             direction_marker.scale.x = LINE_WIDTH_M
-            label_marker = Marker(header=header, ns='fiducial_label', id=fiducial.id,
+            label_marker = Marker(header=header, ns=self._get_marker_namespace('fiducial_label'),
+                                  id=fiducial.id,
                                   type=Marker.TEXT_VIEW_FACING, color=LABEL_COLOR,
                                   # No space: RViz draws it far too wide at this text size
                                   text=f'#{fiducial.id}')
@@ -413,7 +446,7 @@ class RvizBridgeNode(Node):
 
         markers = MarkerArray()
         # Removes the previous frame's markers first, so pages that are gone disappear
-        markers.markers.append(Marker(action=Marker.DELETEALL))
+        markers.markers += self._create_delete_all_markers(PAGE_MARKER_KINDS)
         header = Header(stamp=msg.header.stamp, frame_id=TABLE_FRAME_ID)
         for page in msg.pages:
             # Paper lies on the table, so the table plane is where its corners are, with or
@@ -428,11 +461,13 @@ class RvizBridgeNode(Node):
             corner_points = [Point(x=x, y=y, z=z) for x, y, z in corners_table_m]
             center_m = corners_table_m.mean(axis=0)
 
-            outline_marker = Marker(header=header, ns='page_outline', id=page.id,
+            outline_marker = Marker(header=header, ns=self._get_marker_namespace('page_outline'),
+                                    id=page.id,
                                     type=Marker.LINE_STRIP, color=PAGE_COLOR,
                                     points=corner_points + corner_points[:1])
             outline_marker.scale.x = LINE_WIDTH_M
-            label_marker = Marker(header=header, ns='page_label', id=page.id,
+            label_marker = Marker(header=header, ns=self._get_marker_namespace('page_label'),
+                                  id=page.id,
                                   type=Marker.TEXT_VIEW_FACING, color=LABEL_COLOR,
                                   # No space: RViz draws it far too wide at this text size
                                   text=f'page#{page.id}')
@@ -482,7 +517,8 @@ class RvizBridgeNode(Node):
                          for x, y, _ in corners_table_m]
         header = Header(stamp=self.get_clock().now().to_msg(), frame_id=TABLE_FRAME_ID)
 
-        outline_marker = Marker(header=header, ns='projection_area', id=0,
+        outline_marker = Marker(header=header, ns=self._get_marker_namespace('projection_area'),
+                                id=0,
                                 type=Marker.LINE_STRIP, color=PROJECTION_AREA_OUTLINE_COLOR,
                                 points=corner_points + corner_points[:1])
         outline_marker.scale.x = LINE_WIDTH_M
@@ -490,7 +526,7 @@ class RvizBridgeNode(Node):
         # top_left, bottom_right, bottom_left
         top_left, top_right, bottom_right, bottom_left = corner_points
         triangle_points = [top_left, top_right, bottom_right, top_left, bottom_right, bottom_left]
-        fill_marker = Marker(header=header, ns='projection_area', id=1,
+        fill_marker = Marker(header=header, ns=self._get_marker_namespace('projection_area'), id=1,
                              type=Marker.TRIANGLE_LIST, color=PROJECTION_AREA_FILL_COLOR,
                              points=triangle_points)
         fill_marker.scale.x = 1.0
@@ -500,6 +536,59 @@ class RvizBridgeNode(Node):
         for marker in area_markers:
             marker.pose.orientation.w = 1.0
         self.area_marker_publisher.publish(MarkerArray(markers=area_markers))
+
+    def publish_camera_frustum(self):
+        """
+        Draw the camera's field of view down to the table.
+
+        A marker rather than RViz's CameraInfo display, whose edges disappear from some viewing
+        angles and which cannot end at the table.
+        """
+        camera_info = self.camera_info
+        if camera_info is None:
+            return
+        camera_parameters = self._get_camera_parameters(camera_info.header.frame_id,
+                                                        'camera frustum')
+        if camera_parameters is None:
+            return
+        _, _, _, optical_center_m = camera_parameters
+        image_corners_px = [(0, 0), (camera_info.width, 0),
+                            (camera_info.width, camera_info.height), (0, camera_info.height)]
+        # A corner whose ray misses the table (a strongly tilted camera) gets no edge
+        table_corners_m = pixels_to_table(image_corners_px, *camera_parameters)
+        corner_points = [Point(x=x, y=y, z=CAMERA_FRUSTUM_OUTLINE_HEIGHT_M)
+                         for x, y, _ in table_corners_m]
+        optical_center_point = Point(x=optical_center_m[0], y=optical_center_m[1],
+                                     z=optical_center_m[2])
+        frustum_points = []
+        for corner_index, corner_point in enumerate(corner_points):
+            frustum_points.append(optical_center_point)
+            frustum_points.append(corner_point)
+            # The image outline on the table, only when all four corners reach it
+            if len(corner_points) == len(image_corners_px):
+                next_corner_point = corner_points[(corner_index + 1) % len(corner_points)]
+                frustum_points.append(corner_point)
+                frustum_points.append(next_corner_point)
+        header = Header(stamp=self.get_clock().now().to_msg(), frame_id=TABLE_FRAME_ID)
+        frustum_marker = Marker(header=header, ns=self._get_marker_namespace('camera_frustum'),
+                                id=0, type=Marker.LINE_LIST,
+                                color=CAMERA_FRUSTUM_COLOR, points=frustum_points)
+        frustum_marker.scale.x = LINE_WIDTH_M
+        frustum_marker.pose.orientation.w = 1.0
+        self.camera_frustum_marker_publisher.publish(MarkerArray(markers=[frustum_marker]))
+
+    def _get_marker_namespace(self, marker_kind):
+        """Return the marker namespace of a kind of marker for this camera, e.g. kinect/outline."""
+        return f'{self.camera_name}/{marker_kind}'
+
+    def _create_delete_all_markers(self, marker_kinds):
+        """Return markers deleting this camera's markers of these kinds, and no other camera's."""
+        delete_all_markers = []
+        for marker_kind in marker_kinds:
+            delete_all_markers.append(Marker(action=Marker.DELETEALL,
+                                             ns=self._get_marker_namespace(marker_kind),
+                                             id=DELETE_ALL_MARKER_ID))
+        return delete_all_markers
 
     def _get_camera_parameters(self, frame_id, subject):
         """

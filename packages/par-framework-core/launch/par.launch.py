@@ -19,8 +19,9 @@ Each of them can be overridden for one run, e.g. camera:=kinect rviz:=true hand_
 an argument left empty keeps the parameter file's value. camera:= starts one camera instead of all:
 a name of par_launch.cameras, or <type>[:<serial>] for a unit the profile does not name. Every
 camera gets its own projection calibration (/cameras/<name>/projection_mapping and
-projection_corners). RViz uses the first camera (the main camera) and its projection
-calibration; RViz also draws the frustum of every started camera. With a camera
+projection_corners). RViz shows the image of the first camera (the main camera) and, through
+one rviz_bridge per camera, every started camera's frustum, detections and projection
+calibration, all cameras in the same displays. With a camera
 that offers depth on its colour image's grid (depth_registered in its entry's streams) the
 detectors also use its depth. camera_only:=true starts just the cameras and their mount
 transforms, e.g. for a preview or a calibration. An event camera (event) delivers its events collected into images, and the raw events on
@@ -46,7 +47,6 @@ camera and what the projector app and every app of par_launch.apps need (the set
 sensor node run).
 """
 
-import copy
 import os
 import tempfile
 
@@ -61,7 +61,6 @@ from launch_ros.actions import Node, SetRemap
 from par_framework_core.camera_types import read_camera_entry
 from par_framework_core.launch_helpers import (create_camera_actions,
                                                create_camera_choice_launch_argument,
-                                               create_camera_stream_remappings,
                                                create_profile_launch_argument,
                                                create_projection_calibration_server_node,
                                                create_projector_display_id_launch_argument,
@@ -77,7 +76,6 @@ from par_framework_core.sensor_nodes import (get_sensor_node_name, get_sensor_no
                                              get_sensor_node_package_names,
                                              SENSOR_NODE_RESOURCE_TYPE)
 from par_framework_core.setup_files import get_installed_par_setup_path, read_launch_section
-import yaml
 
 PACKAGE_NAME = 'par_framework_core'
 # The node switches of par_launch, each also a launch argument that overrides it for one run: one
@@ -101,47 +99,31 @@ DETECTOR_PARAMETER_BY_CAMERA_STREAM = {
 RVIZ_CONFIG_FILE_NAME = 'par_framework.rviz'
 RVIZ_CAMERA_TOPIC_NAMES = (('/camera/image_raw', 'image_raw'),
                            ('/points2', 'points2'))
-# The configuration's frustum display is a template: each run gets one copy per started camera
-# with camera_info, as RViz draws one frustum per CameraInfo display
-RVIZ_FRUSTUM_DISPLAY_CLASS_NAME = 'rviz_default_plugins/CameraInfo'
-CAMERA_INFO_STREAM_NAME = 'camera_info'
+# Every camera's rviz_bridge publishes its markers onto the same topics, one RViz display each:
+# like an app, RViz shows objects, hands, fiducials and pages whichever camera they came from.
+# The marker namespaces carry the camera name. (name relative to the bridge's namespace, name RViz
+# reads)
+RVIZ_BRIDGE_MARKER_TOPIC_NAMES = (('camera_frustum/markers', '/camera_frustum/markers'),
+                                  ('projection_corners/markers', '/projection_corners/markers'),
+                                  ('projection_mapping/markers', '/projection_mapping/markers'),
+                                  ('objects/markers', '/objects/markers'),
+                                  ('hand_landmarks/markers', '/hand_landmarks/markers'),
+                                  ('fiducials/markers', '/fiducials/markers'),
+                                  ('pages/markers', '/pages/markers'))
 
 
-def write_rviz_config_with_camera_frustums(cameras_to_start):
-    """Write the RViz configuration with a frustum display per started camera; return its path."""
+def write_rviz_config_copy():
+    """Copy the RViz configuration to a temporary file; return its path."""
     rviz_template_path = os.path.join(get_package_share_directory(PACKAGE_NAME), 'config', 'rviz',
                                       RVIZ_CONFIG_FILE_NAME)
     with open(rviz_template_path) as rviz_template_file:
-        rviz_config = yaml.safe_load(rviz_template_file)
-    rviz_displays = rviz_config['Visualization Manager']['Displays']
-    frustum_display_index = None
-    for display_index, rviz_display in enumerate(rviz_displays):
-        if rviz_display['Class'] == RVIZ_FRUSTUM_DISPLAY_CLASS_NAME:
-            frustum_display_index = display_index
-            break
-    if frustum_display_index is None:
-        raise RuntimeError(f'[par.launch]: {rviz_template_path} has no '
-                           f'{RVIZ_FRUSTUM_DISPLAY_CLASS_NAME} display to copy for each camera: '
-                           f'add it again')
-    frustum_display_template = rviz_displays.pop(frustum_display_index)
-    camera_frustum_displays = []
-    for camera_to_start in cameras_to_start:
-        camera_stream_names = read_camera_entry(camera_to_start.camera_type)['streams']
-        # A camera without camera_info (an event camera) has no frustum to draw
-        if CAMERA_INFO_STREAM_NAME not in camera_stream_names:
-            continue
-        camera_frustum_display = copy.deepcopy(frustum_display_template)
-        camera_frustum_display['Name'] = (f'{frustum_display_template["Name"]} '
-                                          f'{camera_to_start.camera_name}')
-        camera_namespace = get_camera_namespace(camera_to_start.camera_name)
-        camera_frustum_display['Topic']['Value'] = f'{camera_namespace}/{CAMERA_INFO_STREAM_NAME}'
-        camera_frustum_displays.append(camera_frustum_display)
-    rviz_displays[frustum_display_index:frustum_display_index] = camera_frustum_displays
-    # Simplification: one small file per run is left in the temporary folder, and Ctrl+S in RViz
-    # saves there, not to the installed template. Upgrade: write to a fixed per-user path
+        rviz_config_text = rviz_template_file.read()
+    # A copy, so Ctrl+S in RViz cannot overwrite the installed template (with --symlink-install
+    # the source file). Simplification: one small file per run is left in the temporary folder.
+    # Upgrade: write to a fixed per-user path
     with tempfile.NamedTemporaryFile('w', prefix='par_framework_', suffix='.rviz',
                                      delete=False) as rviz_config_file:
-        yaml.safe_dump(rviz_config, rviz_config_file, sort_keys=False)
+        rviz_config_file.write(rviz_config_text)
         return rviz_config_file.name
 
 
@@ -418,28 +400,28 @@ def launch_setup(context):
     for camera_to_start in cameras_to_start:
         launch_actions += create_camera_actions(context, camera_to_start)
     if len(cameras_to_start) > 1:
-        launch_actions.append(LogInfo(msg=f'[par.launch]: RViz (image and markers) uses the '
-                                          f'main camera {main_camera_name} (the first of '
-                                          "par_launch.cameras); RViz draws every camera's "
-                                          'frustum'))
+        launch_actions.append(LogInfo(msg=f'[par.launch]: the RViz image is the main camera '
+                                          f'{main_camera_name} (the first of '
+                                          'par_launch.cameras); RViz draws the markers of '
+                                          'every camera in the same displays'))
 
     # Set for every framework node; nodes without a debug parameter ignore it
     debug_override = read_true_false_argument('debug')
 
-    def create_framework_node(package_name, parameter_overrides=None):
+    def create_rviz_bridge_node(camera_name):
+        """Create rviz_bridge in a camera's namespace, for the outputs of that camera's nodes."""
         node_parameters = list(params_file_paths)
-        if parameter_overrides:
-            node_parameters.append(parameter_overrides)
         if debug_override is not None:
             node_parameters.append({'debug': debug_override})
         return Node(
-            package=package_name,
-            executable=package_name,
-            name=f'{package_name}_node',
+            package='rviz_bridge',
+            executable='rviz_bridge',
+            name='rviz_bridge_node',
+            namespace=get_camera_namespace(camera_name),
             output='screen',
             emulate_tty=True,
             parameters=node_parameters,
-            remappings=create_camera_stream_remappings(main_camera_name),
+            remappings=list(RVIZ_BRIDGE_MARKER_TOPIC_NAMES),
         )
 
     def create_sensor_node(package_name, camera_name, parameter_overrides):
@@ -523,8 +505,9 @@ def launch_setup(context):
                                                  debug_override, app_input_remappings)
 
     if is_switch_enabled('rviz'):
-        launch_actions.append(create_framework_node('rviz_bridge'))
-        rviz_config_path = write_rviz_config_with_camera_frustums(cameras_to_start)
+        for camera_to_start in cameras_to_start:
+            launch_actions.append(create_rviz_bridge_node(camera_to_start.camera_name))
+        rviz_config_path = write_rviz_config_copy()
         rviz_remappings = []
         for configured_topic_name, camera_topic_name in RVIZ_CAMERA_TOPIC_NAMES:
             rviz_remappings.append((configured_topic_name,
@@ -532,7 +515,8 @@ def launch_setup(context):
         launch_actions.append(Node(
             package='rviz2',
             executable='rviz2',
-            arguments=['-d', rviz_config_path],
+            # A fixed title: RViz would show the temporary copy's path otherwise
+            arguments=['-d', rviz_config_path, '-t', 'PAR Framework - RViz2'],
             remappings=rviz_remappings,
         ))
     return launch_actions

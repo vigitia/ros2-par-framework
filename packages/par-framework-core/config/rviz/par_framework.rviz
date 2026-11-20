@@ -5,10 +5,10 @@
 # It takes care of displaying:
 # - world grid
 # - TF frames
-# - every camera's frustum (par.launch.py copies the CameraInfo display once per started camera,
-#   with the topic /cameras/<name>/camera_info)
-# - its live image
-# - the output of all published custom messages of the PAR framework (fiducials, objects, hand landmarks, etc.)
+# - the main camera's live image
+# - the markers of every started camera's rviz_bridge: camera frustums and the output of all published custom
+#   messages of the PAR framework (fiducials, objects, hand landmarks, etc.). par.launch.py remaps every
+#   bridge onto the same marker topics; each display's Namespaces list the cameras (e.g. kinect/outline)
 #
 Panels:
   - Class: rviz_common/Displays
@@ -27,22 +27,18 @@ Visualization Manager:
       Name: TF
       Marker Scale: 0.3
       Show Names: true
-    - Class: rviz_default_plugins/CameraInfo
+    # Written with the help of Claude Code: the camera's field of view down to the table, drawn by rviz_bridge;
+    # RViz's CameraInfo display loses its edges from some viewing angles
+    - Class: rviz_default_plugins/MarkerArray
       Enabled: true
       Name: Camera frustum
-      # Length of the frustum in metres along the optical axis. Longer than any expected camera height, so
-      # it passes through the table even when the camera is tilted; RViz cannot clip it at the table plane
-      Far clip: 2
-      # Edges only, opaque: Alpha applies to edges and polygons alike, and half-transparent shapes are sorted
-      # by distance instead of depth-tested, otherwise the far rectangle and the grid hide the lines from some angles
-      Show polygons: false
-      Alpha: 1
+      Namespaces: {}
       Topic:
-        Depth: 1
+        Depth: 10
         Durability Policy: Volatile
         History Policy: Keep Last
-        Reliability Policy: Best Effort
-        Value: /camera/camera_info
+        Reliability Policy: Reliable
+        Value: /camera_frustum/markers
     - Class: rviz_default_plugins/Image
       Enabled: true
       Name: Camera image

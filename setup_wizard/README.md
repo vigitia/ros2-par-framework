@@ -1,8 +1,6 @@
-<!-- Partly written by Claude Code -->
-
 # ROS2 PAR-Framework - Setup wizard
 
-
+> Readme written together with Claude Code. Comments in the Code indicate where Claude Code was used
 
 ![Wizard.png](assets/Wizard.png)
 
