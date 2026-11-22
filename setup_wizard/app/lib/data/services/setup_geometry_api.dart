@@ -1,7 +1,7 @@
 // Written by Claude Code
 //
 // The app's call to the backend's setup geometry (setup_wizard/backend/calibration/setup_geometry_api.py): where a profile's
-// cameras and projector are, in metres in world (the table plane is z = 0).
+// cameras and projector are, in metres in world (the surface plane is z = 0).
 
 import 'setup_wizard_backend_client.dart';
 
@@ -17,7 +17,7 @@ extension SetupGeometryApi on SetupWizardBackendClient {
 class WorldPointM {
   const WorldPointM({required this.xM, required this.yM, required this.zM});
 
-  /// From [x, y, z], or [x, y] on the table (z = 0).
+  /// From [x, y, z], or [x, y] on the surface (z = 0).
   factory WorldPointM.fromJson(List<dynamic> coordinatesJson) {
     double zM = 0;
     if (coordinatesJson.length > 2) {
@@ -61,8 +61,8 @@ class CameraGeometry {
     required this.isMainCamera,
     required this.isPoseMeasured,
     required this.positionM,
-    required this.opticalAxisTableHitM,
-    required this.tableFootprintM,
+    required this.opticalAxisSurfaceHitM,
+    required this.surfaceFootprintM,
   });
 
   factory CameraGeometry.fromJson(Map<String, dynamic> cameraJson) {
@@ -73,8 +73,8 @@ class CameraGeometry {
       isMainCamera: cameraJson['is_main_camera'] as bool,
       isPoseMeasured: cameraJson['is_pose_measured'] as bool,
       positionM: WorldPointM.fromJson(cameraJson['position_m'] as List<dynamic>),
-      opticalAxisTableHitM: _readOptionalPoint(cameraJson['optical_axis_table_hit_m']),
-      tableFootprintM: _readOptionalPoints(cameraJson['table_footprint_m']),
+      opticalAxisSurfaceHitM: _readOptionalPoint(cameraJson['optical_axis_surface_hit_m']),
+      surfaceFootprintM: _readOptionalPoints(cameraJson['surface_footprint_m']),
     );
   }
 
@@ -92,11 +92,11 @@ class CameraGeometry {
   final bool isPoseMeasured;
   final WorldPointM positionM;
 
-  /// Where the optical axis meets the table; null when it points away from it.
-  final WorldPointM? opticalAxisTableHitM;
+  /// Where the optical axis meets the surface; null when it points away from it.
+  final WorldPointM? opticalAxisSurfaceHitM;
 
-  /// The field of view's outline on the table; null without intrinsics (e.g. factory intrinsics).
-  final List<WorldPointM>? tableFootprintM;
+  /// The field of view's outline on the surface; null without intrinsics (e.g. factory intrinsics).
+  final List<WorldPointM>? surfaceFootprintM;
 }
 
 class ProjectorGeometry {
@@ -109,7 +109,7 @@ class ProjectorGeometry {
     );
   }
 
-  /// The projector image's corners on the table.
+  /// The projector image's corners on the surface.
   final List<WorldPointM> projectionAreaM;
 
   /// The projector's optical centre; null until measured.
@@ -153,7 +153,7 @@ class SetupGeometry {
   /// null without a projection mapping of the selected camera.
   final ProjectorGeometry? projector;
 
-  /// Left to right as seen from the front: a unit [x, y] on the table, along the projected image's rows.
+  /// Left to right as seen from the front: a unit [x, y] on the surface, along the projected image's rows.
   final List<double> frontViewRightDirection;
 
   /// What frontViewRightDirection follows, e.g. 'the projected image'.

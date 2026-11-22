@@ -133,7 +133,7 @@ class CameraPoseSummary {
     required this.isMeasured,
     required this.poseFileErrorText,
     required this.measuredText,
-    required this.heightAboveTableM,
+    required this.heightAboveSurfaceM,
     required this.tiltFromVerticalDeg,
     required this.qualityFigureByName,
   });
@@ -148,7 +148,7 @@ class CameraPoseSummary {
       isMeasured: poseJson['is_measured'] as bool,
       poseFileErrorText: poseJson['pose_file_error_text'] as String,
       measuredText: poseJson['measured_text'] as String,
-      heightAboveTableM: (poseJson['height_above_table_m'] as num?)?.toDouble(),
+      heightAboveSurfaceM: (poseJson['height_above_surface_m'] as num?)?.toDouble(),
       tiltFromVerticalDeg: (poseJson['tilt_from_vertical_deg'] as num?)?.toDouble(),
       qualityFigureByName: qualityFigureByName,
     );
@@ -162,7 +162,7 @@ class CameraPoseSummary {
 
   /// When it was measured, as the file says (an ISO time or a hand-written note).
   final String measuredText;
-  final double? heightAboveTableM;
+  final double? heightAboveSurfaceM;
 
   /// Angle between the camera's viewing direction and straight down.
   final double? tiltFromVerticalDeg;
@@ -208,7 +208,7 @@ class ProjectionMappingSummary {
   final int? projectorHeightPx;
   final bool hasProjectorCenter;
 
-  /// Measured before the current camera pose, i.e. on the old table plane: calibrate again.
+  /// Measured before the current camera pose, i.e. on the old surface plane: calibrate again.
   final bool isOlderThanCameraPose;
 }
 

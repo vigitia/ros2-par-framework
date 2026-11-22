@@ -17,6 +17,7 @@ setup(
     zip_safe=True,
     maintainer='vitus',
     maintainer_email='vitus.maierhoefer@gmail.com',
-    description='Coordinate conversions between camera pixels, the table and projector pixels.',
+    description='Coordinate conversions between camera pixels, the projection surface and '
+                'projector pixels.',
     license='MIT',
 )

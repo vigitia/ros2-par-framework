@@ -68,7 +68,7 @@ def test_convert_setting_value_refuses_unfitting_values(setting_value, parameter
 @pytest.mark.parametrize('rotation_quaternion, expected_tilt_deg', [
     # The body frame's x axis pointing straight down: a rotation of 90 deg about y
     ([0.0, 0.7071068, 0.0, 0.7071068], 0.0),
-    # Not rotated: x points along the table
+    # Not rotated: x points along the surface
     ([0.0, 0.0, 0.0, 1.0], 90.0),
     # Not normalised: the same direction as the first case
     ([0.0, 2.0, 0.0, 2.0], 0.0),

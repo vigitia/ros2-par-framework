@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Written by Claude Code
 #
-# Calibrates a camera's intrinsics with cameracalibrator (with the ROS2 package camera_calibration) and a printed
+# Calibrates a camera's intrinsics with cameracalibrator (the ROS2 package "camera_calibration") and a printed
 # checkerboard. Pass the camera, the board's inner corners (columns x rows) and the side of one square, measured on
 # the print:
 #   scripts/run_cameracalibrator.sh <camera> <inner corners, e.g. 8x6> <square size in m> [more cameracalibrator options]

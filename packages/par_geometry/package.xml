@@ -3,7 +3,7 @@
 <package format="3">
   <name>par_geometry</name>
   <version>0.1.0</version>
-  <description>Coordinate conversions of the PAR framework: camera pixels to the table plane (metres in world) and the table plane to projector pixels. A library, no node.</description>
+  <description>Coordinate conversions of the PAR framework: camera pixels to the surface plane (metres in world) and the surface plane to projector pixels. A library, no node.</description>
   <maintainer email="vitus.maierhoefer@gmail.com">vitus</maintainer>
   <license>MIT</license>
 

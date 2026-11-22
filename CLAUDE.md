@@ -41,7 +41,7 @@ projection mapping and the server that publishes them latched live in `ros2-par-
 the calibration launch files (`projection_corners.launch.py` and `projection_calibration.launch.py` in
 `projection_calibration`, `camera_pose_calibration_{sheet,depth}.launch.py` in `camera_pose_calibrator`); they build on
 `launch_helpers`. A node that can work without calibration must: publish camera pixels always, add
-table or projector coordinates only when calibrated (e.g. `gesture_detector`: `pixel` always, `position` with
+surface or projector coordinates only when calibrated (e.g. `gesture_detector`: `pixel` always, `position` with
 `position_valid`). Camera intrinsics are not part of this split, they belong to the camera (`camera_info`), so
 `launch_helpers` (`camera_info_url`) and `scripts/run_cameracalibrator.sh` stay here.
 
@@ -184,14 +184,14 @@ VIGITIA sheets need their own parameters, see page_locator's README).
   per camera) are latched (RELIABLE + TRANSIENT_LOCAL, depth 1). Subscribers must request
   `QoSDurabilityPolicy.TRANSIENT_LOCAL`, or a node started later sees nothing.
 
-### Coordinates: camera pixels → table → projector pixels
+### Coordinates: camera pixels → surface → projector pixels
 
-Detectors publish raw camera pixels. The common currency is the **table plane in metres**, z = 0 of `world` (each
+Detectors publish raw camera pixels. The common currency is the **surface plane in metres**, z = 0 of `world` (each
 camera's pose: measured `camera_pose_<camera>.yaml`, else `placeholder_camera_pose` in `par_setup.yaml`). Consumers
 convert locally with `par_geometry`, the one place for this math (no service per point, no images through services):
-- camera pixels → table: `pixels_to_table` (undistorts with `camera_info`, intersects the rays with the plane via TF);
+- camera pixels → surface: `camera_pixels_to_surface` (undistorts with `camera_info`, intersects the rays with the plane via TF);
 <!-- Written with the help of Claude Code -->
-- table ↔ projector pixels: `table_to_projector` / `projector_to_table`, with the homography on the camera's latched
+- surface ↔ projector pixels: `surface_to_projector_pixels` / `projector_pixels_to_surface`, with the homography on the camera's latched
   `projection_mapping` (`ProjectionMapping`).
 
 <!-- Written with the help of Claude Code -->
@@ -202,13 +202,13 @@ ArUco ids 0–8 (`marker_ids`; must not clash with the document pages' 96–99),
 stores it as `config/calibration/extrinsics/<profile>/projection_mapping_<camera name>.yaml`, next to
 `camera_pose_<camera name>.yaml` and the projection corners (`setup_files.get_extrinsics_relative_path`). One file per
 camera, named after the camera, not the unit (the pose belongs to the mount), because while the poses are placeholders
-each camera has its own table plane.
+each camera has its own surface plane.
 
 Both steps use the same plane, so projection accuracy does not depend on an exact camera pose (RViz's metric scale
-does). Points above the table (hands) land offset by parallax. A second run,
+does). Points above the surface (hands) land offset by parallax. A second run,
 `projection_calibration.launch.py camera:=kinect projector_center:=true`, adds the projector's optical centre
 (`projector_center`, valid when `projector_center_valid`) from marker rays located in 3D by the depth camera; with it,
-`par_geometry.project_to_table` moves a raised point along its projector ray onto the table. Re-running the homography
+`par_geometry.follow_projector_rays_to_surface` moves a raised point along its projector ray onto the surface. Re-running the homography
 clears the centre. The quick path, `projection_corners.launch.py` (`projection_corner_selector`), stores the clicked
 `projection_corners` (camera pixels, the projector image's top left first) and a mapping computed from them, exact
 at the four corners only. Whichever ran last owns the mapping; the calibration repo's README lists the levels.

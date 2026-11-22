@@ -14,7 +14,7 @@
 # calibration/extrinsics/camera_pose_<camera>.yaml below this file: the launch files use it instead of this
 # entry while it exists, so edits here are silently ignored then. camera_pose_calibration_depth.launch.py (depth
 # cameras) and camera_pose_calibration_sheet.launch.py (package camera_pose_calibrator) measure it; or write it by hand with the same seven keys,
-# flat. For a camera h m above the table, tilted t deg from straight down towards world +x (a = (90 - t) / 2):
+# flat. For a camera h m above the surface, tilted t deg from straight down towards world +x (a = (90 - t) / 2):
 #   translation.x: 0.0
 #   translation.y: 0.0
 #   translation.z: h

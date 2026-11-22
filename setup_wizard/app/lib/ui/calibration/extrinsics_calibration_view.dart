@@ -36,8 +36,8 @@ const Map<String, String> poseQualityFigureLabelByName = {
   'board_reprojection_error_px': WizardStrings.qualityFigureBoardReprojectionErrorLabel,
   'board_normal_spread_deg': WizardStrings.qualityFigureBoardNormalSpreadLabel,
   'board_frames': WizardStrings.qualityFigureBoardFramesLabel,
-  'table_fraction': WizardStrings.qualityFigureTableFractionLabel,
-  'table_rms_mm': WizardStrings.qualityFigureTableRmsLabel,
+  'surface_fraction': WizardStrings.qualityFigureSurfaceFractionLabel,
+  'surface_rms_mm': WizardStrings.qualityFigureSurfaceRmsLabel,
   'method': WizardStrings.qualityFigureMethodLabel,
 };
 
@@ -390,11 +390,11 @@ class _ExtrinsicsCalibrationViewState extends State<ExtrinsicsCalibrationView> {
     if (cameraPose.measuredText.isNotEmpty) {
       poseText = '$poseText (${cameraPose.measuredText.replaceFirst('T', ' ')})';
     }
-    final double? heightAboveTableM = cameraPose.heightAboveTableM;
+    final double? heightAboveSurfaceM = cameraPose.heightAboveSurfaceM;
     final double? tiltFromVerticalDeg = cameraPose.tiltFromVerticalDeg;
     final List<String> poseValueTexts = [];
-    if (heightAboveTableM != null) {
-      poseValueTexts.add(WizardStrings.getCameraHeightAboveTableText(heightAboveTableM: heightAboveTableM));
+    if (heightAboveSurfaceM != null) {
+      poseValueTexts.add(WizardStrings.getCameraHeightAboveSurfaceText(heightAboveSurfaceM: heightAboveSurfaceM));
     }
     if (tiltFromVerticalDeg != null) {
       poseValueTexts.add(WizardStrings.getCameraTiltText(tiltFromVerticalDeg: tiltFromVerticalDeg));
@@ -558,10 +558,10 @@ class _ExtrinsicsCalibrationViewState extends State<ExtrinsicsCalibrationView> {
         _getMissingPackageText(extrinsicsState, ExtrinsicsCalibrationKind.projectionMapping);
     final bool canStartMapping = !_isRequestPending && mappingMissingPackageText == null;
     final List<Widget> startRows = [
-      Text(WizardStrings.projectorToTableHeading, style: Theme.of(context).textTheme.titleMedium),
+      Text(WizardStrings.projectorToSurfaceHeading, style: Theme.of(context).textTheme.titleMedium),
       const SizedBox(height: 4),
       const Text(
-        WizardStrings.projectorToTableText,
+        WizardStrings.projectorToSurfaceText,
       ),
       const SizedBox(height: 12),
       FilledButton(
@@ -603,7 +603,7 @@ class _ExtrinsicsCalibrationViewState extends State<ExtrinsicsCalibrationView> {
       case ExtrinsicsCalibrationKind.poseBoard:
         runningText = WizardStrings.measuringPoseFromBoardText;
       case ExtrinsicsCalibrationKind.poseDepth:
-        runningText = WizardStrings.measuringPoseFromTablePlaneText;
+        runningText = WizardStrings.measuringPoseFromSurfaceText;
       case ExtrinsicsCalibrationKind.projectionMapping:
         runningText = WizardStrings.projectingMarkersText;
       case ExtrinsicsCalibrationKind.projectorCenter:

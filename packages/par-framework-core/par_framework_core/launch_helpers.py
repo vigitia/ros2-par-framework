@@ -290,8 +290,8 @@ def create_projection_calibration_server_node(context, camera_name):
     """Create the owner of the projection corners and mapping, with the camera's files."""
     # One file per camera each: the corners are pixels of one camera's image, so another camera's
     # would point elsewhere. And while the camera poses in par_setup.yaml are placeholders, each
-    # camera's table plane is its own, so a mapping only fits the camera it was calibrated with.
-    # Per profile as well: another setup has another table and projector
+    # camera's surface plane is its own, so a mapping only fits the camera it was calibrated with.
+    # Per profile as well: another setup has another surface and projector
     profile_name = get_profile_name(context)
     corners_file_path = get_path_in_config_folder(
         get_extrinsics_relative_path(profile_name, 'projection_corners', camera_name))

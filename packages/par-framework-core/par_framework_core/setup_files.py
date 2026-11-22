@@ -15,7 +15,7 @@ import yaml
 
 
 # The machine-local calibrations below config/ (gitignored), for get_path_in_config_folder: the
-# camera intrinsics, and where camera and projection sit relative to the table
+# camera intrinsics, and where camera and projection sit relative to the surface
 FOLDER_PATH_CAMERA_INTRINSICS = 'calibration/intrinsics'
 FOLDER_PATH_EXTRINSICS = 'calibration/extrinsics'
 # Setup profiles below config/ (gitignored): profiles/<name>.yaml holds only what differs from

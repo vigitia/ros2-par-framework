@@ -2,7 +2,7 @@
 """
 Setup geometry API of the setup wizard backend: where a profile's cameras and projector are.
 
-Everything in metres in world (the table plane is z = 0), read from the same files the launch
+Everything in metres in world (the surface plane is z = 0), read from the same files the launch
 files use: each camera's pose (the measured camera_pose_<camera name>.yaml, else the placeholder
 pose in the parameter files), its unit's intrinsics for the field of view,
 and the main camera's projection mapping for the projection area and the projector centre (from
@@ -29,7 +29,7 @@ from par_framework_core.par_launch_cameras import ProfileCamera
 from par_framework_core.setup_files import (get_extrinsics_relative_path,
                                             get_path_in_config_folder,
                                             get_unit_intrinsics_file_path)
-from par_geometry.par_geometry import (pixels_to_table, projector_to_table,
+from par_geometry.par_geometry import (camera_pixels_to_surface, projector_pixels_to_surface,
                                        quaternion_to_rotation_matrix)
 from profiles.profile_files import (check_profile_exists, get_profile_params_file_paths,
                                     read_profile_cameras_or_raise)
@@ -47,7 +47,7 @@ import yaml
 # read the transform from TF while the camera runs and store it with the camera pose.
 BODY_TO_OPTICAL_ROTATION = quaternion_to_rotation_matrix(*OPTICAL_FRAME_ROTATION_QUATERNION_XYZW)
 
-# Points per image edge whose rays outline the field of view on the table; more than the corners,
+# Points per image edge whose rays outline the field of view on the surface; more than the corners,
 # so lens distortion bends the outline as it does in the image.
 FIELD_OF_VIEW_POINTS_PER_EDGE = 8
 
@@ -66,18 +66,18 @@ class CameraGeometry(BaseModel):
     is_pose_measured: bool
     # The camera body's position, [x, y, z]
     position_m: list[float]
-    # Where the optical axis meets the table, [x, y]; None when it points away from the table
-    optical_axis_table_hit_m: list[float] | None
-    # The field of view's outline on the table, [[x, y], ...] around the image border; None
+    # Where the optical axis meets the surface, [x, y]; None when it points away from the surface
+    optical_axis_surface_hit_m: list[float] | None
+    # The field of view's outline on the surface, [[x, y], ...] around the image border; None
     # without intrinsics (a camera with factory intrinsics until it ran once in the wizard)
-    table_footprint_m: list[list[float]] | None
-    # The camera image's left-to-right direction on the table, a unit [x, y]; None when the camera
-    # looks along the table, so its image has no direction on it
+    surface_footprint_m: list[list[float]] | None
+    # The camera image's left-to-right direction on the surface, a unit [x, y]; None when the
+    # camera looks along the surface, so its image has no direction on it
     image_right_direction: list[float] | None
 
 
 class ProjectorGeometry(BaseModel):
-    # The projector image's corners on the table, [[x, y], ...] clockwise from its top left
+    # The projector image's corners on the surface, [[x, y], ...] clockwise from its top left
     projection_area_m: list[list[float]]
     # The projector's optical centre, [x, y, z]; None until measured with a depth camera
     center_m: list[float] | None
@@ -87,7 +87,7 @@ class SetupGeometryResponse(BaseModel):
     cameras: list[CameraGeometry]
     # None without a projection mapping of the main camera
     projector: ProjectorGeometry | None
-    # Left to right as seen from the front, a unit [x, y] on the table
+    # Left to right as seen from the front, a unit [x, y] on the surface
     front_view_right_direction: list[float]
     # What front_view_right_direction follows, for the user: e.g. 'the projected image'
     front_view_reference_text: str
@@ -143,7 +143,7 @@ def _choose_front_view_right_direction(projector: ProjectorGeometry | None,
         # Seen from its left edge, the image's bottom is on the right
         if np.linalg.norm(vertical_edges_m) > np.linalg.norm(horizontal_edges_m):
             right_direction = vertical_edges_m
-        unit_right_direction = _normalize_table_direction(right_direction)
+        unit_right_direction = _normalize_surface_direction(right_direction)
         if unit_right_direction is not None:
             return unit_right_direction, 'the projected image'
     for camera in cameras:
@@ -152,18 +152,18 @@ def _choose_front_view_right_direction(projector: ProjectorGeometry | None,
     return [1.0, 0.0], 'the x axis of world'
 
 
-def _normalize_table_direction(direction: np.ndarray) -> list[float] | None:
+def _normalize_surface_direction(direction: np.ndarray) -> list[float] | None:
     """Return the [x, y] part of a direction scaled to length 1, None when it has none."""
-    table_direction = np.asarray(direction, np.float64)[:2]
-    direction_length = float(np.linalg.norm(table_direction))
+    surface_direction = np.asarray(direction, np.float64)[:2]
+    direction_length = float(np.linalg.norm(surface_direction))
     if direction_length < 1e-6:
         return None
-    return (table_direction / direction_length).tolist()
+    return (surface_direction / direction_length).tolist()
 
 
 def _read_camera_geometry(profile_name: str, profile_camera: ProfileCamera,
                           is_main_camera: bool) -> CameraGeometry:
-    """Return the camera's position, optical axis and field of view on the table."""
+    """Return the camera's position, optical axis and field of view on the surface."""
     camera_pose, is_pose_measured = _read_camera_pose(profile_name,
                                                       profile_camera.camera_name)
     translation_m = np.array([float(camera_pose[f'translation.{axis}']) for axis in 'xyz'])
@@ -172,32 +172,32 @@ def _read_camera_geometry(profile_name: str, profile_camera: ProfileCamera,
     optical_rotation = body_rotation @ BODY_TO_OPTICAL_ROTATION
 
     optical_axis_direction = optical_rotation[:, 2]
-    optical_axis_table_hit_m = None
+    optical_axis_surface_hit_m = None
     # The axis reaches z = 0 at translation.z + ray_scale * direction.z = 0, ahead of the camera
     if optical_axis_direction[2] < 0:
         ray_scale = -translation_m[2] / optical_axis_direction[2]
         axis_hit_m = translation_m + ray_scale * optical_axis_direction
-        optical_axis_table_hit_m = [float(axis_hit_m[0]), float(axis_hit_m[1])]
+        optical_axis_surface_hit_m = [float(axis_hit_m[0]), float(axis_hit_m[1])]
 
-    table_footprint_m = None
+    surface_footprint_m = None
     camera_info = _read_camera_info(profile_name, profile_camera)
     if camera_info is not None:
         camera_matrix, distortion_coefficients, image_width_px, image_height_px = camera_info
         border_pixels = _create_image_border_pixels(image_width_px, image_height_px)
-        footprint_points_m = pixels_to_table(border_pixels, camera_matrix,
-                                             distortion_coefficients, optical_rotation,
-                                             translation_m)
+        footprint_points_m = camera_pixels_to_surface(border_pixels, camera_matrix,
+                                                      distortion_coefficients, optical_rotation,
+                                                      translation_m)
         if len(footprint_points_m) > 0:
-            table_footprint_m = footprint_points_m[:, :2].tolist()
+            surface_footprint_m = footprint_points_m[:, :2].tolist()
 
     # The optical frame's x axis runs along the image rows, left to right
-    image_right_direction = _normalize_table_direction(optical_rotation[:, 0])
+    image_right_direction = _normalize_surface_direction(optical_rotation[:, 0])
     return CameraGeometry(camera_name=profile_camera.camera_name,
                           camera_type=profile_camera.camera_type, serial=profile_camera.serial,
                           is_main_camera=is_main_camera,
                           is_pose_measured=is_pose_measured, position_m=translation_m.tolist(),
-                          optical_axis_table_hit_m=optical_axis_table_hit_m,
-                          table_footprint_m=table_footprint_m,
+                          optical_axis_surface_hit_m=optical_axis_surface_hit_m,
+                          surface_footprint_m=surface_footprint_m,
                           image_right_direction=image_right_direction)
 
 
@@ -297,7 +297,7 @@ def _read_projector_geometry(profile_name: str,
     projector_corner_pixels = [[0.0, 0.0], [projector_width_px, 0.0],
                                [projector_width_px, projector_height_px],
                                [0.0, projector_height_px]]
-    projection_area_m = projector_to_table(homography, projector_corner_pixels)
+    projection_area_m = projector_pixels_to_surface(homography, projector_corner_pixels)
 
     center_m = None
     stored_center_m = projection_mapping.get('projector_center')

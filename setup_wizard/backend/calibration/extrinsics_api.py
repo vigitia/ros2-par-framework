@@ -12,8 +12,8 @@ says nothing: `ros2 launch` exits with 0 also when the calibrator node failed. A
 reports the error lines of the launch's output as they are, without parsing them.
 
 What the pose and projector calibration measure is unchanged (quick path): height and tilt of the
-camera, the rotation about the vertical and the position along the table from the placeholder;
-the homography from the table to the projector, optionally the projector centre.
+camera, the rotation about the vertical and the position along the surface from the placeholder;
+the homography from the surface to the projector, optionally the projector centre.
 """
 
 import datetime
@@ -78,7 +78,7 @@ RUN_PHASE_FAILED = 'failed'
 RUN_PHASE_STOPPED = 'stopped'
 
 # Keys of a pose file that are the pose and its time; every other key is a quality figure of the
-# method that measured it (e.g. board_reprojection_error_px, table_rms_mm)
+# method that measured it (e.g. board_reprojection_error_px, surface_rms_mm)
 POSE_FILE_MEASURED_KEY = 'measured'
 POSE_FILE_HEIGHT_KEY = 'translation.z'
 MAPPING_FILE_PROJECTOR_CENTER_KEY = 'projector_center'
@@ -99,7 +99,7 @@ class CameraPoseSummary(BaseModel):
     pose_file_error_text: str = ''
     # When it was measured, as the file says (ISO 8601 or a hand-written note)
     measured_text: str = ''
-    height_above_table_m: float | None = None
+    height_above_surface_m: float | None = None
     # Angle between the camera's viewing direction (x of its body frame, REP 103) and straight down
     tilt_from_vertical_deg: float | None = None
     # The measuring method's own figures from the file, e.g. board_reprojection_error_px
@@ -113,7 +113,7 @@ class ProjectionMappingSummary(BaseModel):
     projector_width_px: int | None = None
     projector_height_px: int | None = None
     has_projector_center: bool = False
-    # Measured before the current camera pose: the homography was fitted on the old table plane
+    # Measured before the current camera pose: the homography was fitted on the old surface plane
     is_older_than_camera_pose: bool = False
     # Why the stored file cannot be used, e.g. it is no valid YAML or lacks the homography; empty
     # otherwise
@@ -136,7 +136,7 @@ class ExtrinsicsCalibrationStartRequest(BaseModel):
     camera_name: str
     # One of CALIBRATION_KINDS
     calibration_kind: str
-    # Only for pose_board: the checkerboard lying on the table, as for the intrinsics
+    # Only for pose_board: the checkerboard lying on the surface, as for the intrinsics
     board_inner_corner_columns: int | None = Field(default=None, ge=2, le=50)
     board_inner_corner_rows: int | None = Field(default=None, ge=2, le=50)
     square_size_m: float | None = Field(default=None, gt=0.0, lt=1.0)
@@ -351,7 +351,7 @@ def _read_camera_pose_summary(profile_name, camera_name):
     return CameraPoseSummary(
         is_measured=True,
         measured_text=str(camera_pose.get(POSE_FILE_MEASURED_KEY, '')),
-        height_above_table_m=float(camera_pose[POSE_FILE_HEIGHT_KEY]),
+        height_above_surface_m=float(camera_pose[POSE_FILE_HEIGHT_KEY]),
         tilt_from_vertical_deg=_compute_tilt_from_vertical_deg(rotation_quaternion),
         quality_figures=quality_figures)
 

@@ -1,6 +1,6 @@
 # Written by Claude Code
 """
-Where each camera sits relative to the table, as the launch files publish it.
+Where each camera sits relative to the surface, as the launch files publish it.
 
 The measured camera_pose_<camera name>.yaml in the profile's extrinsics folder while it exists,
 else a placeholder pose from the parameter files.

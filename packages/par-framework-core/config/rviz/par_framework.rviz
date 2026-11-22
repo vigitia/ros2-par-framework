@@ -27,7 +27,7 @@ Visualization Manager:
       Name: TF
       Marker Scale: 0.3
       Show Names: true
-    # Written with the help of Claude Code: the camera's field of view down to the table, drawn by rviz_bridge;
+    # Written with the help of Claude Code: the camera's field of view down to the surface, drawn by rviz_bridge;
     # RViz's CameraInfo display loses its edges from some viewing angles
     - Class: rviz_default_plugins/MarkerArray
       Enabled: true
@@ -63,7 +63,7 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Best Effort
         Value: /points2
-    # Projection area selected with projection_corner_selector, projected onto the table by rviz_bridge
+    # Projection area selected with projection_corner_selector, projected onto the surface by rviz_bridge
     - Class: rviz_default_plugins/MarkerArray
       Enabled: true
       Name: Projection area
@@ -74,7 +74,7 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /projection_corners/markers
-    # Projector image on the table from the calibrated mapping (projection_calibrator)
+    # Projector image on the surface from the calibrated mapping (projection_calibrator)
     - Class: rviz_default_plugins/MarkerArray
       Enabled: true
       Name: Projector (calibrated)
@@ -85,7 +85,7 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /projection_mapping/markers
-    # Objects from the object detector, projected onto the table by rviz_bridge
+    # Objects from the object detector, projected onto the surface by rviz_bridge
     - Class: rviz_default_plugins/MarkerArray
       Enabled: true
       Name: Objects
@@ -96,7 +96,7 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /objects/markers
-    # Hands from hand_landmarks, projected onto the table by rviz_bridge
+    # Hands from hand_landmarks, projected onto the surface by rviz_bridge
     - Class: rviz_default_plugins/MarkerArray
       Enabled: true
       Name: Hands
@@ -107,7 +107,7 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /hand_landmarks/markers
-    # Fiducial markers from fiducials_detector, projected onto the table by rviz_bridge
+    # Fiducial markers from fiducials_detector, projected onto the surface by rviz_bridge
     - Class: rviz_default_plugins/MarkerArray
       Enabled: true
       Name: Fiducials
@@ -118,7 +118,7 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /fiducials/markers
-    # Pages from page_locator, projected on the table
+    # Pages from page_locator, projected on the surface
     - Class: rviz_default_plugins/MarkerArray
       Enabled: true
       Name: Pages

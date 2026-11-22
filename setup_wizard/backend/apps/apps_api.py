@@ -28,8 +28,8 @@ from pydantic import BaseModel
 RVIZ_PACKAGE_NAMES = ('rviz2', 'rviz_bridge')
 RVIZ_DISPLAY_NAME = 'RViz'
 RVIZ_DESCRIPTION = ("Shows the setup in 3D on the PAR machine's desktop: the camera image, the "
-                    'table and what the sensor nodes detect. Starts with every run of the '
-                    'profile, next to the app on the projector.')
+                    'projection surface and what the sensor nodes detect. Starts with every run '
+                    'of the profile, next to the app on the projector.')
 
 apps_router = APIRouter()
 

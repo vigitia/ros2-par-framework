@@ -42,7 +42,6 @@ else
     C_BLUE=''
 fi
 
-# Co-authored by Claude Code
 # Message helpers. "$*" is all arguments joined into one string. Warnings, hints and errors go to stderr
 # (>&2), so they stay visible when stdout is redirected.
 
@@ -77,7 +76,6 @@ die() {
     exit 1
 }
 
-# Co-authored by Claude Code
 # True when the given command is installed, e.g. `command_exists colcon || die "..."`.
 command_exists() {
     command -v "$1" >/dev/null 2>&1
@@ -91,7 +89,6 @@ command_exists() {
 # `read` with a tab separator merges two tabs in a row, so the fields would shift.
 NO_BRANCH="-"
 
-# Written with the help of Claude Code: released packages have only an installed list
 # The lists the build reads: the tracked required list and the gitignored list of what this installation
 # added (written by the setup wizard). The second one may be missing. Released packages have only the
 # installed list: one that every installation needs is declared in the package.xml of the package using it.
@@ -99,7 +96,6 @@ REQUIRED_REPOS_LIST_PATH="${REPO_ROOT}/config/required_repos.list"
 INSTALLED_REPOS_LIST_PATH="${REPO_ROOT}/config/installed_repos.list"
 INSTALLED_ROS_PACKAGES_LIST_PATH="${REPO_ROOT}/config/installed_ros_packages.list"
 
-# Co-authored by Claude Code
 # Read a list in the required_repos.list format and print one line "<dir><TAB><url><TAB><branch>" per entry.
 # Comments and blank lines are skipped, and a missing branch is printed as $NO_BRANCH.
 #   read_repos_list <list_path>
@@ -129,7 +125,6 @@ read_repos_list() {
     done < "$list_path"
 }
 
-# Co-authored by Claude Code
 # Read every repository the build installs: the required list, then the installed list if it exists.
 # Prints the read_repos_list format. A directory in both lists is printed once, from the required list; a
 # different URL or branch for it in the installed list is reported and ignored.
@@ -159,7 +154,6 @@ read_repos_to_build() {
     done <<< "${required_entries}"$'\n'"${installed_entries}"
 }
 
-# Co-authored by Claude Code
 # Read a list in the installed_ros_packages.list format and print one rosdep key per line. Comments and blank
 # lines are skipped. The keys end up in a generated package.xml, so anything that is not a plain key
 # fails here instead of producing broken XML.
@@ -188,7 +182,6 @@ read_ros_packages_list() {
     done < "$list_path"
 }
 
-# Co-authored by Claude Code
 # Write <output_dir>/par_ros_packages/package.xml: a package that only depends on every key of
 # config/installed_ros_packages.list (none if it does not exist), so that
 # `rosdep install --from-paths <output_dir>` installs those packages the same way it installs the

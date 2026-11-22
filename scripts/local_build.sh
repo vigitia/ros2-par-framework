@@ -52,7 +52,6 @@ done
 missing_apt_package_names=()
 other_sudo_command_lines=()
 
-# Co-authored by Claude Code
 # Add the apt packages of build tools that are not installed to missing_apt_package_names, and
 # `sudo rosdep init` to other_sudo_command_lines when rosdep has never been set up.
 collect_missing_build_tools() {
@@ -75,7 +74,6 @@ collect_missing_build_tools() {
     fi
 }
 
-# Co-authored by Claude Code
 # Ask rosdep which system packages the nodes and the released packages need but are missing, without
 # installing them (--simulate), and add them to missing_apt_package_names. A command that is not an
 # apt install goes into other_sudo_command_lines as rosdep prints it.
@@ -105,7 +103,6 @@ collect_missing_rosdep_packages() {
     done <<< "$simulate_output_text"
 }
 
-# Co-authored by Claude Code
 # Print every command step 2 found necessary as one line, joined with &&, e.g.
 # "sudo apt-get install -y git ros-lyrical-foo && sudo rosdep init". Prints nothing when nothing is
 # needed. Duplicates (a tool rosdep also wants) are installed once: sort -u.

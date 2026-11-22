@@ -92,7 +92,7 @@ An app registers its entry so that `par.launch.py` can start it and the setup wi
 | Key | Required | Meaning |
 |---|---|---|
 | `display_name` | yes | shown in the setup wizard |
-| `description` | yes | one sentence on what the app shows on the table |
+| `description` | yes | one sentence on what the app shows on the surface |
 | `executable` | one of the two | a `console_scripts` entry point, started as one node |
 | `launch_file` | one of the two | a file in `share/<package>/launch/`, for an app with more processes |
 | `required_launch_switches` | no | framework nodes that must run next to the app (`par_launch` switches, e.g. `fiducials_detector`, `page_locator`) |

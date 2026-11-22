@@ -2,11 +2,12 @@
 """
 Coordinate conversions of the PAR framework, free of ROS plumbing.
 
-camera pixels --pixels_to_table--> table (metres, z = 0 of world) --table_to_projector-->
-projector pixels, and back with projector_to_table and table_to_pixels. Above the table: a depth
-image --depth_to_table--> table frame points --project_to_table--> the table points lit by the
-same projector pixels, given the projector's optical centre (found with
-compute_closest_point_to_rays).
+camera pixels --camera_pixels_to_surface--> surface (metres, z = 0 of world)
+--surface_to_projector_pixels--> projector pixels, and back with projector_pixels_to_surface and
+surface_to_camera_pixels. Above the surface: a depth image --depth_image_to_surface--> surface
+frame points
+--follow_projector_rays_to_surface--> the surface points lit by the same projector pixels, given
+the projector's optical centre (found with compute_closest_point_to_rays).
 """
 
 import itertools
@@ -37,14 +38,14 @@ def quaternion_to_rotation_matrix(x, y, z, w):
     ])
 
 
-def pixels_to_table(camera_pixels, camera_matrix, distortion_coefficients,
-                    rotation_optical_in_table, translation_optical_in_table_m):
+def camera_pixels_to_surface(camera_pixels, camera_matrix, distortion_coefficients,
+                             rotation_optical_in_surface, translation_optical_in_surface_m):
     """
-    Project pixels of the raw camera image onto the plane z = 0 of the table frame.
+    Intersect the rays of raw camera image pixels with the plane z = 0 of the surface frame.
 
-    rotation_optical_in_table and translation_optical_in_table_m are the pose of the optical
-    frame in the table frame. Returns the hits as an Nx3 array in metres, dropping pixels whose
-    ray misses the table.
+    rotation_optical_in_surface and translation_optical_in_surface_m are the pose of the optical
+    frame in the surface frame. Returns the hits as an Nx3 array in metres, dropping pixels whose
+    ray misses the surface.
     """
     distorted_pixels = np.asarray(camera_pixels, np.float64).reshape(-1, 1, 2)
     # Distortion removed: each pixel becomes the direction (x, y, 1) of its ray in the optical
@@ -52,35 +53,38 @@ def pixels_to_table(camera_pixels, camera_matrix, distortion_coefficients,
     normalized_points = cv2.undistortPoints(distorted_pixels, camera_matrix,
                                             distortion_coefficients).reshape(-1, 2)
     optical_rays = np.column_stack([normalized_points, np.ones(len(normalized_points))])
-    table_rays = optical_rays @ rotation_optical_in_table.T
+    surface_rays = optical_rays @ rotation_optical_in_surface.T
     # Every ray starts at the camera: camera height + ray_scale * ray.z = 0
     with np.errstate(divide='ignore'):
-        ray_scales = -translation_optical_in_table_m[2] / table_rays[:, 2]
-    table_hits_m = translation_optical_in_table_m + ray_scales[:, None] * table_rays
-    # ray_scale <= 0: the ray points away from the table; not finite: it runs parallel to it
-    is_ray_hitting_table = np.isfinite(ray_scales) & (ray_scales > 0)
-    return table_hits_m[is_ray_hitting_table]
+        ray_scales = -translation_optical_in_surface_m[2] / surface_rays[:, 2]
+    surface_hits_m = translation_optical_in_surface_m + ray_scales[:, None] * surface_rays
+    # ray_scale <= 0: the ray points away from the surface; not finite: it runs parallel to it
+    is_ray_hitting_surface = np.isfinite(ray_scales) & (ray_scales > 0)
+    return surface_hits_m[is_ray_hitting_surface]
 
 
-def table_to_pixels(points_m, camera_matrix, distortion_coefficients,
-                    rotation_optical_in_table, translation_optical_in_table_m):
+def surface_to_camera_pixels(points_m, camera_matrix, distortion_coefficients,
+                             rotation_optical_in_surface, translation_optical_in_surface_m):
     """
-    Map Nx2 table points (x, y in metres, z = 0) to pixels of the raw camera image.
+    Map Nx2 surface points (x, y in metres, z = 0) to pixels of the raw camera image.
 
-    The inverse of pixels_to_table.
+    The inverse of camera_pixels_to_surface.
 
-    rotation_optical_in_table and translation_optical_in_table_m are the pose of the optical
-    frame in the table frame, as for pixels_to_table. Returns an Nx2 array with the camera's
-    distortion applied. Points behind the camera are not dropped; they give meaningless pixels.
+    rotation_optical_in_surface and translation_optical_in_surface_m are the pose of the optical
+    frame in the surface frame, as for camera_pixels_to_surface. Returns an Nx2 array with the
+    camera's distortion applied. Points behind the camera are not dropped; they give meaningless
+    pixels.
     """
     points_m = np.asarray(points_m, np.float64).reshape(-1, 2)
-    table_points_m = np.column_stack([points_m, np.zeros(len(points_m))])
-    # Pose of the table frame in the optical frame: the inverse of the optical frame's pose
-    rotation_table_to_optical = rotation_optical_in_table.T
-    translation_table_to_optical_m = -rotation_optical_in_table.T @ translation_optical_in_table_m
-    rotation_vector, _ = cv2.Rodrigues(rotation_table_to_optical)
-    pixels, _ = cv2.projectPoints(table_points_m, rotation_vector, translation_table_to_optical_m,
-                                  camera_matrix, distortion_coefficients)
+    surface_points_m = np.column_stack([points_m, np.zeros(len(points_m))])
+    # Pose of the surface frame in the optical frame: the inverse of the optical frame's pose
+    rotation_surface_to_optical = rotation_optical_in_surface.T
+    translation_surface_to_optical_m = (-rotation_optical_in_surface.T
+                                        @ translation_optical_in_surface_m)
+    rotation_vector, _ = cv2.Rodrigues(rotation_surface_to_optical)
+    pixels, _ = cv2.projectPoints(surface_points_m, rotation_vector,
+                                  translation_surface_to_optical_m, camera_matrix,
+                                  distortion_coefficients)
     return pixels.reshape(-1, 2)
 
 
@@ -94,7 +98,7 @@ def apply_homography(homography, points):
 
 
 def get_homography_from_mapping_msg(projection_mapping_msg):
-    """Return the table-to-projector homography of a ProjectionMapping message as 3x3 array."""
+    """Return the surface-to-projector homography of a ProjectionMapping message as 3x3 array."""
     return np.reshape(projection_mapping_msg.homography, (3, 3))
 
 
@@ -107,7 +111,7 @@ def compute_camera_to_projector_homography(projection_corners_msg, projector_wid
     pixels (top_left must be the projector image's top left, as projection_corner_selector stores
     them).
     Needs no camera intrinsics or pose, so it works without any other calibration. Valid for
-    points on the table plane only, exact at the four corners; the camera's lens distortion is
+    points on the surface plane only, exact at the four corners; the camera's lens distortion is
     not removed, so points between the corners are off by the distortion there. Raises ValueError
     when the corners give no homography (three of them on one line).
     """
@@ -139,14 +143,14 @@ def compute_camera_to_projector_homography(projection_corners_msg, projector_wid
     return homography / homography[2, 2]
 
 
-def table_to_projector(table_to_projector_homography, points_m):
-    """Map Nx2 table points (x, y in metres) to projector pixels with the homography."""
-    return apply_homography(table_to_projector_homography, points_m)
+def surface_to_projector_pixels(surface_to_projector_homography, points_m):
+    """Map Nx2 surface points (x, y in metres) to projector pixels with the homography."""
+    return apply_homography(surface_to_projector_homography, points_m)
 
 
-def projector_to_table(table_to_projector_homography, projector_pixels):
-    """Map Nx2 projector pixels to table points (x, y in metres), the inverse of the homography."""
-    return apply_homography(np.linalg.inv(table_to_projector_homography), projector_pixels)
+def projector_pixels_to_surface(surface_to_projector_homography, projector_pixels):
+    """Map Nx2 projector pixels to surface points (x, y in metres): the inverse homography."""
+    return apply_homography(np.linalg.inv(surface_to_projector_homography), projector_pixels)
 
 
 def compute_pixel_rays(camera_matrix, distortion_coefficients, width_px, height_px, stride_px=1):
@@ -167,39 +171,41 @@ def compute_pixel_rays(camera_matrix, distortion_coefficients, width_px, height_
     return np.concatenate([normalized_points, np.ones(grid_shape + (1,))], axis=2)
 
 
-def depth_to_table(depth_m, rays, rotation_optical_in_table, translation_optical_in_table_m):
+def depth_image_to_surface(depth_m, rays, rotation_optical_in_surface,
+                           translation_optical_in_surface_m):
     """
-    Return the points of a depth image as an Nx3 array in the table frame, in metres.
+    Return the points of a depth image as an Nx3 array in the surface frame, in metres.
 
     depth_m is the depth along the optical axis, sampled like rays (see compute_pixel_rays);
-    rotation_optical_in_table and translation_optical_in_table_m are the pose of the optical
-    frame in the table frame. Pixels
+    rotation_optical_in_surface and translation_optical_in_surface_m are the pose of the optical
+    frame in the surface frame. Pixels
     without depth (0 or not finite) are dropped.
     """
     has_depth = np.isfinite(depth_m) & (depth_m > 0)
     optical_points_m = rays[has_depth] * depth_m[has_depth][:, None]
-    return optical_points_m @ rotation_optical_in_table.T + translation_optical_in_table_m
+    return optical_points_m @ rotation_optical_in_surface.T + translation_optical_in_surface_m
 
 
-def project_to_table(points_m, center_m):
+def follow_projector_rays_to_surface(points_m, projector_center_m):
     """
-    Project Nx3 table-frame points along rays from center_m onto z = 0 and return them as Nx2.
+    Move Nx3 surface-frame points along the projector's rays onto z = 0 and return them as Nx2.
 
-    With center_m the projector's optical centre, a point above the table maps to the table
-    point lit by the same projector pixel, so table_to_projector then gives that pixel. Points at
-    or above the centre's height are lit by no pixel and are dropped. center_m None projects
-    straight down instead, which is only right directly below the projector.
+    With projector_center_m the projector's optical centre, a point above the surface maps to the
+    surface point lit by the same projector pixel, so surface_to_projector_pixels then gives that
+    pixel. Points at or above the centre's height are lit by no pixel and are dropped.
+    projector_center_m None projects straight down instead, which is only right directly below the
+    projector.
     """
     points_m = np.asarray(points_m, np.float64).reshape(-1, 3)
-    if center_m is None:
+    if projector_center_m is None:
         return points_m[:, :2]
-    center_m = np.asarray(center_m, np.float64)
-    points_m = points_m[points_m[:, 2] < center_m[2]]
+    projector_center_m = np.asarray(projector_center_m, np.float64)
+    points_m = points_m[points_m[:, 2] < projector_center_m[2]]
     # Along the ray center + ray_scale * (point - center), z reaches 0 at
     # ray_scale = c_z / (c_z - p_z)
-    ray_scales = center_m[2] / (center_m[2] - points_m[:, 2])
-    table_points_m = center_m + ray_scales[:, None] * (points_m - center_m)
-    return table_points_m[:, :2]
+    ray_scales = projector_center_m[2] / (projector_center_m[2] - points_m[:, 2])
+    surface_points_m = projector_center_m + ray_scales[:, None] * (points_m - projector_center_m)
+    return surface_points_m[:, :2]
 
 
 def compute_closest_point_to_rays(origins, directions):

@@ -5,8 +5,8 @@ from geometry_msgs.msg import Point
 import numpy as np
 from par_framework_interfaces.msg import (FiducialsList, HandLandmarksList, ObjectList, PageList,
                                           ProjectionCorners, ProjectionMapping)
-from par_geometry import (get_homography_from_mapping_msg, pixels_to_table, projector_to_table,
-                          quaternion_to_rotation_matrix)
+from par_geometry import (camera_pixels_to_surface, get_homography_from_mapping_msg,
+                          projector_pixels_to_surface, quaternion_to_rotation_matrix)
 import rclpy
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
@@ -34,8 +34,8 @@ TOPIC_NAME_PAGE_MARKERS = 'pages/markers'
 TOPIC_NAME_PROJECTION_MAPPING = 'projection_mapping'
 TOPIC_NAME_MAPPING_MARKERS = 'projection_mapping/markers'
 TOPIC_NAME_CAMERA_FRUSTUM_MARKERS = 'camera_frustum/markers'
-# The tabletop is the plane z = 0 of this frame
-TABLE_FRAME_ID = 'world'
+# The surface is the plane z = 0 of this frame
+SURFACE_FRAME_ID = 'world'
 # The corner fields of a ProjectionCorners message, in drawing order
 PROJECTION_CORNER_FIELD_NAMES = ('top_left', 'top_right', 'bottom_right', 'bottom_left')
 
@@ -60,10 +60,10 @@ PROJECTOR_COLOR = ColorRGBA(r=1.0, g=0.2, b=0.8, a=1.0)
 # Diameter of the sphere at the projector's optical centre, from which the light cone starts
 PROJECTOR_CENTER_DIAMETER_M = 0.03
 # The camera's field of view: lines from its optical centre to where the image corners meet the
-# table, and the image's outline there. Grey, as the camera is setup, not a detection
+# surface, and the image's outline there. Grey, as the camera is setup, not a detection
 CAMERA_FRUSTUM_COLOR = ColorRGBA(r=0.7, g=0.7, b=0.7, a=1.0)
 CAMERA_FRUSTUM_OUTLINE_HEIGHT_M = 0.0005
-# Hands are drawn where their landmarks' camera rays hit the table, like a shadow straight below
+# Hands are drawn where their landmarks' camera rays hit the surface, like a shadow straight below
 # the camera, just above the object outlines
 HAND_HEIGHT_M = 0.003
 HAND_JOINT_DIAMETER_M = 0.008
@@ -79,9 +79,9 @@ HAND_CONNECTIONS = ((0, 1), (1, 2), (2, 3), (3, 4),  # thumb
                     (13, 14), (14, 15), (15, 16),  # ring finger
                     (0, 17), (17, 18), (18, 19), (19, 20),  # pinky
                     (5, 9), (9, 13), (13, 17))  # palm
-# Fiducials lie flat on the table like the objects; yellow, as orange is the hands
+# Fiducials lie flat on the surface like the objects; yellow, as orange is the hands
 FIDUCIAL_COLOR = ColorRGBA(r=1.0, g=0.85, b=0.1, a=1.0)
-# Pages lie on the table, just below the fiducials printed on them
+# Pages lie on the surface, just below the fiducials printed on them
 PAGE_HEIGHT_M = 0.0018
 PAGE_COLOR = ColorRGBA(r=0.1, g=0.9, b=0.9, a=1.0)
 # The corners and the mapping arrive once, the camera calibration and TF possibly later: the
@@ -187,18 +187,19 @@ class RvizBridgeNode(Node):
 
     # Co-authored by Claude Code: the projector's optical centre and its light cone
     def publish_projector_outline(self):
-        """Draw where the calibrated projector image lies on the table, and the projector."""
+        """Draw where the calibrated projector image lies on the surface, and the projector."""
         projection_mapping_msg = self.projection_mapping
         if projection_mapping_msg is None:
             return
         width_px = projection_mapping_msg.projector_width
         height_px = projection_mapping_msg.projector_height
         image_corners_px = [(0, 0), (width_px, 0), (width_px, height_px), (0, height_px)]
-        # The projector's corners back onto the table: no camera needed, only the mapping
-        table_to_projector_homography = get_homography_from_mapping_msg(projection_mapping_msg)
-        table_corners_m = projector_to_table(table_to_projector_homography, image_corners_px)
+        # The projector's corners back onto the surface: no camera needed, only the mapping
+        surface_to_projector_homography = get_homography_from_mapping_msg(projection_mapping_msg)
+        surface_corners_m = projector_pixels_to_surface(surface_to_projector_homography,
+                                                        image_corners_px)
         corner_points = [Point(x=x, y=y, z=PROJECTOR_OUTLINE_HEIGHT_M)
-                         for x, y in table_corners_m]
+                         for x, y in surface_corners_m]
         header = Header(stamp=self.get_clock().now().to_msg(),
                         frame_id=projection_mapping_msg.header.frame_id)
         outline_marker = Marker(header=header, ns=self._get_marker_namespace('projector_outline'),
@@ -239,16 +240,16 @@ class RvizBridgeNode(Node):
         markers = MarkerArray()
         # Removes the previous frame's markers first, so objects that are gone disappear
         markers.markers += self._create_delete_all_markers(OBJECT_MARKER_KINDS)
-        header = Header(stamp=msg.header.stamp, frame_id=TABLE_FRAME_ID)
+        header = Header(stamp=msg.header.stamp, frame_id=SURFACE_FRAME_ID)
         for detected_object in msg.objects:
             object_id = detected_object.object_id
             if detected_object.hull_contour_3d:
                 # Measured with a depth camera (object_detector with use_depth): the top outline
-                # drawn where it is, moved from the optical frame into the table frame
+                # drawn where it is, moved from the optical frame into the surface frame
                 _, _, rotation, translation_m = camera_parameters
                 hull_camera_m = np.array([(point.x, point.y, point.z)
                                           for point in detected_object.hull_contour_3d])
-                outline_table_m = hull_camera_m @ rotation.T + translation_m
+                outline_surface_m = hull_camera_m @ rotation.T + translation_m
                 # The centre of its top, where its depth was measured
                 center_3d = detected_object.center_3d
                 center_camera_m = np.array([center_3d.x, center_3d.y, center_3d.z])
@@ -271,20 +272,20 @@ class RvizBridgeNode(Node):
                 outline_pixels = [(point.x, point.y) for point in contour_points]
                 if not outline_pixels:
                     outline_pixels = [(detected_object.center_x, detected_object.center_y)]
-                outline_table_m = pixels_to_table(outline_pixels, *camera_parameters)
-                if len(outline_table_m) == 0:
+                outline_surface_m = camera_pixels_to_surface(outline_pixels, *camera_parameters)
+                if len(outline_surface_m) == 0:
                     continue
-                outline_table_m[:, 2] = OUTLINE_HEIGHT_M
+                outline_surface_m[:, 2] = OUTLINE_HEIGHT_M
 
             outline_marker = Marker(header=header, ns=self._get_marker_namespace('outline'),
                                     id=object_id,
                                     type=Marker.LINE_STRIP, color=OBJECT_OUTLINE_COLOR)
             outline_marker.scale.x = LINE_WIDTH_M
             # Repeating the first point closes the outline
-            closed_outline_m = np.vstack([outline_table_m, outline_table_m[:1]])
+            closed_outline_m = np.vstack([outline_surface_m, outline_surface_m[:1]])
             outline_marker.points = [Point(x=x, y=y, z=z) for x, y, z in closed_outline_m]
 
-            label_anchor_m = outline_table_m.mean(axis=0)
+            label_anchor_m = outline_surface_m.mean(axis=0)
             label_marker = Marker(header=header, ns=self._get_marker_namespace('label'),
                                   id=object_id,
                                   type=Marker.TEXT_VIEW_FACING, color=LABEL_COLOR,
@@ -307,18 +308,18 @@ class RvizBridgeNode(Node):
         markers = MarkerArray()
         # Removes the previous frame's markers first, so hands that are gone disappear
         markers.markers += self._create_delete_all_markers(HAND_MARKER_KINDS)
-        header = Header(stamp=msg.header.stamp, frame_id=TABLE_FRAME_ID)
+        header = Header(stamp=msg.header.stamp, frame_id=SURFACE_FRAME_ID)
         for hand in msg.hands:
             # One entry per landmark, None where it has no position
             if len(hand.hand_landmarks_3d) == NUM_HAND_LANDMARKS:
                 # Measured with a depth camera (hand_landmarks with use_depth): drawn where they
-                # are, moved from the optical frame into the table frame
+                # are, moved from the optical frame into the surface frame
                 _, _, rotation, translation_m = camera_parameters
                 landmarks_camera_m = np.array([(landmark.x, landmark.y, landmark.z)
                                                for landmark in hand.hand_landmarks_3d])
-                landmarks_table_m = landmarks_camera_m @ rotation.T + translation_m
+                landmarks_surface_m = landmarks_camera_m @ rotation.T + translation_m
                 landmark_points = []
-                for (x, y, z), depth_m in zip(landmarks_table_m, landmarks_camera_m[:, 2]):
+                for (x, y, z), depth_m in zip(landmarks_surface_m, landmarks_camera_m[:, 2]):
                     # z <= 0 (in front of the camera is z > 0): -1, -1, -1 marks "no depth"
                     if depth_m > 0:
                         landmark_points.append(Point(x=x, y=y, z=z))
@@ -326,13 +327,13 @@ class RvizBridgeNode(Node):
                         landmark_points.append(None)
             else:
                 landmark_pixels = [(landmark.x, landmark.y) for landmark in hand.hand_landmarks]
-                landmarks_table_m = pixels_to_table(landmark_pixels, *camera_parameters)
-                # Rays that miss the table are dropped, which would shift the ids the bones
+                landmarks_surface_m = camera_pixels_to_surface(landmark_pixels, *camera_parameters)
+                # Rays that miss the surface are dropped, which would shift the ids the bones
                 # refer to
-                if len(landmarks_table_m) != NUM_HAND_LANDMARKS:
+                if len(landmarks_surface_m) != NUM_HAND_LANDMARKS:
                     continue
                 landmark_points = [Point(x=x, y=y, z=HAND_HEIGHT_M)
-                                   for x, y, _ in landmarks_table_m]
+                                   for x, y, _ in landmarks_surface_m]
             positioned_points = [point for point in landmark_points if point is not None]
             if not positioned_points:
                 continue
@@ -384,26 +385,26 @@ class RvizBridgeNode(Node):
         markers = MarkerArray()
         # Removes the previous frame's markers first, so fiducials that are gone disappear
         markers.markers += self._create_delete_all_markers(FIDUCIAL_MARKER_KINDS)
-        header = Header(stamp=msg.header.stamp, frame_id=TABLE_FRAME_ID)
+        header = Header(stamp=msg.header.stamp, frame_id=SURFACE_FRAME_ID)
         for fiducial in msg.fiducials:
             # OpenCV's corner order: clockwise from the marker's top left
             if len(fiducial.corners_3d) == 4:
                 # Measured with a depth camera (fiducials_detector with use_depth): drawn where
-                # the marker is, moved from the optical frame into the table frame
+                # the marker is, moved from the optical frame into the surface frame
                 _, _, rotation, translation_m = camera_parameters
                 corners_camera_m = np.array([(point.x, point.y, point.z)
                                              for point in fiducial.corners_3d])
-                corners_table_m = corners_camera_m @ rotation.T + translation_m
+                corners_surface_m = corners_camera_m @ rotation.T + translation_m
             else:
                 corner_pixels = [(fiducial.x0, fiducial.y0), (fiducial.x1, fiducial.y1),
                                  (fiducial.x2, fiducial.y2), (fiducial.x3, fiducial.y3)]
-                corners_table_m = pixels_to_table(corner_pixels, *camera_parameters)
-                # Rays that miss the table are dropped, which would shift which corner is which
-                if len(corners_table_m) != len(corner_pixels):
+                corners_surface_m = camera_pixels_to_surface(corner_pixels, *camera_parameters)
+                # Rays that miss the surface are dropped, which would shift which corner is which
+                if len(corners_surface_m) != len(corner_pixels):
                     continue
-                corners_table_m[:, 2] = OUTLINE_HEIGHT_M
-            corner_points = [Point(x=x, y=y, z=z) for x, y, z in corners_table_m]
-            center_m = corners_table_m.mean(axis=0)
+                corners_surface_m[:, 2] = OUTLINE_HEIGHT_M
+            corner_points = [Point(x=x, y=y, z=z) for x, y, z in corners_surface_m]
+            center_m = corners_surface_m.mean(axis=0)
 
             outline_marker = Marker(header=header,
                                     ns=self._get_marker_namespace('fiducial_outline'),
@@ -413,7 +414,7 @@ class RvizBridgeNode(Node):
             outline_marker.scale.x = LINE_WIDTH_M
             # From the centre to the middle of the first edge, the marker's top: shows its
             # rotation, the same edge fiducials_detector computes its angle from
-            top_edge_middle_m = (corners_table_m[0] + corners_table_m[1]) / 2
+            top_edge_middle_m = (corners_surface_m[0] + corners_surface_m[1]) / 2
             direction_points = [Point(x=center_m[0], y=center_m[1], z=center_m[2]),
                                 Point(x=top_edge_middle_m[0], y=top_edge_middle_m[1],
                                       z=top_edge_middle_m[2])]
@@ -447,19 +448,19 @@ class RvizBridgeNode(Node):
         markers = MarkerArray()
         # Removes the previous frame's markers first, so pages that are gone disappear
         markers.markers += self._create_delete_all_markers(PAGE_MARKER_KINDS)
-        header = Header(stamp=msg.header.stamp, frame_id=TABLE_FRAME_ID)
+        header = Header(stamp=msg.header.stamp, frame_id=SURFACE_FRAME_ID)
         for page in msg.pages:
-            # Paper lies on the table, so the table plane is where its corners are, with or
+            # Paper lies on the surface, so the surface plane is where its corners are, with or
             # without a depth camera
             corner_pixels = [(page.x0, page.y0), (page.x1, page.y1), (page.x2, page.y2),
                              (page.x3, page.y3)]
-            corners_table_m = pixels_to_table(corner_pixels, *camera_parameters)
-            # Rays that miss the table are dropped, which would shift which corner is which
-            if len(corners_table_m) != len(corner_pixels):
+            corners_surface_m = camera_pixels_to_surface(corner_pixels, *camera_parameters)
+            # Rays that miss the surface are dropped, which would shift which corner is which
+            if len(corners_surface_m) != len(corner_pixels):
                 continue
-            corners_table_m[:, 2] = PAGE_HEIGHT_M
-            corner_points = [Point(x=x, y=y, z=z) for x, y, z in corners_table_m]
-            center_m = corners_table_m.mean(axis=0)
+            corners_surface_m[:, 2] = PAGE_HEIGHT_M
+            corner_points = [Point(x=x, y=y, z=z) for x, y, z in corners_surface_m]
+            center_m = corners_surface_m.mean(axis=0)
 
             outline_marker = Marker(header=header, ns=self._get_marker_namespace('page_outline'),
                                     id=page.id,
@@ -507,15 +508,15 @@ class RvizBridgeNode(Node):
         for field_name in PROJECTION_CORNER_FIELD_NAMES:
             corner = getattr(corners, field_name)
             corner_pixels.append((corner.x, corner.y))
-        corners_table_m = pixels_to_table(corner_pixels, *camera_parameters)
-        if len(corners_table_m) < len(PROJECTION_CORNER_FIELD_NAMES):
+        corners_surface_m = camera_pixels_to_surface(corner_pixels, *camera_parameters)
+        if len(corners_surface_m) < len(PROJECTION_CORNER_FIELD_NAMES):
             self.get_logger().warning(
-                'Not all projection corners hit the table plane, the area is not shown',
+                'Not all projection corners hit the projection surface, the area is not shown',
                 throttle_duration_sec=WARNING_THROTTLE_PERIOD_SEC)
             return
         corner_points = [Point(x=x, y=y, z=PROJECTION_AREA_HEIGHT_M)
-                         for x, y, _ in corners_table_m]
-        header = Header(stamp=self.get_clock().now().to_msg(), frame_id=TABLE_FRAME_ID)
+                         for x, y, _ in corners_surface_m]
+        header = Header(stamp=self.get_clock().now().to_msg(), frame_id=SURFACE_FRAME_ID)
 
         outline_marker = Marker(header=header, ns=self._get_marker_namespace('projection_area'),
                                 id=0,
@@ -539,10 +540,10 @@ class RvizBridgeNode(Node):
 
     def publish_camera_frustum(self):
         """
-        Draw the camera's field of view down to the table.
+        Draw the camera's field of view down to the surface.
 
         A marker rather than RViz's CameraInfo display, whose edges disappear from some viewing
-        angles and which cannot end at the table.
+        angles and which cannot end at the surface.
         """
         camera_info = self.camera_info
         if camera_info is None:
@@ -554,22 +555,22 @@ class RvizBridgeNode(Node):
         _, _, _, optical_center_m = camera_parameters
         image_corners_px = [(0, 0), (camera_info.width, 0),
                             (camera_info.width, camera_info.height), (0, camera_info.height)]
-        # A corner whose ray misses the table (a strongly tilted camera) gets no edge
-        table_corners_m = pixels_to_table(image_corners_px, *camera_parameters)
+        # A corner whose ray misses the surface (a strongly tilted camera) gets no edge
+        surface_corners_m = camera_pixels_to_surface(image_corners_px, *camera_parameters)
         corner_points = [Point(x=x, y=y, z=CAMERA_FRUSTUM_OUTLINE_HEIGHT_M)
-                         for x, y, _ in table_corners_m]
+                         for x, y, _ in surface_corners_m]
         optical_center_point = Point(x=optical_center_m[0], y=optical_center_m[1],
                                      z=optical_center_m[2])
         frustum_points = []
         for corner_index, corner_point in enumerate(corner_points):
             frustum_points.append(optical_center_point)
             frustum_points.append(corner_point)
-            # The image outline on the table, only when all four corners reach it
+            # The image outline on the surface, only when all four corners reach it
             if len(corner_points) == len(image_corners_px):
                 next_corner_point = corner_points[(corner_index + 1) % len(corner_points)]
                 frustum_points.append(corner_point)
                 frustum_points.append(next_corner_point)
-        header = Header(stamp=self.get_clock().now().to_msg(), frame_id=TABLE_FRAME_ID)
+        header = Header(stamp=self.get_clock().now().to_msg(), frame_id=SURFACE_FRAME_ID)
         frustum_marker = Marker(header=header, ns=self._get_marker_namespace('camera_frustum'),
                                 id=0, type=Marker.LINE_LIST,
                                 color=CAMERA_FRUSTUM_COLOR, points=frustum_points)
@@ -594,8 +595,8 @@ class RvizBridgeNode(Node):
         """
         Return (camera_matrix, distortion_coefficients, rotation, translation_m) or None.
 
-        The tuple is what pixels_to_table takes after the pixels; subject names what is not shown
-        in the warning when the camera calibration or the transform is missing.
+        The tuple is what camera_pixels_to_surface takes after the pixels; subject names what is
+        not shown in the warning when the camera calibration or the transform is missing.
         """
         camera_info = self.camera_info
         # Uncalibrated, the camera matrix is all zeros and pixels have no direction
@@ -613,10 +614,10 @@ class RvizBridgeNode(Node):
         # The transform is static, so the latest one (Time()) is also the one at the image's
         # capture time
         try:
-            transform = self.tf_buffer.lookup_transform(TABLE_FRAME_ID, frame_id, Time())
+            transform = self.tf_buffer.lookup_transform(SURFACE_FRAME_ID, frame_id, Time())
         except TransformException as error:
             self.get_logger().warning(
-                f'No transform {TABLE_FRAME_ID} <- {frame_id} yet, {subject} not shown: {error}',
+                f'No transform {SURFACE_FRAME_ID} <- {frame_id} yet, {subject} not shown: {error}',
                 throttle_duration_sec=WARNING_THROTTLE_PERIOD_SEC)
             return None
 

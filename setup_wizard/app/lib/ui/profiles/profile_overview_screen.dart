@@ -316,8 +316,8 @@ class _ProfileOverviewScreenState extends State<ProfileOverviewScreen>
 
     final TextTheme textTheme = Theme.of(context).textTheme;
     final List<Widget> setupRows = [];
-    // Once a camera pose is measured or the projection is calibrated: the table with what the steps below fill in.
-    // Before, the bare table would push the To do list out of sight
+    // Once a camera pose is measured or the projection is calibrated: the surface with what the steps below fill in.
+    // Before, the bare surface would push the To do list out of sight
     final bool hasSomethingToDraw = getDrawnCameras(setupGeometry).isNotEmpty || setupGeometry.projector != null;
     if (hasSomethingToDraw) {
       setupRows.add(SetupDrawingView(

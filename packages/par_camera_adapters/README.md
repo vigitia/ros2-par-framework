@@ -33,7 +33,7 @@ An event camera reports brightness changes per pixel instead of frames. A camera
 `config/event.yaml`. Next to it, `event_camera_renderer` (`/cameras/<name>/event_renderer`) collects the events into
 `bgr8` images on `/cameras/<name>/image_raw`, at `fps` per second, and reads events only while something subscribes
 to the images. The raw events are on `/cameras/<name>/events` for nodes that want them. The driver publishes no `camera_info`, so the
-event camera has no intrinsics, and nothing that needs them (`pixels_to_table`, the frustum in RViz) works with it.
+event camera has no intrinsics, and nothing that needs them (`camera_pixels_to_surface`, the frustum in RViz) works with it.
 The detectors are built for normal images; how well they work on collected events depends on the scene.
 
 **Vendor plugin.** OpenEB opens Prophesee's own cameras; other makers ship a HAL plugin, which has to match the OpenEB

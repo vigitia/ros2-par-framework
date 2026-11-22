@@ -483,7 +483,7 @@ def launch_setup(context):
     launch_actions += create_uninstalled_switch_messages(launch_section, launch_switch_names,
                                                          profile_camera_names)
 
-    # Publish each camera's stored projection corners and table-to-projector mapping. Calibration
+    # Publish each camera's stored projection corners and surface-to-projector mapping. Calibration
     # is optional: without ros2-par-framework-calibration the framework runs in camera pixels.
     if has_resource('packages', 'projection_calibration_server'):
         for started_camera in cameras_to_start:

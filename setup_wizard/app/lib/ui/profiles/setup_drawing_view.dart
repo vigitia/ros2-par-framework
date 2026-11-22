@@ -417,10 +417,10 @@ class _SetupDrawingLayout {
       }
     }
     for (final CameraGeometry camera in getDrawnCameras(setupGeometry)) {
-      for (final WorldPointM footprintPointM in camera.tableFootprintM ?? const <WorldPointM>[]) {
+      for (final WorldPointM footprintPointM in camera.surfaceFootprintM ?? const <WorldPointM>[]) {
         tableHorizontalsM.add(_getHorizontalM(screenRightDirection, footprintPointM));
       }
-      final WorldPointM? axisHitM = camera.opticalAxisTableHitM;
+      final WorldPointM? axisHitM = camera.opticalAxisSurfaceHitM;
       if (axisHitM != null) {
         tableHorizontalsM.add(_getHorizontalM(screenRightDirection, axisHitM));
       }
@@ -479,7 +479,7 @@ class _SetupDrawingLayout {
       final Offset positionPx = toCanvasFromWorld(camera.positionM);
       // Turned so the lens faces along the optical axis; straight down without one
       double viewAngleRad = math.pi / 2;
-      final WorldPointM? axisHitM = camera.opticalAxisTableHitM;
+      final WorldPointM? axisHitM = camera.opticalAxisSurfaceHitM;
       if (axisHitM != null) {
         final Offset axisDirectionPx = toCanvas(getHorizontalM(axisHitM), 0) - positionPx;
         viewAngleRad = math.atan2(axisDirectionPx.dy, axisDirectionPx.dx);
@@ -707,7 +707,7 @@ class _SetupDrawingPainter extends CustomPainter {
     final CameraGeometry camera = cameraPlacement.camera;
     final Color cameraColor = setupDrawingColors.cameraColor;
     final Offset cameraPx = cameraPlacement.positionPx;
-    final List<WorldPointM>? footprintM = camera.tableFootprintM;
+    final List<WorldPointM>? footprintM = camera.surfaceFootprintM;
     if (footprintM != null && footprintM.isNotEmpty) {
       final List<double> footprintHorizontalsM = [];
       for (final WorldPointM footprintPointM in footprintM) {
@@ -731,7 +731,7 @@ class _SetupDrawingPainter extends CustomPainter {
       canvas.drawPath(viewPath, Paint()..color = cameraColor.withValues(alpha: viewFillAlpha));
       _strokePath(canvas, viewPath, cameraColor, isDashed: false, strokeWidthPx: viewOutlineWidthPx);
     }
-    final WorldPointM? axisHitM = camera.opticalAxisTableHitM;
+    final WorldPointM? axisHitM = camera.opticalAxisSurfaceHitM;
     if (axisHitM != null) {
       final Offset axisHitPx = setupDrawingLayout.toCanvas(setupDrawingLayout.getHorizontalM(axisHitM), 0);
       final Path axisPath = Path()

@@ -139,7 +139,7 @@ abstract final class WizardStrings {
   static const String chooseAppsToDoText = 'The apps this profile offers when it runs.';
   static const String openAppsButtonLabel = 'Open Apps';
   static const String cameraPoseMissingText =
-      'Its camera pose is missing: without it, the wizard does not know where the camera is above the table.';
+      'Its camera pose is missing: without it, the wizard does not know where the camera is above the projection surface.';
   static const String cameraPoseFileUnusableText =
       'Its camera pose file cannot be used. Measure the camera pose again.';
   static const String overviewProjectorTitle = 'Projector';
@@ -149,7 +149,7 @@ abstract final class WizardStrings {
 
   static String getProjectionMappingMissingText({required String cameraName}) {
     return 'Its projector calibration with $cameraName is missing: '
-        'without it, the wizard does not know where the projected image lies on the table.';
+        'without it, the wizard does not know where the projected image lies on the projection surface.';
   }
 
   static const String projectorPositionTitle = 'Projector position (projector centre)';
@@ -455,14 +455,14 @@ abstract final class WizardStrings {
   static const String qualityFigureBoardReprojectionErrorLabel = 'Board corners off the fitted board (px)';
   static const String qualityFigureBoardNormalSpreadLabel = 'Tilt spread between frames (°)';
   static const String qualityFigureBoardFramesLabel = 'Frames averaged';
-  static const String qualityFigureTableFractionLabel = 'Share of the image on the table plane';
-  static const String qualityFigureTableRmsLabel = 'Table plane fit error (mm)';
+  static const String qualityFigureSurfaceFractionLabel = 'Share of the image on the projection surface';
+  static const String qualityFigureSurfaceRmsLabel = 'Projection surface fit error (mm)';
   static const String qualityFigureMethodLabel = 'Method';
   static const String readingProfileCalibrationText = 'Reading the profile\'s calibration …';
   static const String cameraPoseNotMeasuredText = 'Not measured: the profile uses the placeholder pose.';
   static const String cameraPoseMeasuredText = 'Measured';
-  static String getCameraHeightAboveTableText({required double heightAboveTableM}) {
-    return '${heightAboveTableM.toStringAsFixed(3)} m above the table';
+  static String getCameraHeightAboveSurfaceText({required double heightAboveSurfaceM}) {
+    return '${heightAboveSurfaceM.toStringAsFixed(3)} m above the projection surface';
   }
 
   static String getCameraTiltText({required double tiltFromVerticalDeg}) {
@@ -470,7 +470,7 @@ abstract final class WizardStrings {
   }
 
   static const String projectionMappingNotCalibratedText =
-      'Not calibrated: projected content does not line up with the table yet.';
+      'Not calibrated: projected content does not line up with the projection surface yet.';
   static const String projectionMappingCalibratedText = 'Calibrated';
   static String getProjectionMappingErrorText({required String mappingText, required double reprojectionErrorPx}) {
     return '$mappingText: markers ${reprojectionErrorPx.toStringAsFixed(2)} projector px off on average.';
@@ -482,37 +482,37 @@ abstract final class WizardStrings {
 
   static const String projectorCenterFoundText = 'Projector centre found';
   static const String projectionMappingOutdatedText =
-      'Measured before the current camera pose, on the old table plane: calibrate it again.';
+      'Measured before the current camera pose, on the old projection surface: calibrate it again.';
   static String getCalibrationNotInstalledText({required String missingPackageText}) {
     return 'Not installed: $missingPackageText';
   }
 
   static const String measureWithCheckerboardHeading = 'Measure with a checkerboard';
   static const String measureWithCheckerboardText =
-      'Lay the board flat on the table, completely in view, and keep it still. This measures the camera\'s '
-      'height and tilt above the table; its position along the table and its turn about the vertical stay '
+      'Lay the board flat on the projection surface, completely in view, and keep it still. This measures the camera\'s '
+      'height and tilt above the projection surface; its position along the projection surface and its turn about the vertical stay '
       'those of the placeholder pose. Needs the lens calibration.';
   static const String measurePoseAgainButtonLabel = 'Measure again';
   static const String measurePoseButtonLabel = 'Measure pose';
   static const String measureWithDepthHeading = 'Or measure with depth';
   static const String measureWithDepthText =
-      'Clear the table: the camera fits the table plane in its depth image, no board needed.';
+      'Clear the projection surface: the camera fits its plane in its depth image, no board needed.';
   static const String useDepthButtonLabel = 'Use depth instead';
-  static const String projectorToTableHeading = 'Projector to table';
-  static const String projectorToTableText =
-      'Clear the table. The projector shows a grid of markers on the profile\'s projector display; keep out '
+  static const String projectorToSurfaceHeading = 'Projector to surface';
+  static const String projectorToSurfaceText =
+      'Clear the projection surface. The projector shows a grid of markers on the profile\'s projector display; keep out '
       'of the light until it ends. Uses the camera pose, so measure that first.';
   static const String calibrateProjectorButtonLabel = 'Calibrate projector';
   static const String projectorCenterHeading = 'Projector centre (optional)';
   static const String projectorCenterText =
-      'Hold a flat board above the table and move it slowly through the projected markers, at different '
+      'Hold a flat board above the projection surface and move it slowly through the projected markers, at different '
       'heights. Needed by the projection mask; calibrating the projector again clears it.';
   static const String findProjectorCenterButtonLabel = 'Find projector centre';
   static const String measuringPoseFromBoardText = 'Measuring the pose from the board. Keep it still and in view.';
-  static const String measuringPoseFromTablePlaneText =
-      'Measuring the pose from the table plane. Keep the table clear.';
+  static const String measuringPoseFromSurfaceText =
+      'Measuring the pose from the projection surface. Keep the projection surface clear.';
   static const String projectingMarkersText =
-      'The projector shows the markers. Keep the table clear and out of the light.';
+      'The projector shows the markers. Keep the projection surface clear and out of the light.';
   static const String findingProjectorCenterText =
       'Move the board slowly through the projected markers, at different heights.';
   static const String calibrationStoredText = 'Stored in the profile.';
