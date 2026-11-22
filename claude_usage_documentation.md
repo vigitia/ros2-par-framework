@@ -7210,3 +7210,50 @@ Chosen: RViz's own `--display-title-format` option.
   RViz would then overwrite the template in the source tree.
 - *Copy to a fixed per-user path*: rejected for this change, because the title would still show a
   path rather than a name, and it is a larger change.
+
+## 2026-11-20: CLAUDE.md brought up to date with multi-camera launch
+
+### What changed
+`CLAUDE.md` described the single-camera layout (`/camera/image_raw`, the removed
+`launch_helpers.CAMERA_DRIVER_REMAPPINGS`, global `/projection_mapping` and `/projector/mask`).
+It now describes the current design:
+- named cameras in `par_launch.cameras`, each in `/cameras/<name>/`, and the `camera:=` and
+  `camera_only:=` arguments;
+- relative topic names, with sensor nodes started once per camera in its namespace;
+- camera, sensor node and app registration through the ament index (`par_framework_cameras`,
+  `par_framework_sensor_nodes`, `par_framework_apps`);
+- `use_compressed` and `use_depth` derived from a camera entry's `streams`;
+- per-camera projection calibration topics and files, and per-unit intrinsics file names;
+- the shared modules `launch_helpers.py` was split into, and the setup wizard;
+- which of the two `config/` folders holds what.
+
+### Why / alternatives
+CLAUDE.md is read before every change in this repository, so outdated topic names and helper
+names lead to code built against interfaces that no longer exist. Chosen: rewrite the affected
+sections in place and keep the rest unchanged.
+- *Point CLAUDE.md at `packages/par-framework-core/README.md` instead of describing the camera
+  model*: rejected, because the README documents the entry formats, not the conventions code must
+  follow (relative names, no topic parameters, QoS).
+
+## 2026-11-22: `config/required_ros_packages.list` removed
+
+### What changed
+
+The tracked list of released packages every installation needs is gone; it had no entries. Released packages are
+now listed only in the gitignored `config/installed_ros_packages.list`. `write_ros_packages_manifest` in
+`scripts/common.sh` builds the generated `par_ros_packages/package.xml` from that list alone (no dependencies when
+it does not exist), and the setup wizard (`setup_wizard/backend/install/node_catalog.py`) checks only that list
+before adding a key. The header the wizard writes into a new installed list now describes the format itself. The
+camera type entries, `config/catalog_repos.list`, README and CLAUDE.md point to the installed list; the Kinect entry
+now says its driver is a fork from the catalog.
+
+### Why / alternatives
+
+A released package every installation needs is needed because some required package uses it, and that package
+declares it in its own `package.xml`, which rosdep already resolves in `local_build.sh`. The required list would
+only matter for a package no `package.xml` declares, and none exists. Optional released packages need no catalog
+list either: the camera type entries name them under `required_packages`, and the wizard writes each one that no
+catalog repository provides into the installed list.
+
+- *Keep the empty list as a slot for later:* rejected, it kept code in two places (build script and wizard) and a
+  hand-maintained driver list in its comments that duplicated the camera entries.

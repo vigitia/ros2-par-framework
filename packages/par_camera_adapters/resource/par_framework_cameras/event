@@ -7,7 +7,7 @@ package: par_camera_adapters
 launch_file: camera_event.launch.py
 # Driver defaults the framework needs, loaded before par_setup.yaml and the profile
 parameters_file: config/event.yaml
-# The released driver this launch file starts, installed separately (config/required_ros_packages.list)
+# The released driver this launch file starts, installed separately (config/installed_ros_packages.list)
 required_packages: [metavision_driver, event_camera_renderer]
 body_frame: link
 streams: [image_raw, events]

@@ -91,11 +91,12 @@ command_exists() {
 # `read` with a tab separator merges two tabs in a row, so the fields would shift.
 NO_BRANCH="-"
 
+# Written with the help of Claude Code: released packages have only an installed list
 # The lists the build reads: the tracked required list and the gitignored list of what this installation
-# added (written by the setup wizard). The second one may be missing.
+# added (written by the setup wizard). The second one may be missing. Released packages have only the
+# installed list: one that every installation needs is declared in the package.xml of the package using it.
 REQUIRED_REPOS_LIST_PATH="${REPO_ROOT}/config/required_repos.list"
 INSTALLED_REPOS_LIST_PATH="${REPO_ROOT}/config/installed_repos.list"
-REQUIRED_ROS_PACKAGES_LIST_PATH="${REPO_ROOT}/config/required_ros_packages.list"
 INSTALLED_ROS_PACKAGES_LIST_PATH="${REPO_ROOT}/config/installed_ros_packages.list"
 
 # Co-authored by Claude Code
@@ -159,7 +160,7 @@ read_repos_to_build() {
 }
 
 # Co-authored by Claude Code
-# Read a list in the required_ros_packages.list format and print one rosdep key per line. Comments and blank
+# Read a list in the installed_ros_packages.list format and print one rosdep key per line. Comments and blank
 # lines are skipped. The keys end up in a generated package.xml, so anything that is not a plain key
 # fails here instead of producing broken XML.
 #   read_ros_packages_list <list_path>
@@ -189,19 +190,16 @@ read_ros_packages_list() {
 
 # Co-authored by Claude Code
 # Write <output_dir>/par_ros_packages/package.xml: a package that only depends on every key of
-# config/required_ros_packages.list and config/installed_ros_packages.list (if it exists), so that
+# config/installed_ros_packages.list (none if it does not exist), so that
 # `rosdep install --from-paths <output_dir>` installs those packages the same way it installs the
 # nodes' dependencies.
 write_ros_packages_manifest() {
     local output_dir="$1"
-    local keys
-    keys="$(read_ros_packages_list "$REQUIRED_ROS_PACKAGES_LIST_PATH")" || die "fix ${REQUIRED_ROS_PACKAGES_LIST_PATH}"
+    local keys=""
     if [[ -f "$INSTALLED_ROS_PACKAGES_LIST_PATH" ]]; then
-        local installed_keys
-        installed_keys="$(read_ros_packages_list "$INSTALLED_ROS_PACKAGES_LIST_PATH")" \
+        # A key listed twice once: sort -u removes duplicates
+        keys="$(read_ros_packages_list "$INSTALLED_ROS_PACKAGES_LIST_PATH" | sort -u)" \
             || die "fix ${INSTALLED_ROS_PACKAGES_LIST_PATH}"
-        # A key in both lists once: sort -u removes duplicates
-        keys="$(printf '%s\n%s\n' "$keys" "$installed_keys" | sort -u)"
     fi
 
     # One <exec_depend> line per key
@@ -214,11 +212,11 @@ write_ros_packages_manifest() {
     # The license is required by rosdep's manifest parser; it is the same as par_framework_core's
     cat > "${output_dir}/par_ros_packages/package.xml" <<EOF
 <?xml version="1.0"?>
-<!-- Generated from config/required_ros_packages.list and config/installed_ros_packages.list by scripts/common.sh -->
+<!-- Generated from config/installed_ros_packages.list by scripts/common.sh -->
 <package format="3">
   <name>par_ros_packages</name>
   <version>0.0.0</version>
-  <description>Released packages listed in config/required_ros_packages.list and config/installed_ros_packages.list.</description>
+  <description>Released packages listed in config/installed_ros_packages.list.</description>
   <maintainer email="none@example.com">generated</maintainer>
   <license>MIT</license>
 ${depends}</package>

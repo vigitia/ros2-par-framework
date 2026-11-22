@@ -7,7 +7,10 @@
 # The repositories every installation needs are listed there, not here.
 #
 
-# Sensors (released camera drivers are rosdep keys instead, see config/required_ros_packages.list):
+# IMPORTANT NOTE: At the moment, some of these repos listed here might not yet be available
+# publicly. Feel free to contact me (Vitus) if you want early access.
+
+# Sensors (released camera drivers are rosdep keys in config/installed_ros_packages.list instead):
 
 logitech_brio             git@github.com:vigitia/ros2-logitech-brio.git                     main
 see3cam_cu40              git@github.com:vigitia/ros2-see3cam-cu40.git                      main
@@ -26,8 +29,8 @@ object_teaching           git@github.com:vigitia/ros2-par-framework-object-teach
 
 # Applications:
 
-# The rendering manager is a special case. It acts as an app of the framework itself,
-# but its purpose is to start one or multiple apps itself and position them on the interactive surface
+# The rendering manager is a special case. It acts as an app of the framework,
+# but its purpose is to start one or multiple apps itself and positions them on the interactive surface
 rendering_manager         git@github.com:vigitia/ros2-par-framework-rendering-manager.git   main
 demo_app                  git@github.com:vigitia/ros2-par-framework-demo-application.git    main
 worksheets_app            git@github.com:vigitia/ros2-par-framework-worksheets.git          main

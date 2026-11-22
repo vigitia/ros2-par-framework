@@ -10,7 +10,7 @@ import numpy as np
 COLS = 9
 ROWS = 7
 SQUARE_SIZE_PX = 120
-# White border, so the outer squares have contrast
+# White border around the checkerboard. The outside squares might otherwise not be detected.
 MARGIN_PX = 60
 
 BLACK = 0

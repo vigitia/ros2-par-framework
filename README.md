@@ -93,7 +93,6 @@ The wizard allows creation of individual profiles (physical, e.g., a different h
 |---|---|
 | `config/required_repos.list` | ROS2 node repositories every installation needs |
 | `config/catalog_repos.list` | ROS2 node repositories an installation can add: cameras, sensor nodes, apps (you can also add your own dependencies manually. All are just ROS 2 packages) |
-| `config/required_ros_packages.list` | Released ROS packages every installation needs, installed instead of cloned |
 | `config/installed_repos.list` | (gitignored) Repositories that this installation added |
 | `config/installed_ros_packages.list` | (gitignored) Released packages this installation added (e.g. camera drivers) |
 | `packages/` | This repo's own ROS packages, built together with `src/` |

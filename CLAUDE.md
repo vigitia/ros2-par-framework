@@ -6,24 +6,34 @@ Guidance for Claude Code (claude.ai/code) in this repository.
 
 ## What this repository is
 
-Core repo of a projected augmented reality (PAR) framework on ROS 2: a camera and a projector aimed at the same
-surface. It declares which repos make up a setup (`config/required_repos.list` for every installation,
-`config/catalog_repos.list` for the optional ones) and holds the launch files, the per-setup parameters and the
-source every setup builds.
+Core repo of a projected augmented reality (PAR) framework on ROS 2: one or multiple cameras and a projector aimed at the same surface. It declares which repos make up a setup (`config/required_repos.list` for every installation, `config/catalog_repos.list` for the optional ones) and holds the launch files, the per-setup parameters and the source every setup builds.
 
 **Where a package belongs** (first yes decides):
 
 1. Useful outside the framework (camera driver, detector)? → own repo, or a public third-party repo.
 2. Shared library or setup/inspection tooling (`par_geometry`, `rviz_bridge`)? → this repo, its own directory under
    `packages/` (`local_build.sh` takes `packages/` as a whole, no path changes needed).
+
 3. Otherwise a framework capability (calibration, projection mask) → own repo, listed in
    `config/required_repos.list` if every setup needs it, else in `config/catalog_repos.list`. Nothing here declares
-   it as a dependency; `par.launch.py` starts it only when installed (`has_resource('packages', …)`), otherwise it
-   logs which repo to add.
+   it as a dependency; `par.launch.py` finds what is installed through the ament index (see "Ament index entries"
+   below; the projection calibration server through `has_resource('packages', …)`) and otherwise logs which repo to
+   add.
 
-`packages/par-framework-core/` (package `par_framework_core`) holds launch files and `config/par_setup.yaml` only,
-no nodes and no camera types. Camera types for third-party drivers are in `packages/par_camera_adapters/`
-(kept in this repo for now; one repo per camera type, like `logitech_brio`, is the alternative).
+<!-- Written with the help of Claude Code -->
+`packages/par-framework-core/` (package `par_framework_core`) holds `launch/par.launch.py`, `config/par_setup.yaml`
+and the Python modules the launch files of every repo share, no nodes and no camera types. `launch_helpers` is the
+only module that reads the launch context; the logic lives in modules that import nothing from `launch`:
+`setup_files` (config paths, parameter files), `par_launch_cameras`, `camera_types`, `camera_poses`, `par_apps`,
+`sensor_nodes`, `connected_displays` (finds the projector by its EDID). Camera types for third-party drivers are in
+`packages/par_camera_adapters/` (kept in this repo for now; one repo per camera type, like `logitech_brio`, is the
+alternative). `setup_wizard/` is the setup wizard (Flutter app + FastAPI backend, started by
+`scripts/start_setup_wizard.sh`): installation, profiles, calibration, starting apps.
+
+<!-- Written with the help of Claude Code -->
+Two `config/` folders: the repo root's `config/` holds only the `*.list` files; parameters, profiles and calibrations
+are in `packages/par-framework-core/config/` (`setup_files.get_path_in_config_folder`). Below, `config/profiles/` and
+`config/calibration/` mean the latter.
 
 **Calibration is optional.** The framework runs uncalibrated, in camera pixels. Camera pose, projection corners,
 projection mapping and the server that publishes them latched live in `ros2-par-framework-calibration` (packages
@@ -72,10 +82,19 @@ installed by the setup wizard or by copying the line into `config/installed_repo
 Packages may sit at the root, one level down, or several per repo; each is keyed by its `<name>`. A third-party repo
 written for an older distro may need a fork.
 
+<!-- Written with the help of Claude Code -->
+**Ament index entries.** The framework finds cameras, sensor processing nodes and apps by the marker file they install
+under `share/ament_index/resource_index/<type>/` (source: `resource/<type>/<name>`, listed in `setup.py`
+`data_files`), whose content is a YAML entry: `par_framework_cameras` (camera types, e.g. `brio`, `kinect`),
+`par_framework_sensor_nodes` (detectors, `page_locator`, `projection_mask`; key `required_sensor_nodes`) and
+`par_framework_apps` (e.g. `demo_app`, the rendering manager; keys such as `inputs`, the camera topics it reads).
+Entry formats: `packages/par-framework-core/README.md`. A sensor node's package name is its `par_launch` switch.
+
 **Released packages** (`v4l2_camera`, `realsense2_camera`, `spinnaker_camera_driver`) are not cloned: they are rosdep
-keys in `config/required_ros_packages.list` (every installation) and the gitignored
-`config/installed_ros_packages.list` (this installation's camera drivers), turned into a generated `package.xml` by
-`write_ros_packages_manifest` in `scripts/common.sh`. So camera drivers stay optional and `par_framework_core`
+keys in the gitignored `config/installed_ros_packages.list` (this installation's camera drivers; the wizard writes
+the `required_packages` of a chosen camera type that no catalog repo provides), turned into a generated `package.xml`
+by `write_ros_packages_manifest` in `scripts/common.sh`. There is no required list for released packages: one every
+installation needs goes into the `package.xml` of the package that uses it. So camera drivers stay optional and `par_framework_core`
 declares none. The Kinect SDK is installed by hand; the driver fork's `package.xml` does not declare it (rosdep has
 no rule for `K4A`), so core needs no `--skip-keys`. Nothing in core may declare the Kinect driver, or a Brio-only
 build breaks. `spinnaker_camera_driver` brings its own copy of the Spinnaker
@@ -94,8 +113,10 @@ definition or adding an external dependency needs `./scripts/local_build.sh`.
 own code (`declare_parameter` with a `ParameterDescriptor`); a camera type for a third-party driver brings the driver
 defaults the framework needs as its entry's `parameters_file` (`packages/par_camera_adapters/config/`), loaded before
 `packages/par-framework-core/config/par_setup.yaml`, which holds only the framework's own `par_launch` and
-`placeholder_camera_pose`. A profile overrides any of them, keyed by node name. A namespaced node needs its full name (e.g. `/camera/brio/logitech_brio_node`); a
-bare name is silently ignored. Another physical setup is a **profile** (`profile:=<name>`): `config/profiles/<name>.yaml`
+`placeholder_camera_pose`. A profile overrides any of them, keyed by node name.
+<!-- Written with the help of Claude Code -->
+A namespaced node needs its full name: `/cameras/*/<node>` for every camera, `/cameras/<camera>/<node>` for one
+(e.g. `/cameras/overhead/fiducials_detector_node`); a bare name is silently ignored. Another physical setup is a **profile** (`profile:=<name>`): `config/profiles/<name>.yaml`
 (gitignored) holds only the keys that differ, nodes get `[params_file, profile]` (ROS merges, later wins), and what
 the launch files read themselves (`par_launch`, placeholder poses) goes through `setup_files.read_merged_parameters`.
 Calibrations are per profile: extrinsics in `calibration/extrinsics/<profile>/`, intrinsics in
@@ -110,26 +131,46 @@ take plain Python/NumPy values, so it is testable with plain pytest and reusable
 
 ### Cameras
 
-Framework nodes subscribe to neutral names: `/camera/image_raw`, `/camera/camera_info`, `/camera/set_camera_info` and,
-from a depth camera, `/camera/depth_registered/image_raw` (depth on the colour image's pixel grid), and from a camera
-with infrared on that grid, `/camera/ir/image_raw` (the Kinect's driver transforms its infrared onto the colour grid,
-`ir_to_rgb/image_raw`, computed only while subscribed). A depth camera's own infrared and depth, unregistered and
-aligned pixel by pixel, are `/camera/depth_sensor/ir/image_raw`, `/camera/depth_sensor/depth/image_raw` and
-`/camera/depth_sensor/camera_info`; its pose relative to the colour camera is in TF (`hand_landmarks` with `use_ir`
-detects there and moves the landmarks into the colour image).
-`object_detector` and `fiducials_detector` with `use_compressed` take `/camera/image_raw/compressed` instead
-(`par.launch.py` sets it for the Brio, the only driver publishing JPEGs). Drivers keep their own topics; launch files
-remap them with `launch_helpers.CAMERA_DRIVER_REMAPPINGS`, the only place that knows them. A new camera = a camera
-type (entry + launch file, format in `packages/par-framework-core/README.md`) in the driver's repo, or in
-`packages/par_camera_adapters/` for a third-party driver. Nodes hard-code the neutral names; another topic is chosen
-by remapping, not by parameter. The event camera (`camera:=event`) has no frames: `event_camera_renderer` collects its
-events into `/camera/image_raw`, the raw events are on `/camera/events`, and there is no `camera_info`.
+<!-- Written with the help of Claude Code -->
+A setup has one or more **named cameras**: `par_launch.cameras` maps a name to a unit, `<type>[:<serial>]` (e.g.
+`{overhead: 'blackfly:22260470'}`); the first is the main camera (RViz's image). `camera:=` starts one camera instead
+of all: a name from that list, or `<type>[:<serial>]` for a unit the profile does not name (e.g. `camera:=kinect`).
+`camera_only:=true` starts just the cameras and their mount transforms. Each camera runs in `/cameras/<name>/`, and its
+outputs and calibration live there too.
 
-Intrinsics: `config/calibration/intrinsics/<profile>/camera_info_<camera>.yaml` (gitignored; without a profile the
-shared `calibration/intrinsics/`), set as `camera_info_url` by `launch_helpers.get_camera_info_url`, written by
-`scripts/run_cameracalibrator.sh`. The Kinect publishes its factory calibration instead.
+Every camera offers its streams under the same names relative to its namespace (`CAMERA_STREAM_NAMES` in
+`camera_types.py`): `image_raw`, `camera_info`, `set_camera_info`, optionally `image_raw/compressed`, from a depth
+camera `depth_registered/image_raw` (depth on the colour image's pixel grid), from a camera with infrared on that grid
+`ir/image_raw` (the Kinect's driver transforms its infrared onto the colour grid, `ir_to_rgb/image_raw`, computed only
+while subscribed). A depth camera's own infrared and depth, unregistered and aligned pixel by pixel, are
+`depth_sensor/ir/image_raw`, `depth_sensor/depth/image_raw` and `depth_sensor/camera_info`; its pose relative to the
+colour camera is in TF (`hand_landmarks` with `use_ir` detects there and moves the landmarks into the colour image).
+The camera's entry lists the streams it offers (`streams`).
 
-`page_locator` turns `/fiducials` into `/pages` (`PageList`, corners in camera pixels, clockwise from the top left)
+Nodes use **relative** topic names (`image_raw`, `fiducials`, `projection_mapping`). `par.launch.py` starts each sensor
+node once per camera its `par_launch` key lists (e.g. `fiducials_detector: [overhead]`), as `<package>_node` in that
+camera's namespace, where the names resolve to that camera's streams (`/cameras/overhead/image_raw`) and its outputs
+become the camera's (`/cameras/overhead/fiducials`). Nodes started outside a camera namespace (the camera pose
+calibrators) get `launch_helpers.create_camera_stream_remappings`. Apps read cameras through their entry's `inputs`,
+bound per app with `par_launch.app_inputs`. One `rviz_bridge` per camera puts every camera's detections into the
+same RViz displays. Another topic is chosen by remapping, never by parameter.
+
+`par.launch.py` sets `use_compressed` (`object_detector`, `fiducials_detector`, `page_locator` take
+`image_raw/compressed`) for a camera whose `streams` include `image_raw/compressed`, and `use_depth` for one with
+`depth_registered/image_raw` (`DETECTOR_PARAMETER_BY_CAMERA_STREAM`). Drivers keep their own topics; the camera type's
+launch file maps them onto the stream names below the camera's namespace. A new camera = a camera type (entry +
+launch file, format in `packages/par-framework-core/README.md`) in the driver's repo, or in
+`packages/par_camera_adapters/` for a third-party driver. The event camera (type `event`) has no frames:
+`event_camera_renderer` collects its events into `image_raw`, the raw events are on `events`, and there is no
+`camera_info`.
+
+<!-- Written with the help of Claude Code -->
+Intrinsics: per unit, `config/calibration/intrinsics/<profile>/camera_info_<type>[_<serial>].yaml` (gitignored;
+without a profile the shared `calibration/intrinsics/`), set as `camera_info_url` by
+`launch_helpers.get_camera_info_url` for camera types whose entry says `intrinsics: calibratable`, written by
+`scripts/run_cameracalibrator.sh`. Cameras with `intrinsics: factory` (Kinect, RealSense) publish their own.
+
+`page_locator` turns `fiducials` into `pages` (`PageList`, corners in camera pixels, clockwise from the top left)
 for sheets with markers `4n .. 4n+3`; the `marker_*` parameters must match the paper (default:
 upright markers, `4n + k` in page corner `k` clockwise from the top left; `make_page_template` prints them; old
 VIGITIA sheets need their own parameters, see page_locator's README).
@@ -138,8 +179,10 @@ VIGITIA sheets need their own parameters, see page_locator's README).
 - Frames are BEST_EFFORT / KEEP_LAST depth 1. A reliable subscriber (including passing an int depth as
   `qos_profile`) silently receives nothing; request `QoSReliabilityPolicy.BEST_EFFORT`. For third-party subscribers
   that can't be changed, set the Brio's `qos_reliability: reliable` (and `encoding: rgb8`) in the profile.
-- `/projection_corners` and `/projection_mapping` are latched (RELIABLE + TRANSIENT_LOCAL, depth 1). Subscribers must
-  request `QoSDurabilityPolicy.TRANSIENT_LOCAL`, or a node started later sees nothing.
+<!-- Written with the help of Claude Code -->
+- Each camera's `projection_corners` and `projection_mapping` (`/cameras/<name>/…`, one projection calibration server
+  per camera) are latched (RELIABLE + TRANSIENT_LOCAL, depth 1). Subscribers must request
+  `QoSDurabilityPolicy.TRANSIENT_LOCAL`, or a node started later sees nothing.
 
 ### Coordinates: camera pixels → table → projector pixels
 
@@ -147,14 +190,19 @@ Detectors publish raw camera pixels. The common currency is the **table plane in
 camera's pose: measured `camera_pose_<camera>.yaml`, else `placeholder_camera_pose` in `par_setup.yaml`). Consumers
 convert locally with `par_geometry`, the one place for this math (no service per point, no images through services):
 - camera pixels → table: `pixels_to_table` (undistorts with `camera_info`, intersects the rays with the plane via TF);
-- table ↔ projector pixels: `table_to_projector` / `projector_to_table`, with the homography on the latched
-  `/projection_mapping` (`ProjectionMapping`).
+<!-- Written with the help of Claude Code -->
+- table ↔ projector pixels: `table_to_projector` / `projector_to_table`, with the homography on the camera's latched
+  `projection_mapping` (`ProjectionMapping`).
 
-The mapping comes from `ros2 launch projection_calibration projection_calibration.launch.py`: the projector shows
+<!-- Written with the help of Claude Code -->
+The mapping comes from `ros2 launch projection_calibration projection_calibration.launch.py` (with several cameras,
+`camera:=<name>` picks the one to calibrate): the projector shows
 ArUco ids 0–8 (`marker_ids`; must not clash with the document pages' 96–99), `fiducials_detector` finds them,
-`projection_calibrator` (in `projection_calibration`) fits the homography, and `projection_calibration_server_node` stores it as
-`config/calibration/extrinsics/projection_mapping_<camera>.yaml`, next to `camera_pose_<camera>.yaml` and the
-projection corners. One file per camera, because while the poses are placeholders each camera has its own table plane.
+`projection_calibrator` (in `projection_calibration`) fits the homography, and `projection_calibration_server_node`
+stores it as `config/calibration/extrinsics/<profile>/projection_mapping_<camera name>.yaml`, next to
+`camera_pose_<camera name>.yaml` and the projection corners (`setup_files.get_extrinsics_relative_path`). One file per
+camera, named after the camera, not the unit (the pose belongs to the mount), because while the poses are placeholders
+each camera has its own table plane.
 
 Both steps use the same plane, so projection accuracy does not depend on an exact camera pose (RViz's metric scale
 does). Points above the table (hands) land offset by parallax. A second run,
@@ -162,14 +210,16 @@ does). Points above the table (hands) land offset by parallax. A second run,
 (`projector_center`, valid when `projector_center_valid`) from marker rays located in 3D by the depth camera; with it,
 `par_geometry.project_to_table` moves a raised point along its projector ray onto the table. Re-running the homography
 clears the centre. The quick path, `projection_corners.launch.py` (`projection_corner_selector`), stores the clicked
-`/projection_corners` (camera pixels, the projector image's top left first) and a mapping computed from them, exact
+`projection_corners` (camera pixels, the projector image's top left first) and a mapping computed from them, exact
 at the four corners only. Whichever ran last owns the mapping; the calibration repo's README lists the levels.
 
 ### Projector masks
 
-mono8 images in projector pixels, BEST_EFFORT depth 1 (`/projector/mask` at the projector's resolution, the content
-mask downscaled). Apps apply `/projector/mask` themselves.
-- `/projector/mask` (from the `projection_mask` capability): 255 where the light would hit something higher than
+<!-- Written with the help of Claude Code -->
+mono8 images in projector pixels, BEST_EFFORT depth 1 (`projector/mask` at the projector's resolution, the content
+mask downscaled). Apps apply `projector/mask` themselves.
+- `/cameras/<name>/projector/mask` (from the `projection_mask` sensor node on that camera): 255 where the light would
+  hit something higher than
   `min_height`; apply with `frame[mask > 0] = 0`. Needs a depth camera and the mapping; without the projector centre
   it assumes light straight down.
 - `/projector/content_mask` (optional, from `rendering_manager_bridge` with `content_mask_enabled`): 255 where the

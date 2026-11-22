@@ -42,12 +42,12 @@ USER_CATALOG_LIST_HEADER_TEXT = (
 # What the wizard accepts as a repository URL: a URL git understands (https://, ssh://, git://,
 # file://) or the scp-like form user@host:path that GitHub's SSH URLs use
 REPOSITORY_URL_PATTERN = re.compile(r'(?:(?:https?|ssh|git|file)://\S+|[\w.-]+@[\w.-]+:\S+)')
-# The lists scripts/local_build.sh installs from (scripts/common.sh): the tracked required lists
-# and the gitignored installed lists of what this installation added
+# The lists scripts/local_build.sh installs from (scripts/common.sh): the tracked required list
+# of repositories and the gitignored installed lists of what this installation added. Released
+# packages have no required list: one every installation needs is declared in the package.xml of
+# the package using it.
 REQUIRED_REPOS_LIST_PATH = os.path.join(REPOSITORY_ROOT_PATH, 'config', 'required_repos.list')
 INSTALLED_REPOS_LIST_PATH = os.path.join(REPOSITORY_ROOT_PATH, 'config', 'installed_repos.list')
-REQUIRED_ROS_PACKAGES_LIST_PATH = os.path.join(REPOSITORY_ROOT_PATH, 'config',
-                                               'required_ros_packages.list')
 INSTALLED_ROS_PACKAGES_LIST_PATH = os.path.join(REPOSITORY_ROOT_PATH, 'config',
                                                 'installed_ros_packages.list')
 INSTALLED_REPOS_LIST_HEADER_TEXT = (
@@ -55,9 +55,9 @@ INSTALLED_REPOS_LIST_HEADER_TEXT = (
     '# written by the setup wizard, format of required_repos.list: <directory> <git-url>\n'
     '# [branch])\n')
 INSTALLED_ROS_PACKAGES_LIST_HEADER_TEXT = (
-    '# Released packages this installation uses besides config/required_ros_packages.list\n'
-    '# (gitignored; written by the setup wizard, format of required_ros_packages.list: one\n'
-    '# rosdep key per line)\n')
+    '# Released packages this installation uses, e.g. camera drivers (gitignored; written by\n'
+    '# the setup wizard). One rosdep key per line, e.g. v4l2_camera; scripts/local_build.sh\n'
+    '# installs them. Find a key with: rosdep resolve <key>\n')
 # One rosdep key, the same rule as read_ros_packages_list in scripts/common.sh
 ROS_PACKAGE_KEY_PATTERN = re.compile(r'[A-Za-z0-9_.-]+')
 NODES_SOURCE_FOLDER_PATH = os.path.join(REPOSITORY_ROOT_PATH, 'src')
@@ -426,7 +426,7 @@ def compute_install_plan(chosen_offers: list[CatalogOffer],
 def add_install_plan_to_installed_lists(install_plan: InstallPlan) -> None:
     """
     Add the plan's repositories and released packages to the installed lists, which
-    scripts/local_build.sh installs next to the required lists. Creates a missing installed list.
+    scripts/local_build.sh installs next to the required list. Creates a missing installed list.
 
     What a required or installed list has already is not added again, so a plan can be added
     twice, e.g. when an install is continued. Raises OSError when a list cannot be read or
@@ -447,9 +447,10 @@ def add_install_plan_to_installed_lists(install_plan: InstallPlan) -> None:
         new_node_list_lines.append(' '.join(line_words))
 
     listed_ros_package_names = set()
-    for list_path in (REQUIRED_ROS_PACKAGES_LIST_PATH, INSTALLED_ROS_PACKAGES_LIST_PATH):
-        if os.path.isfile(list_path):
-            listed_ros_package_names.update(_read_ros_packages_list_file(list_path))
+    if os.path.isfile(INSTALLED_ROS_PACKAGES_LIST_PATH):
+        installed_ros_package_names = _read_ros_packages_list_file(
+            INSTALLED_ROS_PACKAGES_LIST_PATH)
+        listed_ros_package_names.update(installed_ros_package_names)
     new_ros_package_lines = []
     for planned_ros_package in install_plan.ros_packages:
         ros_package_name = planned_ros_package.ros_package_name
@@ -465,7 +466,7 @@ def add_install_plan_to_installed_lists(install_plan: InstallPlan) -> None:
 
 
 def _read_ros_packages_list_file(list_path: str) -> list[str]:
-    """Return the keys of a file in required_ros_packages.list's format; ValueError if bad."""
+    """Return the keys of a file in installed_ros_packages.list's format; ValueError if bad."""
     ros_package_names = []
     with open(list_path) as list_file:
         for line_number, line_text in enumerate(list_file, start=1):

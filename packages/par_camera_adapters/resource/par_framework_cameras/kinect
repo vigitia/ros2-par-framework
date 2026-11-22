@@ -8,7 +8,7 @@ launch_file: camera_kinect.launch.py
 # Driver defaults the framework needs, loaded before par_setup.yaml and the profile
 parameters_file: config/kinect.yaml
 # The driver's own body frame, x forward and z up
-# The released driver this launch file starts, installed separately (config/required_ros_packages.list)
+# The driver this launch file starts, a fork cloned from config/catalog_repos.list
 required_packages: [azure_kinect_ros_driver]
 body_frame: camera_base
 streams: [image_raw, camera_info, depth_registered/image_raw, ir/image_raw,

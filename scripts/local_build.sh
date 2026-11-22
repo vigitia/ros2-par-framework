@@ -146,7 +146,7 @@ set -u
 step "Installing build tools and apt dependencies (rosdep)"
 # nullglob makes a pattern without matches expand to nothing instead of staying as literal text
 shopt -s nullglob
-# The released packages of config/required_ros_packages.list and config/installed_ros_packages.list, as a package.xml
+# The released packages of config/installed_ros_packages.list, as a package.xml
 # rosdep can read. It goes into a temporary directory outside the workspace, so colcon never builds it;
 # `trap ... EXIT` deletes the directory when the script ends, also after an error.
 ros_packages_dir="$(mktemp -d)"
